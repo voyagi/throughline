@@ -1,0 +1,21 @@
+{
+  "minTokens": 70,
+  "minLines": 8,
+  "threshold": 0,
+  "reporters": ["console-full"],
+  "ignore": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/coverage/**",
+    "**/cdk.out/**",
+    "**/.astro/**",
+    "**/playwright-report/**",
+    "**/*.test.*",
+    "**/*.spec.*",
+    "**/*.d.ts",
+    "**/*.md",
+    "**/docs/**",
+    "verify-ship.mjs"
+  ]
+}

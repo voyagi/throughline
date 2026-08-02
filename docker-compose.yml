@@ -1,0 +1,25 @@
+# Local CockroachDB for development and tests. Single node, loopback only.
+#
+# Two deliberate choices. The SQL port is published to the loopback address only, never to every
+# interface, so an insecure node is not reachable from the network. The admin UI port is unpublished,
+# because everything this build needs from it is answerable in SQL and an unpublished port is a
+# smaller surface than a documented one. The insecure flag is acceptable here and nowhere else:
+# this node holds seeded demo incidents and nothing real.
+services:
+  cockroach:
+    image: cockroachdb/cockroach:v26.2.2
+    container_name: throughline-crdb
+    command: start-single-node --insecure
+    ports:
+      - "127.0.0.1:26257:26257"
+    volumes:
+      - crdb-data:/cockroach/cockroach-data
+    healthcheck:
+      test: ["CMD", "./cockroach", "sql", "--insecure", "--execute", "SELECT 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+volumes:
+  crdb-data:

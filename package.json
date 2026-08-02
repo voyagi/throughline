@@ -1,0 +1,59 @@
+{
+  "name": "throughline",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "An incident-response agent whose memory you can audit, backed by CockroachDB.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "infra"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
+    "lint": "eslint .",
+    "gate:types": "tsc --noEmit -p tsconfig.json",
+    "gate:complexity": "eslint .",
+    "gate:dup": "jscpd .",
+    "gate:deps": "depcruise packages apps infra --config .dependency-cruiser.cjs",
+    "gate:size": "size-limit",
+    "gate:artifacts": "node scripts/check-tracked-files.mjs",
+    "gate:precommit": "eslint . && jscpd .",
+    "gate": "npm run gate:types && npm run gate:complexity && npm run gate:dup && npm run gate:deps && npm run gate:artifacts",
+    "verify:ship": "node verify-ship.mjs",
+    "mutate": "stryker run",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:logs": "docker compose logs -f cockroach",
+    "db:sql": "docker compose exec cockroach ./cockroach sql --insecure --host=localhost:26257",
+    "migrate": "npm run migrate -w @throughline/memory",
+    "seed": "npm run seed -w @throughline/memory",
+    "probe": "npm run probe -w @throughline/memory",
+    "dev:api": "npm run dev -w @throughline/api",
+    "dev:web": "npm run dev -w @throughline/web"
+  },
+  "devDependencies": {
+    "@size-limit/file": "^13",
+    "@stryker-mutator/core": "^9",
+    "@stryker-mutator/vitest-runner": "^9",
+    "@types/node": "^22",
+    "@vitest/coverage-v8": "^4",
+    "dependency-cruiser": "^18",
+    "eslint": "^10",
+    "eslint-plugin-compat": "^7",
+    "eslint-plugin-sonarjs": "^4",
+    "fast-check": "^4",
+    "jscpd": "^5",
+    "size-limit": "^13",
+    "typescript": "^5",
+    "typescript-eslint": "^8",
+    "vitest": "^4"
+  }
+}

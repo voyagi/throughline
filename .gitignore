@@ -1,0 +1,54 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Build output
+dist/
+.astro/
+build/
+cdk.out/
+*.tsbuildinfo
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local database state
+.cockroach-data/
+
+# Test and tool output
+coverage/
+.nyc_output/
+.stryker-tmp/
+reports/
+playwright-report/
+test-results/
+.jscpd/
+
+# AI tooling working directories. Also listed in .git/info/exclude, but that file is per-clone and
+# never travels, so a fresh clone would have no protection at all without these lines.
+.claude/
+.codex/
+.agents/
+.planning/
+.crash-buffers/
+design/_scratch/
+# Read from disk by a local hook. The filename itself is vocabulary from a private build system,
+# so it stays out of a repo that becomes public.
+.build-lane
+
+# Editor and OS
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Logs
+*.log
+npm-debug.log*

@@ -1,0 +1,22 @@
+{
+  "name": "@throughline/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The public site and the console: landing, demo, memory inspector, how it works, status.",
+  "license": "MIT",
+  "scripts": {
+    "dev": "astro dev --host 127.0.0.1",
+    "build": "astro build",
+    "preview": "astro preview --host 127.0.0.1",
+    "check": "astro check"
+  },
+  "dependencies": {
+    "@astrojs/preact": "^6",
+    "astro": "^7",
+    "preact": "^10"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9"
+  }
+}

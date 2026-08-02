@@ -1,0 +1,19 @@
+{
+  "name": "@throughline/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "HTTP surface for the agent and the memory tools. Runs as a Node server locally and as a Lambda handler in AWS.",
+  "license": "MIT",
+  "scripts": {
+    "dev": "node --experimental-strip-types --watch src/server.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3",
+    "@aws-sdk/client-secrets-manager": "^3",
+    "@hono/node-server": "^1",
+    "@throughline/memory": "*",
+    "hono": "^4",
+    "zod": "^4"
+  }
+}

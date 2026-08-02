@@ -1,0 +1,38 @@
+# The CI floor. Runs the SAME `npm run` scripts as the local pre-commit hook, reading the same
+# config files, so the rules cannot drift between a developer machine and CI.
+#
+# Lean on purpose, PR and default-branch push only, with no schedule.
+name: gates
+on:
+  pull_request:
+  push:
+    branches: [main]
+# Least privilege. `npm ci` executes third-party postinstall scripts, so this job's token must not
+# carry write scopes. Nothing here writes to the repository.
+permissions:
+  contents: read
+# One run per ref. Rapid pushes to a pull request cancel their stale runs; default-branch runs are
+# never cancelled, so main always gets a complete verdict.
+concurrency:
+  group: gates-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      # Pinned to a commit SHA rather than a tag, because a tag is mutable and a SHA is not. The
+      # trailing comment names the tag each SHA was verified against, so a bump stays reviewable.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          # Matches engines.node in package.json. Several dev dependencies here declare Node 22 or
+          # newer, so an older runtime installs and then fails somewhere less obvious.
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Build first, so the bundle size gate has something to measure. `--if-present` keeps this a
+      # no-op until the web app exists.
+      - run: npm run build --if-present
+      # The full surface: types, the whole test suite, whole-repo lint, then the committed floors.
+      # Each floor means "no known violation", never "good".
+      - run: npm run verify:ship

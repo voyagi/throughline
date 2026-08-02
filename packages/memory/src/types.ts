@@ -1,0 +1,154 @@
+/**
+ * The vocabulary of the memory layer.
+ *
+ * One rule shapes every type here: a caller must never be able to read recalled memories without
+ * also holding the receipt that says whether the search actually ran. There is no function in this
+ * package that returns a bare array of memories, and that is deliberate rather than stylistic.
+ */
+
+/**
+ * What kind of thing is being remembered. The kind is not a label, it drives the half-life and it
+ * changes what recall does with the row.
+ *
+ * `rejected_hypothesis` earns its place: knowing what did NOT fix an outage is half the value of
+ * an incident archive, and it is the first thing a conversation summariser throws away.
+ */
+export type MemoryKind =
+  | 'observation'
+  | 'resolution'
+  | 'runbook_fact'
+  | 'rejected_hypothesis'
+  | 'entity_fact';
+
+export const MEMORY_KINDS: readonly MemoryKind[] = [
+  'observation',
+  'resolution',
+  'runbook_fact',
+  'rejected_hypothesis',
+  'entity_fact',
+] as const;
+
+/**
+ * Whether the search that produced a result actually covered the memory it claims to have searched.
+ *
+ * COVERED  the search ran over everything it was meant to.
+ * PARTIAL  the search ran but was cut short by a cap or a deadline. Results are real but incomplete.
+ * UNKNOWN  the search could not be completed. An empty result under UNKNOWN means nothing at all.
+ *
+ * UNKNOWN is the whole point. Every other memory system collapses it into an empty list, and an
+ * empty list reads as "there is nothing", which is a different and much more dangerous claim.
+ */
+export type Coverage = 'COVERED' | 'PARTIAL' | 'UNKNOWN';
+
+/** Which retrieval strategy actually executed. Reported, never assumed. */
+export type RetrievalPath = 'ann_index' | 'exact_scan' | 'none';
+
+/** Named reasons a candidate was dropped. Every exclusion is counted and attributed. */
+export type ExclusionRule =
+  | 'superseded'
+  | 'tombstoned'
+  | 'outside_validity_window'
+  | 'below_similarity_floor'
+  | 'candidate_cap_reached';
+
+export interface Exclusion {
+  readonly rule: ExclusionRule;
+  readonly count: number;
+}
+
+/**
+ * Where a memory came from. A write without this is rejected at the boundary rather than warned
+ * about, because a memory you cannot attribute is a rumour.
+ */
+export interface Provenance {
+  /** Who or what asserted it. For example `human:oncall-ana`, `agent`, `alert:cloudwatch`. */
+  readonly assertedBy: string;
+  /** The incident this came out of, when there was one. */
+  readonly incidentId: string | null;
+  /** A pointer back to the original artifact: a message id, a URL, a log line reference. */
+  readonly sourceRef: string | null;
+}
+
+export interface MemoryRecord {
+  readonly id: string;
+  readonly workspaceId: string;
+  readonly kind: MemoryKind;
+  readonly content: string;
+  readonly provenance: Provenance;
+  readonly createdAt: Date;
+  /** Last time something confirmed this was still true. Drives decay alongside createdAt. */
+  readonly lastConfirmedAt: Date;
+  readonly confirmCount: number;
+  readonly contradictCount: number;
+  /** The interval over which this is claimed to hold. `validUntil` is set when it is superseded. */
+  readonly validFrom: Date;
+  readonly validUntil: Date | null;
+  /** The memory that replaced this one, if any. The old row stays queryable on purpose. */
+  readonly supersededBy: string | null;
+  /** Before this instant the row cannot be evicted at any score. The grace window. */
+  readonly protectedUntil: Date;
+  readonly evictedAt: Date | null;
+  readonly evictionReason: string | null;
+}
+
+/** A memory plus the deterministic numbers that ordered it. Both are shown to the user. */
+export interface ScoredMemory {
+  readonly memory: MemoryRecord;
+  /** Cosine similarity to the query embedding, in [0, 1] after normalisation. */
+  readonly similarity: number;
+  /** Time decay for this memory's kind, in (0, 1]. 1 means brand new. */
+  readonly freshness: number;
+  /** The single number that ordered the results. Computed in code, never by a model. */
+  readonly score: number;
+  /**
+   * True when freshness has fallen past this kind's floor. The row is still returned, flagged,
+   * because a stale memory a human can see is safer than one that quietly vanished.
+   */
+  readonly stale: boolean;
+}
+
+/**
+ * What actually happened during a recall. Returned with every result, never optional.
+ */
+export interface RecallReceipt {
+  readonly query: string;
+  readonly workspaceId: string;
+  readonly requestedAt: Date;
+  readonly elapsedMs: number;
+  readonly retrievalPath: RetrievalPath;
+  /** How many rows were examined before filtering. Zero with COVERED means the store is empty. */
+  readonly candidatesConsidered: number;
+  readonly returned: number;
+  readonly exclusions: readonly Exclusion[];
+  readonly coverage: Coverage;
+  /** Always populated, in plain language. For UNKNOWN this is the only useful field. */
+  readonly coverageReason: string;
+  /**
+   * Capabilities that were expected and were not available, in the words a human needs.
+   * An empty list means nothing degraded, not that nothing was checked.
+   */
+  readonly degradations: readonly string[];
+}
+
+/**
+ * The only shape recall returns. Memories and receipt travel together so that no caller can read
+ * one without the other.
+ */
+export interface RecallResult {
+  readonly memories: readonly ScoredMemory[];
+  readonly receipt: RecallReceipt;
+}
+
+/** What the capability probe observed on a live database. Observations, never assumptions. */
+export interface Capabilities {
+  readonly observedAt: Date;
+  readonly serverVersion: string | null;
+  /** True only when a vector index was seen on the memory table. */
+  readonly vectorIndexPresent: boolean;
+  /** The dimension the column is actually declared with, read from the catalog. */
+  readonly vectorColumnDimensions: number | null;
+  /** The dimension the configured embedder actually produces, measured by embedding a probe string. */
+  readonly embedderDimensions: number | null;
+  /** Every check that could not be completed, with the reason. Never silently dropped. */
+  readonly unknowns: readonly string[];
+}

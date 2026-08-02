@@ -1,0 +1,7 @@
+[
+  {
+    "name": "web client islands",
+    "path": "apps/web/dist/_astro/*.js",
+    "limit": "80 kB"
+  }
+]
