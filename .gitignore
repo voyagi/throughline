@@ -13,6 +13,11 @@ cdk.out/
 # Environment and secrets
 .env
 .env.*
+# Also the <name>.env form. `.env` and `.env.*` do NOT match `prod.env` or `production.env`, which
+# is a common enough naming convention that the gap is worth closing in a repo that goes public
+# while a real credential file sits in the working directory. Verified with git rather than by
+# reading the rule: `git check-ignore secrets/prod.env` reported NOT ignored before this line.
+*.env
 !.env.example
 *.pem
 *.key
