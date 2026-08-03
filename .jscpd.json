@@ -16,6 +16,7 @@
     "**/*.d.ts",
     "**/*.md",
     "**/docs/**",
-    "verify-ship.mjs"
+    "verify-ship.mjs",
+    "design/mockups/*.html"
   ]
 }
