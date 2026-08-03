@@ -7,8 +7,15 @@ import { describeTarget, redact, secretsOf, type DatabaseConfig } from './config
  *
  * Two things it is careful about. Every connection is pinned to the Throughline schema and given a
  * statement timeout the moment it is handed out, so no caller has to remember either. And every
- * error that leaves this file has been through `redact`, because `pg` puts the connection string
- * into some failure messages and that string carries a password.
+ * error that leaves this file has been through `redact`, message, stack and cause alike.
+ *
+ * On that second point, an earlier version of this comment asserted that `pg` puts the connection
+ * string into some failure messages. That was written from memory and it is NOT true of pg 8.22:
+ * `pg-connection-string` overwrites `err.input` with a redaction marker of its own. The redaction
+ * here stays anyway, as defence in depth against a driver upgrade, a different driver, or an error
+ * raised by something other than pg. It is a belt, and the fact that the braces currently hold is
+ * not a reason to remove it. Recording the correction rather than quietly deleting the claim,
+ * because the next reader deserves to know which parts were measured.
  */
 
 const { Pool: PgPool } = pg;
@@ -128,15 +135,70 @@ export function quoteIdentifier(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
 }
 
-function toDatabaseError(error: unknown, secrets: readonly string[]): DatabaseError {
+/**
+ * Wrap a driver failure as a `DatabaseError` whose message AND cause are both redacted.
+ *
+ * Exported so a test can pin the WIRING, not just the helper. Testing `sanitizeError` alone proved
+ * the redaction works and proved nothing about whether this function calls it: reverting the call
+ * here left the whole suite green, which is the same blind spot in a new place.
+ */
+export function toDatabaseError(error: unknown, secrets: readonly string[]): DatabaseError {
   const code =
     typeof error === 'object' && error !== null && 'code' in error
       ? String((error as { code: unknown }).code)
       : undefined;
-  return new DatabaseError(describeError(error, secrets), code, { cause: error });
+  // The cause is SANITISED, not the original.
+  //
+  // Attaching the raw error here cancelled the redaction entirely, and did so precisely where it
+  // mattered: if the driver's message carried no secret there was nothing to redact, and if it did,
+  // the cause kept it verbatim. `console.error(err)`, `util.inspect`, and Node's own uncaught
+  // exception handler all walk the cause chain and print it.
+  return new DatabaseError(describeError(error, secrets), code, {
+    cause: sanitizeError(error, secrets),
+  });
 }
 
 function describeError(error: unknown, secrets: readonly string[]): string {
   const raw = error instanceof Error ? error.message : String(error);
   return redact(raw, secrets);
+}
+
+/** Diagnostic fields `pg` sets that are worth keeping. `constraint` in particular: the repository
+ * layer maps a CHECK violation to a domain error by NAME, and CockroachDB puts the name here while
+ * the message carries only the expression. */
+const CARRIED_FIELDS = ['code', 'detail', 'hint', 'constraint', 'table', 'column', 'routine'] as const;
+
+/**
+ * Rebuild an error with every string it carries put through `redact`.
+ *
+ * A copy rather than a mutation, because mutating the driver's error object would edit something
+ * the caller may also hold, and because a frozen error would silently refuse the write.
+ *
+ * The stack is redacted too: a connection string can appear in a stack frame's source text, and a
+ * stack is printed by exactly the same code paths as a message.
+ */
+export function sanitizeError(
+  error: unknown,
+  secrets: readonly string[],
+  depth = 0,
+): Error | undefined {
+  if (depth > 4) return undefined; // A cause chain long enough to matter is already a bug.
+  if (error === undefined || error === null) return undefined;
+  if (!(error instanceof Error)) return new Error(redact(String(error), secrets));
+
+  const clean = new Error(redact(error.message, secrets));
+  clean.name = error.name;
+  if (typeof error.stack === 'string') clean.stack = redact(error.stack, secrets);
+
+  const source = error as unknown as Record<string, unknown>;
+  const target = clean as unknown as Record<string, unknown>;
+  for (const field of CARRIED_FIELDS) {
+    const value = source[field];
+    if (typeof value === 'string') target[field] = redact(value, secrets);
+  }
+
+  const nested = sanitizeError(source['cause'], secrets, depth + 1);
+  if (nested) target['cause'] = nested;
+
+  return clean;
 }

@@ -44,6 +44,57 @@ export class MigrationDriftError extends Error {
   override readonly name = 'MigrationDriftError';
 }
 
+/**
+ * A version the database has applied but the working tree does not contain.
+ *
+ * Drift detection was one-directional until this existed: it compared checksums for files it could
+ * see and never asked about rows it could not explain, so checking out a branch that predates a
+ * migration reported "database already up to date" against a database that is ahead of the code.
+ * The tables then have columns the code does not know about, which is the quiet half of drift and
+ * the half that produces confusing runtime errors far from the cause.
+ */
+function assertNoOrphanedVersions(
+  appliedByVersion: ReadonlyMap<string, string>,
+  migrations: readonly Migration[],
+): void {
+  const known = new Set(migrations.map((migration) => migration.version));
+  const orphans = [...appliedByVersion.keys()].filter((version) => !known.has(version)).sort();
+  if (orphans.length === 0) return;
+  throw new MigrationDriftError(
+    `The database has applied ${orphans.length} migration(s) this working tree does not contain: ` +
+      `${orphans.join(', ')}. The database is AHEAD of the code, which usually means a branch was ` +
+      'checked out that predates them. Move to the branch that has them rather than migrating.',
+  );
+}
+
+/**
+ * A pending migration that sorts BEFORE something already applied.
+ *
+ * Two people adding `004_a` and `004_b` on separate branches produce this, as does inserting
+ * `002b` after `003` has shipped. Applying it silently would run schema changes in an order nobody
+ * tested, and the version table would then claim an ordering the database never actually followed.
+ */
+function assertNoOutOfOrderMigration(
+  appliedByVersion: ReadonlyMap<string, string>,
+  migrations: readonly Migration[],
+): void {
+  const appliedVersions = [...appliedByVersion.keys()].sort();
+  const highestApplied = appliedVersions[appliedVersions.length - 1];
+  if (highestApplied === undefined) return;
+
+  const stragglers = migrations
+    .filter((migration) => !appliedByVersion.has(migration.version))
+    .filter((migration) => migration.version < highestApplied)
+    .map((migration) => migration.version);
+
+  if (stragglers.length === 0) return;
+  throw new MigrationDriftError(
+    `Pending migration(s) sort before one already applied (${highestApplied}): ` +
+      `${stragglers.join(', ')}. Applying them now would run schema changes in an order that was ` +
+      'never tested. Rename them to sort after the highest applied version.',
+  );
+}
+
 export function checksumOf(sql: string): string {
   // Line endings are normalised first. Without it the same file checksums differently after a
   // Windows checkout, and every migration reports drift on a machine that did nothing wrong.
@@ -79,6 +130,9 @@ export async function runMigrations(
     `SELECT version, checksum FROM ${quoteIdentifier(schema)}.schema_migrations`,
   );
   const appliedByVersion = new Map(applied.map((row) => [row.version, row.checksum]));
+
+  assertNoOrphanedVersions(appliedByVersion, migrations);
+  assertNoOutOfOrderMigration(appliedByVersion, migrations);
 
   const outcomes: MigrationOutcome[] = [];
   for (const migration of migrations) {

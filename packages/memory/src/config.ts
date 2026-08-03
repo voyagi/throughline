@@ -61,6 +61,52 @@ export class ConfigError extends Error {
   override readonly name = 'ConfigError';
 }
 
+/**
+ * Which embedder to use and how wide its vectors are.
+ *
+ * Separate from the database config because it is answered by a different part of the system, and
+ * because the width has to be able to DISAGREE with the column. An earlier version of the probe
+ * hardcoded a 1024 dimension local embedder against a `VECTOR(1024)` column, which made the
+ * mismatch guard compare a constant to a constant: a branch that could never be true, reading as
+ * coverage and providing none. The whole point of that guard is to catch a model swap that nobody
+ * migrated the column for, and it can only catch it if this value comes from outside the code.
+ */
+export interface EmbeddingConfig {
+  readonly provider: 'local' | 'bedrock';
+  readonly dimensions: number;
+  /** Required for a hosted provider, meaningless for the local one. */
+  readonly modelId: string | null;
+}
+
+const embeddingSchema = z.object({
+  EMBEDDING_PROVIDER: z.enum(['local', 'bedrock']).default('local'),
+  EMBEDDING_DIMENSIONS: z.coerce.number().int().positive().max(16_000).default(1024),
+  EMBEDDING_MODEL_ID: z.string().optional(),
+});
+
+export function loadEmbeddingConfig(env: Record<string, string | undefined>): EmbeddingConfig {
+  const parsed = embeddingSchema.safeParse(env);
+  if (!parsed.success) {
+    const problems = parsed.error.issues
+      .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
+      .join('; ');
+    throw new ConfigError(`Embedding configuration is not usable: ${problems}.`);
+  }
+
+  const values = parsed.data;
+  const modelId = values.EMBEDDING_MODEL_ID?.trim() || null;
+
+  if (values.EMBEDDING_PROVIDER === 'bedrock' && !modelId) {
+    throw new ConfigError(
+      'EMBEDDING_PROVIDER is "bedrock" but EMBEDDING_MODEL_ID is empty. Read the real value from ' +
+        'the live account with `aws bedrock list-foundation-models --region eu-central-1` rather ' +
+        'than guessing one.',
+    );
+  }
+
+  return { provider: values.EMBEDDING_PROVIDER, dimensions: values.EMBEDDING_DIMENSIONS, modelId };
+}
+
 export function loadDatabaseConfig(env: Record<string, string | undefined>): DatabaseConfig {
   const parsed = configSchema.safeParse(env);
   if (!parsed.success) {

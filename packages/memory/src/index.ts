@@ -21,8 +21,15 @@ export type {
 } from './types.ts';
 export { MEMORY_KINDS, observed, unknown } from './types.ts';
 
-export type { DatabaseConfig } from './config.ts';
-export { ConfigError, describeTarget, loadDatabaseConfig, redact, secretsOf } from './config.ts';
+export type { DatabaseConfig, EmbeddingConfig } from './config.ts';
+export {
+  ConfigError,
+  describeTarget,
+  loadDatabaseConfig,
+  loadEmbeddingConfig,
+  redact,
+  secretsOf,
+} from './config.ts';
 
 export type { Database } from './db.ts';
 export { createDatabase, DatabaseError, quoteIdentifier } from './db.ts';
