@@ -357,7 +357,9 @@ async function runRecall(context: RecallContext, query: RecallQuery): Promise<Re
 
   let queryVector: number[];
   try {
-    queryVector = await embedder.embed(query.text);
+    // 'query' matters: some hosted models embed a stored document and a search query into
+    // different spaces, and asking for the wrong one degrades retrieval without failing anything.
+    queryVector = await embedder.embed(query.text, 'query');
   } catch (error) {
     // The embedder failing is the canonical UNKNOWN. It is NOT an empty result, and it is not a
     // reason to fall back to a weaker embedder: a silent substitution produces confident answers
