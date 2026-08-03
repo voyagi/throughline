@@ -135,6 +135,26 @@ describe('recall', () => {
     expect(result.receipt.retrievalPath).toBe('none');
   });
 
+  it('tells the embedder it is embedding a QUERY, not a document', async () => {
+    // Some hosted models embed stored documents and search queries into deliberately different
+    // spaces, so asking for the wrong one degrades retrieval while failing nothing: right width,
+    // finite values, every guard green. Nothing else in the suite can catch a dropped argument.
+    // The local embedder ignores purpose, the other doubles ignore their arguments, and the
+    // parameter is optional so the compiler is silent too.
+    const seen: (string | undefined)[] = [];
+    const recorder: Embedder = {
+      id: 'recorder',
+      dimensions: 8,
+      embed: (text, purpose) => {
+        seen.push(purpose);
+        return embedder.embed(text);
+      },
+    };
+    await build(respond([]), recorder).recall({ workspaceId: 'demo', text: 'anything' });
+
+    expect(seen).toEqual(['query']);
+  });
+
   it('returns UNKNOWN when the candidate query itself fails', async () => {
     const result = await build((text) => {
       if (mentions(text, 'count(*) filter')) return [{ tombstoned: '0', unembedded: '0' }];

@@ -78,5 +78,5 @@ export type {
 } from './eviction.ts';
 export { graceDeadline, planEviction } from './eviction.ts';
 
-export type { Embedder } from './embeddings.ts';
+export type { Embedder, EmbeddingPurpose } from './embeddings.ts';
 export { createLocalEmbedder, embedSync } from './embeddings.ts';

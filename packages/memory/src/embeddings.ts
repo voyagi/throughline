@@ -7,11 +7,21 @@
  * imports an AWS SDK, and a dependency-cruiser rule enforces that rather than trusting it.
  */
 
+/**
+ * Why a vector is being made.
+ *
+ * Some hosted models embed a stored document and a search query into deliberately different
+ * spaces, and asking for the wrong one is invisible: the width is right, the values are finite,
+ * every guard passes, and retrieval quality quietly degrades. So the caller states its purpose
+ * and the adapter decides whether that matters. An embedder that does not care ignores it.
+ */
+export type EmbeddingPurpose = 'document' | 'query';
+
 export interface Embedder {
   /** Stable identifier written into the audit log, so a vector can be traced to what produced it. */
   readonly id: string;
   readonly dimensions: number;
-  embed(text: string): Promise<number[]>;
+  embed(text: string, purpose?: EmbeddingPurpose): Promise<number[]>;
 }
 
 /**
@@ -35,6 +45,8 @@ export function createLocalEmbedder(dimensions = 1024): Embedder {
   return {
     id: `local-token-hash-v1:${dimensions}`,
     dimensions,
+    // Purpose is accepted and ignored: lexical overlap is symmetric, so a document and a query
+    // embed identically here. Ignoring it explicitly is the point, rather than not offering it.
     embed(text: string): Promise<number[]> {
       return Promise.resolve(embedSync(text, dimensions));
     },

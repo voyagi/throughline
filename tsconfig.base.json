@@ -17,6 +17,13 @@
     // Imports carry the .ts extension because the CLI entry points run under
     // `node --experimental-strip-types`, where the specifier must match the file on disk.
     "allowImportingTsExtensions": true,
+    // Strip-only mode erases types but cannot EMIT code, so constructor parameter properties,
+    // enums and namespaces throw at import while passing every test, because vitest transpiles
+    // fully. That gap shipped once: a file with `constructor(readonly modelId: string)` was green
+    // across 23 tests and could not be loaded by the runtime that runs it in production. This
+    // makes the type gate refuse that syntax for the whole repository instead of relying on
+    // anyone remembering which files the stripper will see.
+    "erasableSyntaxOnly": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
