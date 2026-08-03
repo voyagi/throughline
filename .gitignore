@@ -16,6 +16,10 @@ cdk.out/
 !.env.example
 *.pem
 *.key
+# The cluster CA cert is not itself a secret, but this repo goes public and every entrant needs
+# their own. A stray root.crt in the tree would otherwise be committable: *.pem and *.key do not
+# match it.
+*.crt
 
 # Local database state
 .cockroach-data/

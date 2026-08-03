@@ -95,6 +95,25 @@ one that states its limits, so the four files were removed and this was written 
 accessibility gates that came in with them will return in a form written for this repo when there is
 a built site to audit.
 
+## Regenerating the lockfile
+
+Deleting `package-lock.json` on its own is NOT a clean regeneration, and the result passes locally
+while failing every Linux CI run.
+
+npm reuses whatever is already in `node_modules`, so it records only the platform binding that
+happens to be installed. A lockfile regenerated that way on Windows carried
+`@astrojs/compiler-binding-win32-x64-msvc` and none of the other eight platforms, and CI died on
+`Cannot find module '@astrojs/compiler-binding-linux-x64-gnu'`. The tell is a second package in the
+same lockfile carrying all of its variants: `lightningcss` had all fourteen, which is what made the
+single-variant entry obviously wrong rather than obviously normal.
+
+Two things that did NOT fix it, both measured: `npm install --package-lock-only --os=linux
+--cpu=x64` reported "up to date" and changed nothing, and removing only the offending scope
+resolved a different dependency tree and broke the build locally as well.
+
+Remove `node_modules` AND the lockfile, then install. CI is the backstop that catches this, and it
+did; no extra gate was added, because a check that duplicates CI is machinery with no new coverage.
+
 ## Running them
 
 ```bash
