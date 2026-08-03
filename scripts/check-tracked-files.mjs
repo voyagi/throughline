@@ -43,10 +43,16 @@ const FORBIDDEN_FILE_NAMES = [
 const FORBIDDEN_PATH_PREFIXES = ['design/_scratch/'];
 
 /**
- * Environment files. `.env.example` is the one that SHOULD be tracked, so it is carved out by
- * name rather than by hoping the pattern misses it.
+ * Environment files, in both shapes: `.env`, `.env.production`, and `prod.env`.
+ *
+ * The third shape was missed until `git check-ignore secrets/prod.env` was actually run and came
+ * back NOT ignored. A pattern anchored on a leading `.env` looks exhaustive and is not, and the
+ * gate having the same blind spot as the .gitignore meant neither layer would have caught it.
+ *
+ * `.env.example` SHOULD be tracked, so it is carved out by name rather than by hoping the pattern
+ * happens to miss it.
  */
-const ENV_FILE = /^\.env(\..+)?$/;
+const ENV_FILE = /^(\.env(\..+)?|.+\.env)$/;
 const ALLOWED_ENV_FILES = new Set(['.env.example', '.env.sample', '.env.template']);
 
 function isForbidden(trackedPath) {
