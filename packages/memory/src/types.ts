@@ -49,6 +49,7 @@ export type ExclusionRule =
   | 'tombstoned'
   | 'outside_validity_window'
   | 'below_similarity_floor'
+  | 'not_embedded'
   | 'candidate_cap_reached';
 
 export interface Exclusion {
