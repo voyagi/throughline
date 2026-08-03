@@ -139,16 +139,52 @@ export interface RecallResult {
   readonly receipt: RecallReceipt;
 }
 
+/**
+ * One capability check.
+ *
+ * A tri-state rather than a value that might be null, because "checked, and it is absent" and
+ * "could not check" are different facts and a boolean collapses them into the same `false`. That
+ * collapse is the failure this whole product exists to argue against, so the type that describes
+ * the system's own capabilities is the last place it should be tolerated.
+ */
+export type Observation<Value> =
+  | { readonly status: 'observed'; readonly value: Value }
+  | { readonly status: 'unknown'; readonly reason: string };
+
+export function observed<Value>(value: Value): Observation<Value> {
+  return { status: 'observed', value };
+}
+
+export function unknown<Value>(reason: string): Observation<Value> {
+  return { status: 'unknown', reason };
+}
+
 /** What the capability probe observed on a live database. Observations, never assumptions. */
 export interface Capabilities {
   readonly observedAt: Date;
-  readonly serverVersion: string | null;
-  /** True only when a vector index was seen on the memory table. */
-  readonly vectorIndexPresent: boolean;
+  readonly target: string;
+  readonly serverVersion: Observation<string>;
+  /** Whether a vector index exists on the memory table's embedding column. */
+  readonly vectorIndex: Observation<boolean>;
+  /**
+   * Whether the planner actually chooses that index for the query recall runs.
+   *
+   * A separate claim from existence, and the only one that predicts query time behaviour. An index
+   * can exist and be ignored, and reporting existence as proof of use is the same mistake as
+   * trusting a tool's success response instead of looking at the system.
+   */
+  readonly annPlanUsesIndex: Observation<boolean>;
   /** The dimension the column is actually declared with, read from the catalog. */
-  readonly vectorColumnDimensions: number | null;
+  readonly vectorColumnDimensions: Observation<number>;
   /** The dimension the configured embedder actually produces, measured by embedding a probe string. */
-  readonly embedderDimensions: number | null;
-  /** Every check that could not be completed, with the reason. Never silently dropped. */
-  readonly unknowns: readonly string[];
+  readonly embedderDimensions: Observation<number>;
+  /**
+   * Whether this cluster reports vector indexing as enabled.
+   *
+   * Kept separate from `vectorIndex` because they answer different questions: one is "may this
+   * cluster have such an index", the other is "does this table have one". On a managed tier the
+   * first can be refused outright, and conflating them would report a permission problem as a
+   * missing index.
+   */
+  readonly vectorIndexingEnabled: Observation<boolean>;
 }

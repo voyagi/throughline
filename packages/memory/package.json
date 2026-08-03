@@ -9,11 +9,7 @@
   "exports": {
     ".": "./src/index.ts"
   },
-  "scripts": {
-    "migrate": "node --experimental-strip-types src/cli/migrate.ts",
-    "seed": "node --experimental-strip-types src/cli/seed.ts",
-    "probe": "node --experimental-strip-types src/cli/probe.ts"
-  },
+  "scripts": {},
   "dependencies": {
     "pg": "^8",
     "zod": "^4"
