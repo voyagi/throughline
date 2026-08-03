@@ -64,8 +64,17 @@ CockroachDB, three of the four listed technologies:
 
 - **Distributed vector indexing** for semantic recall over the `VECTOR` column, using the cosine
   operator class. The index is treated as an accelerator and never as a correctness dependency: a
-  boot-time capability probe asks the live database what it actually supports, and if the index is
+  capability probe asks the live database what it actually supports, and if the index is
   unavailable, recall falls back to an exact scan and says so in the receipt and on the status page.
+
+  Two things worth knowing, both measured against a live cluster rather than taken from
+  documentation. Vector indexing **works on the free Basic tier**, which is not documented anywhere
+  we could find. And a vector index on the embedding column alone is useless here: CockroachDB
+  accelerates a filtered nearest-neighbour query only when the filters match the index's **prefix
+  columns**, so an unprefixed index plans as a full scan for every query this system actually runs.
+  The index is `(workspace_id, is_live, embedding vector_cosine_ops)`, where `is_live` is a stored
+  computed column so it cannot drift from the tombstone it is derived from. The probe confirms the
+  planner really chooses it, by reading the query plan rather than by checking that an index exists.
 - **The Cloud managed MCP server** as an independent verification channel and as the operator
   plane. It is deliberately not in the hot path. Reasoning in
   [docs/adr/0003](docs/adr/0003-mcp-as-verification-channel.md).
@@ -81,14 +90,18 @@ Honest, and updated as it changes rather than at the end.
 Working now:
 
 - The memory layer's decision logic: typed memories, deterministic scoring with per-kind decay,
-  coverage verdicts, and eviction planning with a grace window and refusal reporting. 53 tests,
-  including property tests and several written specifically to go red if a protection is removed.
+  coverage verdicts, and eviction planning with a grace window and refusal reporting.
+- The live database path: schema, migrations, a connection layer that keeps credentials out of
+  logs, and a capability probe that asks the running cluster what it can actually do. Migrations
+  are applied and the probe runs green against a real CockroachDB Cloud cluster.
+- 99 tests, including property tests and several written specifically to go red if a protection is
+  removed.
 - The quality gate chain, with a written record of which gates have actually been proven to fail
   in [docs/gates.md](docs/gates.md).
 
 Not built yet:
 
-- Schema, migrations and the live database path.
+- The repository layer: remembering, superseding and evicting against real rows.
 - The agent, the HTTP surface and the Bedrock adapter.
 - The web console, the memory inspector and the status page.
 - The deployed stack and the public demo URL.
@@ -102,7 +115,17 @@ npm install
 docker compose up -d      # single node CockroachDB, published to loopback only
 npm test                  # the memory layer decision logic, no database needed
 npm run gate              # the quality floor
+
+cp .env.example .env      # then set DATABASE_URL
+npm run migrate           # apply the schema
+npm run probe             # ask the live cluster what it can actually do
 ```
+
+`npm run probe` is the one to run first against any new cluster. It reports the server version, the
+embedding column width, whether vector indexing is available, and whether the planner really uses
+the index, each as an observation or an explicit unknown. It exits non-zero when there is no usable
+retrieval path, because a probe that called that state a success would be committing the exact
+error this system exists to catch.
 
 The memory layer's logic runs and is tested with no database and no cloud account, using a
 deterministic local embedder. That embedder captures lexical overlap only, and it is never a silent

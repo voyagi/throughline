@@ -33,9 +33,8 @@
     "db:down": "docker compose down",
     "db:logs": "docker compose logs -f cockroach",
     "db:sql": "docker compose exec cockroach ./cockroach sql --insecure --host=localhost:26257",
-    "migrate": "npm run migrate -w @throughline/memory",
-    "seed": "npm run seed -w @throughline/memory",
-    "probe": "npm run probe -w @throughline/memory",
+    "migrate": "node --env-file-if-exists=.env --experimental-strip-types packages/memory/src/cli/migrate.ts",
+    "probe": "node --env-file-if-exists=.env --experimental-strip-types packages/memory/src/cli/probe.ts",
     "dev:api": "npm run dev -w @throughline/api",
     "dev:web": "npm run dev -w @throughline/web"
   },

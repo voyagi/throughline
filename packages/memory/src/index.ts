@@ -12,13 +12,28 @@ export type {
   ExclusionRule,
   MemoryKind,
   MemoryRecord,
+  Observation,
   Provenance,
   RecallReceipt,
   RecallResult,
   RetrievalPath,
   ScoredMemory,
 } from './types.ts';
-export { MEMORY_KINDS } from './types.ts';
+export { MEMORY_KINDS, observed, unknown } from './types.ts';
+
+export type { DatabaseConfig } from './config.ts';
+export { ConfigError, describeTarget, loadDatabaseConfig, redact, secretsOf } from './config.ts';
+
+export type { Database } from './db.ts';
+export { createDatabase, DatabaseError, quoteIdentifier } from './db.ts';
+
+export type { Migration, MigrationOutcome, MigrationReport, MigrationStatus } from './migrate.ts';
+export { checksumOf, loadMigrations, MigrationDriftError, runMigrations } from './migrate.ts';
+
+export { splitStatements } from './sql-statements.ts';
+
+export type { ProbeOptions } from './capability.ts';
+export { probeCapabilities, retrievalPathFor } from './capability.ts';
 
 export type { MemoryPolicy } from './policy.ts';
 export { DEFAULT_POLICY, MS_PER_DAY } from './policy.ts';
