@@ -95,42 +95,32 @@ export function createRepository(options: RepositoryOptions): MemoryRepository {
     );
   }
 
-  async function insertMemory(input: RememberInput, now: Date): Promise<MemoryRecord> {
-    assertProvenance(input);
-    const embedding = input.embedding ? formatVector([...input.embedding]) : null;
-    const rows = await db.query<MemoryRow>(
-      `INSERT INTO ${table}
-         (workspace_id, kind, content, embedding, embedding_model, asserted_by, incident_id,
-          source_ref, valid_from, valid_until, protected_until)
-       VALUES ($1, $2, $3, $4::VECTOR, $5, $6, $7, $8, $9, $10, $11)
-       RETURNING ${MEMORY_COLUMNS}`,
-      [
-        input.workspaceId,
-        input.kind,
-        input.content,
-        embedding,
-        embedding ? embedder.id : null,
-        input.provenance.assertedBy,
-        input.provenance.incidentId,
-        input.provenance.sourceRef,
-        input.validFrom ?? now,
-        input.validUntil ?? null,
-        graceDeadline(now, policy),
-      ],
-    );
-    const row = rows[0];
-    if (!row) throw new Error('The insert returned no row, which should be impossible');
-    return rowToMemory(row);
-  }
-
   return {
     async remember(input: RememberInput): Promise<MemoryRecord> {
-      const memory = await insertMemory(input, new Date());
-      await audit(memory.workspaceId, memory.id, 'remember', input.provenance.assertedBy, {
-        kind: memory.kind,
-        embedded: memory.id ? Boolean(input.embedding) : false,
+      assertProvenance(input);
+      const now = new Date();
+      // The memory and its audit row land in ONE transaction. They were separate, so a failing
+      // audit insert left a memory with no audit trail and a caller who saw an error and would
+      // retry, producing a duplicate. `supersede` already did this correctly, which is what made
+      // the difference an oversight rather than a decision.
+      return db.transaction(async (client) => {
+        const inserted = await client.query<MemoryRow>(insertSql(table), insertValues(input, now, embedder, policy));
+        const row = inserted.rows[0];
+        if (!row) throw new Error('The insert returned no row, which should be impossible');
+
+        await client.query(
+          `INSERT INTO ${auditTable} (workspace_id, memory_id, operation, actor, detail)
+           VALUES ($1, $2, 'remember', $3, $4)`,
+          [
+            input.workspaceId,
+            row.id,
+            input.provenance.assertedBy,
+            JSON.stringify({ kind: input.kind, embedded: Boolean(input.embedding) }),
+          ],
+        );
+
+        return rowToMemory(row);
       });
-      return memory;
     },
 
     async recall(query: RecallQuery): Promise<RecallResult> {
@@ -141,8 +131,13 @@ export function createRepository(options: RepositoryOptions): MemoryRepository {
       assertProvenance(input);
       const now = new Date();
       return db.transaction(async (client) => {
+        // FOR UPDATE, because the check below is a read-then-write and two concurrent supersedes of
+        // the same memory would otherwise both pass it. The loser would silently overwrite
+        // `superseded_by`, leaving one replacement orphaned and the chain claiming an ordering that
+        // never happened. The lock makes the second transaction wait and then fail the check, which
+        // is the outcome the check was written for.
         const existing = await client.query<MemoryRow>(
-          `SELECT ${MEMORY_COLUMNS} FROM ${table} WHERE id = $1 AND workspace_id = $2`,
+          `SELECT ${MEMORY_COLUMNS} FROM ${table} WHERE id = $1 AND workspace_id = $2 FOR UPDATE`,
           [previousId, input.workspaceId],
         );
         const previousRow = existing.rows[0];
@@ -160,26 +155,9 @@ export function createRepository(options: RepositoryOptions): MemoryRepository {
           );
         }
 
-        const embedding = input.embedding ? formatVector([...input.embedding]) : null;
         const inserted = await client.query<MemoryRow>(
-          `INSERT INTO ${table}
-             (workspace_id, kind, content, embedding, embedding_model, asserted_by, incident_id,
-              source_ref, valid_from, valid_until, protected_until)
-           VALUES ($1, $2, $3, $4::VECTOR, $5, $6, $7, $8, $9, $10, $11)
-           RETURNING ${MEMORY_COLUMNS}`,
-          [
-            input.workspaceId,
-            input.kind,
-            input.content,
-            embedding,
-            embedding ? embedder.id : null,
-            input.provenance.assertedBy,
-            input.provenance.incidentId,
-            input.provenance.sourceRef,
-            input.validFrom ?? now,
-            input.validUntil ?? null,
-            graceDeadline(now, policy),
-          ],
+          insertSql(table),
+          insertValues(input, now, embedder, policy),
         );
         const replacementRow = inserted.rows[0];
         if (!replacementRow) throw new Error('The replacement insert returned no row');
@@ -251,9 +229,13 @@ export function createRepository(options: RepositoryOptions): MemoryRepository {
 
       const evicted = await db.transaction(async (client) => {
         const ids = plan.evict.map((decision) => decision.id);
+        // `evicted_at IS NULL` guards the gap between planning and writing: the plan was computed
+        // from a snapshot taken outside this transaction, so another sweep could have tombstoned a
+        // row in between. Without it, the second run would overwrite the first run's eviction
+        // timestamp and reason, quietly rewriting when a memory was removed and why.
         await client.query(
           `UPDATE ${table} SET evicted_at = $1, eviction_reason = $2
-            WHERE id = ANY($3::UUID[]) AND workspace_id = $4`,
+            WHERE id = ANY($3::UUID[]) AND workspace_id = $4 AND evicted_at IS NULL`,
           [now, 'evicted by the scheduled sweep', ids, workspaceId],
         );
         for (const decision of plan.evict) {
@@ -287,6 +269,48 @@ export function createRepository(options: RepositoryOptions): MemoryRepository {
       return row ? rowToMemory(row) : null;
     },
   };
+}
+
+/**
+ * The insert shared by `remember` and `supersede`.
+ *
+ * One definition rather than two copies, because the two had drifted already: only one of them
+ * wrote its audit row inside the transaction. Two code paths that must make the same decision
+ * belong in one place, and a comment asking a future reader to keep them in step does not stop
+ * them drifting.
+ */
+function insertSql(table: string): string {
+  return `INSERT INTO ${table}
+            (workspace_id, kind, content, embedding, embedding_model, asserted_by, incident_id,
+             source_ref, valid_from, valid_until, protected_until)
+          VALUES ($1, $2, $3, $4::VECTOR, $5, $6, $7, $8, $9, $10, $11)
+          RETURNING ${MEMORY_COLUMNS}`;
+}
+
+function insertValues(
+  input: RememberInput,
+  now: Date,
+  embedder: Embedder,
+  policy: MemoryPolicy,
+): unknown[] {
+  const embedding = input.embedding ? formatVector([...input.embedding]) : null;
+  return [
+    input.workspaceId,
+    input.kind,
+    input.content,
+    embedding,
+    embedding ? embedder.id : null,
+    input.provenance.assertedBy,
+    input.provenance.incidentId,
+    input.provenance.sourceRef,
+    input.validFrom ?? now,
+    input.validUntil ?? null,
+    graceDeadline(now, policy),
+  ];
+}
+
+function describe(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function assertProvenance(input: RememberInput): void {
@@ -346,17 +370,28 @@ async function runRecall(context: RecallContext, query: RecallQuery): Promise<Re
     );
   }
 
-  const counts = await workspaceCounts(db, table, query.workspaceId);
+  // A full-workspace aggregate is the statement most likely to hit the statement timeout, and it
+  // used to throw straight past every coverage decision in this function. A recall that cannot
+  // complete its own accounting is UNKNOWN, not a crash.
+  let counts: WorkspaceCounts;
+  try {
+    counts = await workspaceCounts(db, table, query.workspaceId);
+  } catch (error) {
+    return emptyUnknown(
+      query,
+      now,
+      startedAt,
+      `the exclusion counts could not be read: ${describe(error)}`,
+    );
+  }
 
   let rows: MemoryRow[];
   try {
-    rows = await db.query<MemoryRow>(
-      `SELECT ${MEMORY_COLUMNS} FROM ${table}
-        WHERE workspace_id = $1 AND is_live
-        ORDER BY embedding <=> $2::VECTOR
-        LIMIT $3`,
-      [query.workspaceId, formatVector(queryVector), policy.candidateCap],
-    );
+    rows = await db.query<MemoryRow>(candidateSql(table, retrieval.path), [
+      query.workspaceId,
+      formatVector(queryVector),
+      policy.candidateCap,
+    ]);
   } catch (error) {
     return emptyUnknown(
       query,
@@ -366,7 +401,16 @@ async function runRecall(context: RecallContext, query: RecallQuery): Promise<Re
     );
   }
 
-  const { scored, exclusions } = scoreCandidates(rows, queryVector, now, policy, counts);
+  // Scoring can throw on a single malformed row: an unparseable vector, a kind the code does not
+  // know. One bad row used to take the entire recall down. UNKNOWN is the honest verdict, because
+  // the search genuinely could not be completed.
+  let scoredCandidates: { scored: ScoredMemory[]; exclusions: Exclusion[] };
+  try {
+    scoredCandidates = scoreCandidates(rows, queryVector, now, policy, counts);
+  } catch (error) {
+    return emptyUnknown(query, now, startedAt, `a candidate could not be scored: ${describe(error)}`);
+  }
+  const { scored, exclusions } = scoredCandidates;
   const ranked = [...scored].sort((left, right) => right.score - left.score).slice(0, limit);
 
   const verdict = decideCoverage({
@@ -395,14 +439,51 @@ async function runRecall(context: RecallContext, query: RecallQuery): Promise<Re
     },
   };
 
-  await context.audit(query.workspaceId, null, 'recall', 'system', {
-    coverage: result.receipt.coverage,
-    retrievalPath: result.receipt.retrievalPath,
-    candidates: result.receipt.candidatesConsidered,
-    returned: result.receipt.returned,
-  });
+  // The audit write must not discard a search that already succeeded. Failing here loses an audit
+  // row, which is worth reporting loudly and is not worth throwing away a correct answer for. The
+  // console is the right channel: the caller asked for memories, not for audit plumbing.
+  await context
+    .audit(query.workspaceId, null, 'recall', 'system', {
+      coverage: result.receipt.coverage,
+      retrievalPath: result.receipt.retrievalPath,
+      candidates: result.receipt.candidatesConsidered,
+      returned: result.receipt.returned,
+    })
+    .catch((error: unknown) => {
+      console.error(`[memory] the recall audit row could not be written: ${describe(error)}`);
+    });
 
   return result;
+}
+
+/**
+ * The candidate query, which differs by retrieval path for one measured reason.
+ *
+ * CockroachDB sorts NULLs FIRST by default, the opposite of PostgreSQL: `null_ordered_last` is
+ * `off`, and `ORDER BY v ASC` over (1.0, NULL, 2.0) really does return NULL first. A memory can be
+ * stored without an embedding, deliberately, so `embedding <=> $2` is NULL for those rows and they
+ * would sort ahead of every real match and consume the whole candidate cap. The scenario that
+ * creates unembedded rows in bulk is an embedder outage, which is exactly when recall matters most.
+ *
+ * The obvious fix, `AND embedding IS NOT NULL` on both paths, is wrong. Measured against the live
+ * cluster: that filter turns the ANN plan into a FULL SCAN, the same trap that an `evicted_at IS
+ * NULL` filter set earlier, because CockroachDB only accelerates a filtered vector search on the
+ * index's prefix columns.
+ *
+ * Measured on the same cluster, the filter is also UNNECESSARY on the ANN path: with three
+ * embedded and five unembedded live rows and a LIMIT of four, the query returned exactly the three
+ * embedded rows. The vector index does not contain NULL vectors, so it cannot return them.
+ *
+ * So the filter goes on the exact-scan path only, where there is no acceleration to lose and where
+ * the NULLs-first default really would eat the cap. Both branches are justified by their own
+ * measurement rather than by making the two look symmetrical.
+ */
+function candidateSql(table: string, path: 'ann_index' | 'exact_scan'): string {
+  const embeddingFilter = path === 'exact_scan' ? 'AND embedding IS NOT NULL' : '';
+  return `SELECT ${MEMORY_COLUMNS} FROM ${table}
+           WHERE workspace_id = $1 AND is_live ${embeddingFilter}
+           ORDER BY embedding <=> $2::VECTOR
+           LIMIT $3`;
 }
 
 /**

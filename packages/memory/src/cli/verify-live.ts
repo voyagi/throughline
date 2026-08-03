@@ -162,6 +162,53 @@ async function main(): Promise<void> {
       `(${eviction.plan.refused.length} refused)`,
     );
 
+    console.log('\n  Eviction leaves a tombstone rather than a hole');
+    // A SECOND repository with a zero grace window, because with the default one every row here is
+    // protected and the eviction UPDATE never runs at all. The previous version of this file
+    // asserted only the refusal, then claimed to exercise eviction end to end.
+    const impatient = createRepository({
+      db,
+      embedder,
+      schema: config.schema,
+      capabilities,
+      policy: { ...DEFAULT_POLICY, graceWindowMs: 0 },
+    });
+    // The memory has to be WRITTEN by the zero-grace policy, not merely read by it. `protected_until`
+    // is stamped at write time and stored on the row, so a policy applied at read time cannot
+    // un-protect what another policy already protected. That is the design working, and asserting
+    // it the wrong way round is what surfaced it.
+    const evictable = await impatient.remember({
+      workspaceId: WORKSPACE,
+      kind: 'observation',
+      content: 'A transient probe reading that is safe to evict immediately.',
+      provenance: { assertedBy: 'system:probe', incidentId: null, sourceRef: null },
+      embedding: await embed('transient probe reading safe to evict'),
+    });
+    check('an unprotected memory is written', Boolean(evictable.id));
+    check(
+      'its grace window is already closed',
+      evictable.protectedUntil.getTime() <= Date.now(),
+    );
+
+    const realEviction = await impatient.evict(WORKSPACE, 1);
+    check('exactly one memory was evicted', realEviction.evicted.length === 1);
+    check('the run reports no shortfall', !realEviction.plan.shortfall);
+
+    const evictedId = realEviction.evicted[0];
+    const tombstone = evictedId ? await impatient.getById(WORKSPACE, evictedId) : null;
+    check('the evicted memory is still queryable', tombstone !== null);
+    check('it carries an eviction timestamp', tombstone?.evictedAt instanceof Date);
+    check('it carries a reason', Boolean(tombstone?.evictionReason));
+
+    const afterEviction = await repository.recall({
+      workspaceId: WORKSPACE,
+      text: 'checkout latency spiked after a payment deploy, have we seen this before',
+    });
+    check(
+      'the tombstone is excluded from recall and counted',
+      afterEviction.receipt.exclusions.some((e) => e.rule === 'tombstoned' && e.count >= 1),
+    );
+
     console.log('\n  A broken embedder produces UNKNOWN, not an empty result');
     const brokenRepository = createRepository({
       db,
