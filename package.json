@@ -38,6 +38,9 @@
     "dev:api": "npm run dev -w @throughline/api",
     "dev:web": "npm run dev -w @throughline/web"
   },
+  "overrides": {
+    "qs": "^6.15.2"
+  },
   "devDependencies": {
     "@size-limit/file": "^13",
     "@stryker-mutator/core": "^9",
