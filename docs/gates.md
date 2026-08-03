@@ -95,6 +95,33 @@ one that states its limits, so the four files were removed and this was written 
 accessibility gates that came in with them will return in a form written for this repo when there is
 a built site to audit.
 
+## Why the duplication gate ignores the design mockups
+
+`design/mockups/*.html` is excluded from jscpd. The exclusion is deliberate, it is as narrow as it
+can be, and it is the only exclusion in this repo that was added to let a commit through, so it gets
+written down rather than buried in a config diff.
+
+The five mockups are standalone files opened directly in a browser with no template engine and no
+build step. Each one therefore repeats the page chrome: the header, the sheet index, the annunciator
+rail. jscpd measured 7 clones and 7.5 percent duplicated markup, essentially all of it that chrome.
+There is no way to remove it without giving the mockups a build step, and a build step would make
+them worse at the one job they have, which is to be opened and looked at.
+
+Being exact about what the 7 clones are, because "it is all chrome" was the first draft of this
+paragraph and it was not true: 3 of the 7 are the header, index and annunciator, and the other 4,
+about 55 percent of the duplicated tokens, are the same demonstration strips repeated across pages.
+A build step would fix the first group and not the second, since the same strip genuinely appears
+on more than one page on purpose. Both kinds of repetition are properties of standalone mockups,
+but only one of them is the kind a template would remove.
+
+The exclusion covers the HTML only. `design/mockups/board.css`, which is the shared part and the
+part where real duplication would matter, stays inside the gate and reports zero clones.
+
+This exclusion expires on its own. When the site is built as components the chrome becomes one
+component, the mockups stop being the source of truth for layout, and the pattern the gate was
+complaining about stops existing. If these files are still here and still excluded when the built
+site ships, that is a leftover, not a decision.
+
 ## Regenerating the lockfile
 
 Deleting `package-lock.json` on its own is NOT a clean regeneration, and the result passes locally

@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How it works - Throughline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders:wght@100..900&family=Big+Shoulders+Stencil:wght@100..900&family=Petrona:ital,wght@0,300..800;1,300..800&family=B612+Mono:ital,wght@0,400;0,700;1,400&family=Caveat:wght@400..700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="board.css">
+<style>
+.drawing{padding:22px 28px 6px;max-width:1080px}
+.drawing svg{width:100%;height:auto;display:block;background:var(--rail);border:3px solid var(--rail-deep)}
+.drawcap{font-style:italic;font-size:14px;color:var(--chalk-soft);margin:9px 0 0}
+.quote{max-width:820px;margin:6px 0 0}
+.quote .slip{margin:0}
+.quote blockquote{margin:0;font-size:17px;line-height:1.5}
+.quote cite{display:block;font-style:normal;font-family:"Big Shoulders",sans-serif;font-weight:600;font-size:13px;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-soft);margin-top:10px}
+.reading{padding:0 28px;max-width:68ch}
+.reading h3{font-family:"Big Shoulders",sans-serif;font-weight:600;font-size:27px;letter-spacing:.06em;text-transform:uppercase;margin:30px 0 10px;color:var(--chalk)}
+.reading p{margin:0 0 15px}
+.reading p em{font-style:italic;color:var(--chalk-soft)}
+.deftable{width:100%;border-collapse:collapse;margin:8px 0 4px;max-width:820px}
+.deftable th,.deftable td{text-align:left;padding:7px 12px 7px 0;border-bottom:1px solid var(--rail-line);vertical-align:top}
+.deftable th{font-family:"Big Shoulders",sans-serif;font-weight:600;font-size:14px;letter-spacing:.16em;text-transform:uppercase;color:var(--chalk-dim)}
+.deftable td{font-size:16px}
+.deftable td.n{font-family:"B612 Mono",ui-monospace,monospace;font-size:13px;font-weight:700;white-space:nowrap}
+@media (max-width:900px){.drawing,.reading{padding-left:14px;padding-right:14px}}
+</style>
+</head>
+<body>
+
+<header class="header">
+  <h1 class="brand"><a href="landing.html">Throughline</a></h1>
+  <div class="designator">TLN-01 / Equipment drawing<br>Recall, write, sweep<br>Edition 1</div>
+</header>
+
+<nav class="index" aria-label="Pages">
+  <a href="landing.html">The board</a>
+  <a href="demo.html">Console</a>
+  <a href="memory.html">Archive</a>
+  <a href="#" aria-current="page">How it works</a>
+  <a href="status.html">Status</a>
+</nav>
+
+<div class="annunciator">
+  <div class="lamp"><b>Vector index</b><span class="state s-ok">OK</span></div>
+  <div class="lamp"><b>Embeddings</b><span class="state s-deg">DEGRADED</span></div>
+  <div class="lamp"><b>MCP transport</b><span class="state s-unk">UNKNOWN</span></div>
+  <div class="lamp"><b>Rows on the board</b><span class="state s-ok">4,102</span></div>
+</div>
+
+<main>
+<section class="bay">
+  <div class="bayhead">
+    <span class="bayno">Plate 1</span>
+    <h2 class="baylabel">The recall path</h2>
+    <p class="baynote">Drawn as equipment, because every part of it either ran or did not.</p>
+  </div>
+
+  <div class="drawing">
+    <svg viewBox="0 0 1040 300" role="img" aria-label="Schematic of the recall path: a query enters the embedder, then takes either the approximate vector index path or the exact scan path, then scoring, then the coverage verdict.">
+      <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#a7b8a4"/>
+        </marker>
+        <marker id="ar-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="#f0a23c"/>
+        </marker>
+      </defs>
+      <g font-family="Big Shoulders, sans-serif" font-size="15" letter-spacing="2.2" fill="#e9ede2" text-anchor="middle">
+        <rect x="16" y="118" width="122" height="52" fill="none" stroke="#a7b8a4" stroke-width="1.6"/>
+        <text x="77" y="141">QUERY</text><text x="77" y="159" font-size="12" fill="#8ba088">FROM AGENT</text>
+
+        <rect x="186" y="118" width="140" height="52" fill="none" stroke="#f0a23c" stroke-width="1.6"/>
+        <text x="256" y="141" fill="#f0a23c">EMBEDDER</text><text x="256" y="159" font-size="12" fill="#f0a23c">BEDROCK</text>
+
+        <rect x="392" y="44" width="196" height="56" fill="none" stroke="#8fd08a" stroke-width="1.6"/>
+        <text x="490" y="68" fill="#8fd08a">ANN INDEX</text><text x="490" y="86" font-size="12" fill="#8fd08a">PREFIX: WORKSPACE, IS_LIVE</text>
+
+        <rect x="392" y="188" width="196" height="56" fill="none" stroke="#a7b8a4" stroke-width="1.6"/>
+        <text x="490" y="212">EXACT SCAN</text><text x="490" y="230" font-size="12" fill="#a9bda6">FALLBACK, REPORTED</text>
+
+        <rect x="646" y="118" width="152" height="52" fill="none" stroke="#a7b8a4" stroke-width="1.6"/>
+        <text x="722" y="141">SCORING</text><text x="722" y="159" font-size="12" fill="#8ba088">DETERMINISTIC</text>
+
+        <rect x="856" y="104" width="168" height="80" fill="none" stroke="#e9ede2" stroke-width="1.6"/>
+        <text x="940" y="130">VERDICT</text>
+        <text x="940" y="150" font-size="12" fill="#8fd08a">COVERED</text>
+        <text x="940" y="166" font-size="12" fill="#f0a23c">PARTIAL</text>
+        <text x="940" y="182" font-size="12" fill="#8ba088" font-style="italic">UNKNOWN</text>
+      </g>
+      <g stroke="#a7b8a4" stroke-width="1.6" fill="none" marker-end="url(#ar)">
+        <path d="M138 144 H182"/>
+        <path d="M326 144 H360 V72 H388"/>
+        <path d="M326 144 H360 V216 H388"/>
+        <path d="M588 72 H620 V144 H642"/>
+        <path d="M588 216 H620 V144"/>
+        <path d="M798 144 H852"/>
+      </g>
+      <g stroke="#f0a23c" stroke-width="1.6" stroke-dasharray="6 5" fill="none" marker-end="url(#ar-amber)">
+        <path d="M256 118 V60 H340 V60"/>
+      </g>
+      <g font-family="Big Shoulders, sans-serif" font-size="12" letter-spacing="1.8" fill="#f0a23c">
+        <text x="266" y="42">EMBEDDER DOWN: NO PATH RUNS, VERDICT IS UNKNOWN</text>
+      </g>
+      <g font-family="B612 Mono, monospace" font-size="10.5" fill="#a9bda6">
+        <text x="392" y="120">78 ms typical</text>
+        <text x="392" y="264">900 ms typical</text>
+        <text x="610" y="164">cap 200, both paths</text>
+      </g>
+    </svg>
+    <p class="drawcap">Plate 1. The two retrieval paths and the one condition under which neither runs.
+    The dashed line is the failure the product exists to name.</p>
+  </div>
+</section>
+
+<section class="bay">
+  <div class="bayhead">
+    <span class="bayno">Note 1</span>
+    <h2 class="baylabel">Why a strip and not a log line</h2>
+  </div>
+  <div class="rack" style="max-width:900px">
+    <div class="quote">
+      <div class="strip">
+        <span class="holder h-rej"></span>
+        <div class="slip" style="border-left:0;margin:0;padding:14px 16px">
+          <blockquote>Controllers refused to give up paper flight strips even where a screen could
+          have replaced them, because the physical record was doing safety work the screen did
+          not.</blockquote>
+          <cite>After W. Mackay, "Is paper safer? The role of paper flight strips in air traffic
+          control", ACM TOCHI 6(4), 1999. DOI 10.1145/331490.331491</cite>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="reading">
+    <p>An agent that remembers is only useful if you can argue with what it remembers. Three
+    failures kill that, and every one of them is silent.</p>
+
+    <h3>1. The answer that stopped being true</h3>
+    <p>A vector store returns the closest sentence. It has no opinion about whether that sentence
+    survived the migration three months ago. Throughline gives every kind of memory its own
+    half-life, computes freshness by exponential decay against it, and returns anything past one
+    half-life <em>flagged rather than dropped</em>. A contradicting write does not overwrite. It
+    supersedes, stamps an end date, and leaves the old row queryable, because the reason a step
+    changed is usually the thing you needed.</p>
+
+    <table class="deftable">
+      <tr><th>Kind</th><th>Half-life</th><th>Why</th></tr>
+      <tr><td class="n">entity_fact</td><td class="n">14 d</td><td>Hostnames, ceilings, owners. These rot fastest.</td></tr>
+      <tr><td class="n">observation</td><td class="n">30 d</td><td>What someone saw during an incident.</td></tr>
+      <tr><td class="n">runbook_fact</td><td class="n">90 d</td><td>Procedure. Changes on deploys, not on Tuesdays.</td></tr>
+      <tr><td class="n">resolution</td><td class="n">180 d</td><td>What actually fixed it. Worth keeping.</td></tr>
+      <tr><td class="n">rejected_hypothesis</td><td class="n">365 d</td><td>What did not work. Outlives everything, because it saves the most time.</td></tr>
+    </table>
+
+    <h3>2. The search that never ran</h3>
+    <p>Recall returns a coverage verdict, and the verdict is computed from what actually happened,
+    not from the result count. COVERED means the workspace was read. PARTIAL means the candidate
+    cap of 200 was reached, so the answer is bounded and says so. UNKNOWN means the search could
+    not run at all, and the agent is structurally prevented from converting it to "no prior
+    incidents": the boundary rejects a claim of absence when coverage is UNKNOWN.</p>
+    <p>The approximate index is an accelerator, never a dependency. If it is unavailable, recall
+    falls back to an exact cosine scan and prints that it did. It never presents degraded recall as
+    full recall.</p>
+    <p>The embedder is a different case, and the schematic above draws it as a dashed line for a
+    reason. <em>Both</em> paths compare against a query vector, so if the embedder fails there is no
+    fallback to reach for: neither path runs, nothing is read, and the verdict is UNKNOWN. That is
+    the honest answer, and it is the one the product exists to be able to give.</p>
+
+    <h3>3. The eviction that ate the newest entry</h3>
+    <p>Eviction that scores by usage will always eat the entry with no usage history, and that is
+    the one written an hour ago. So the grace window is checked <em>before</em> the score is
+    consulted, and the protection deadline is stamped on the row at write time from the policy that
+    wrote it. A policy applied later at read time cannot un-protect what an earlier policy
+    protected. Every sweep publishes what it removed and what it refused, and removal writes a
+    tombstone rather than a hole.</p>
+
+    <h3>The number is never written by a model</h3>
+    <p>Scoring is a deterministic function of similarity, freshness, confirmation count and
+    contradiction count, with fixed weights. The language model writes the sentence around the
+    number. It never writes the number, and it never decides the verdict.</p>
+
+    <h3>What the database is doing</h3>
+    <p>CockroachDB is the system of record. The vector index is declared on
+    <span class="mono">(workspace_id, is_live, embedding)</span>, and the prefix matters: a filtered
+    nearest-neighbour query is only accelerated on the index's prefix columns, and recall always
+    filters by workspace and liveness. <span class="mono">is_live</span> is a stored computed column
+    derived from <span class="mono">evicted_at</span>, so the two cannot drift apart. Both of those
+    were measured against the live cluster rather than taken from the documentation.</p>
+  </div>
+</section>
+</main>
+
+<footer class="source">
+  <h2>Source strip</h2>
+  <div class="srcrow"><span>Half-lives, floors, caps and weights, read from the running policy</span><span class="verdict v-cov">MEASURED</span></div>
+  <div class="srcrow"><span>Index prefix behaviour, measured on the live cluster with EXPLAIN</span><span class="verdict v-cov">MEASURED</span></div>
+  <div class="srcrow"><span>Typical latencies, sampled over the demo corpus</span><span class="verdict v-par">SAMPLED</span></div>
+  <div class="srcrow"><span>Behaviour under a CockroachDB major version we have not run</span><span class="verdict v-unk">UNKNOWN</span></div>
+  <p class="colophon">
+    Flight strip scan: Wikimedia Commons, public domain. Strip practice after Mackay, ACM TOCHI
+    1999, DOI 10.1145/331490.331491.
+  </p>
+</footer>
+
+</body>
+</html>

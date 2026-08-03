@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Archive - Throughline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders:wght@100..900&family=Big+Shoulders+Stencil:wght@100..900&family=Petrona:ital,wght@0,300..800;1,300..800&family=B612+Mono:ital,wght@0,400;0,700;1,400&family=Caveat:wght@400..700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="board.css">
+<style>
+.tabs{display:flex;flex-wrap:wrap;gap:0;padding:0 28px;background:var(--rail);border-bottom:1px solid var(--rail-deep)}
+/* An unselected tab recedes by sitting deeper in the rack, never by going transparent:
+   opacity dragged its count text to 2.9:1 against the rail behind it. Sitting it on a
+   darker card fixed the label but left the count at 3.75:1, so the count takes full ink
+   when the tab is at rest. Measured on --tab-rest: label 8.69:1 light, 9.49:1 dark. */
+.tab{display:grid;grid-template-columns:11px auto;text-decoration:none;margin-right:8px;background:var(--tab-rest);color:var(--ink);align-self:flex-end;border-top:3px solid transparent}
+.tab:not([aria-selected="true"]) .lbl i{color:var(--ink)}
+/* Selection is carried by a 3:1 amber marker, not by a 1.4:1 shade difference. */
+.tab[aria-selected="true"]{background:var(--buff);border-top-color:var(--amber);box-shadow:0 -3px 0 rgba(0,0,0,.3)}
+.tab:hover:not([aria-selected="true"]){background:var(--buff)}
+.tab .lbl{font-family:"Big Shoulders",sans-serif;font-weight:600;font-size:16px;letter-spacing:.11em;text-transform:uppercase;padding:8px 14px 7px}
+.tab .lbl i{font-style:normal;font-size:13px;color:var(--ink-soft);margin-left:8px;letter-spacing:.06em}
+.filterbar{display:flex;flex-wrap:wrap;gap:14px;align-items:center;padding:13px 28px;border-bottom:1px solid var(--rail-line)}
+.search{flex:1;min-width:240px;background:var(--rail);border:1px solid var(--rail-line);padding:9px 12px;font-size:16px;color:var(--chalk-soft)}
+.count{font-family:"Big Shoulders",sans-serif;font-weight:600;font-size:14px;color:var(--chalk-dim);letter-spacing:.15em;text-transform:uppercase}
+.chainwrap{padding-left:26px;border-left:2px dashed var(--rail-line);margin-left:6px;display:flex;flex-direction:column;gap:10px}
+.chainlabel{font-family:"Big Shoulders",sans-serif;font-weight:600;font-size:14px;letter-spacing:.19em;text-transform:uppercase;color:var(--chalk-dim);margin:2px 0 0}
+@media (max-width:900px){.tabs,.filterbar{padding-left:14px;padding-right:14px}.chainwrap{padding-left:12px}}
+</style>
+</head>
+<body>
+
+<header class="header">
+  <h1 class="brand"><a href="landing.html">Throughline</a></h1>
+  <div class="designator">TLN-01 / Archive<br>Workspace: acme-platform<br>4,102 rows, 11 tombstoned</div>
+</header>
+
+<nav class="index" aria-label="Pages">
+  <a href="landing.html">The board</a>
+  <a href="demo.html">Console</a>
+  <a href="#" aria-current="page">Archive</a>
+  <a href="how-it-works.html">How it works</a>
+  <a href="status.html">Status</a>
+</nav>
+
+<div class="annunciator">
+  <div class="lamp"><b>Vector index</b><span class="state s-ok">OK</span></div>
+  <div class="lamp"><b>Embeddings</b><span class="state s-deg">DEGRADED</span></div>
+  <div class="lamp"><b>MCP transport</b><span class="state s-unk">UNKNOWN</span></div>
+  <div class="lamp"><b>Rows on the board</b><span class="state s-ok">4,102</span></div>
+</div>
+
+<div class="tabs" role="tablist" aria-label="Memory kinds">
+  <a class="tab" role="tab" aria-selected="true" href="#"><span class="holder h-tomb"></span><span class="lbl">All <i>4,102</i></span></a>
+  <a class="tab" role="tab" href="#"><span class="holder"></span><span class="lbl">Observation <i>2,884</i></span></a>
+  <a class="tab" role="tab" href="#"><span class="holder h-res"></span><span class="lbl">Resolution <i>612</i></span></a>
+  <a class="tab" role="tab" href="#"><span class="holder h-run"></span><span class="lbl">Runbook <i>341</i></span></a>
+  <a class="tab" role="tab" href="#"><span class="holder h-rej"></span><span class="lbl">Rejected <i>188</i></span></a>
+  <a class="tab" role="tab" href="#"><span class="holder h-ent"></span><span class="lbl">Entity <i>77</i></span></a>
+</div>
+
+<div class="filterbar">
+  <div class="search">migration lock</div>
+  <span class="count">39 MATCH &middot; 4 COCKED &middot; 2 SUPERSEDED &middot; 1 TOMBSTONED</span>
+  <span class="verdict v-cov">ARCHIVE QUERY &middot; NOT A RECALL &middot; NO CANDIDATE CAP</span>
+</div>
+
+<main>
+  <section class="bay" style="border-bottom:0">
+    <div class="rack" style="max-width:1120px;padding-top:22px">
+
+      <div class="subbay" style="margin-top:0">Live</div>
+
+      <div class="strip">
+        <span class="holder h-res"></span>
+        <div>
+          <div class="row r-main">
+            <div class="cell"><b>Content</b><span class="say">Cancelling the migration holding the lock is what actually fixed it</span></div>
+            <div class="cell"><b>Freshness</b><span class="val">0.98</span></div>
+          </div>
+          <div class="row r-four">
+            <div class="cell"><b>Kind</b><span class="val">RESOLUTION</span></div>
+            <div class="cell"><b>Asserted by</b><span class="val">rutger, INC-2291</span></div>
+            <div class="cell"><b>Written</b><span class="val">14 MAR 2026</span></div>
+            <div class="cell"><b>Confirmed</b><span class="val">3x, last 28 JUL</span></div>
+          </div>
+          <div class="row r-four">
+            <div class="cell"><b>Half-life</b><span class="val">180 d</span></div>
+            <div class="cell"><b>Confirm count</b><span class="val">3</span></div>
+            <div class="cell"><b>Contradictions</b><span class="val">0</span></div>
+            <div class="cell"><b>Grace</b><span class="val">closed 15 MAR</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="subbay">Cocked, past one half-life</div>
+
+      <div class="strip cocked">
+        <span class="holder h-ent"></span>
+        <div>
+          <div class="row r-main">
+            <div class="cell"><b>Content</b><span class="say doubt">Migrations run under the deploy role, not the app role</span></div>
+            <div class="cell"><b>Freshness</b><span class="val doubt">0.28</span></div>
+          </div>
+          <div class="row r-four">
+            <div class="cell"><b>Kind</b><span class="val">ENTITY FACT</span></div>
+            <div class="cell"><b>Age</b><span class="val">26 d</span></div>
+            <div class="cell"><b>Half-life</b><span class="val">14 d</span></div>
+            <div class="cell"><b>State</b><span class="stamp cock">Cocked</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="subbay">Supersede chain &middot; mem_7f31c2</div>
+
+      <p class="chainlabel">Current</p>
+      <div class="chainwrap">
+        <div class="strip">
+          <span class="holder h-run"></span>
+          <div>
+            <div class="row r-main">
+              <div class="cell"><b>Content</b><span class="say">Failover runs from the standby in eu-west-1</span></div>
+              <div class="cell"><b>Freshness</b><span class="val">0.43</span></div>
+            </div>
+            <div class="row r-four">
+              <div class="cell"><b>Valid from</b><span class="val">15 APR 2026 09:41</span></div>
+              <div class="cell"><b>Asserted by</b><span class="val">runbook-migration-84</span></div>
+              <div class="cell"><b>Half-life</b><span class="val">90 d</span></div>
+              <div class="cell"><b>Supersedes</b><span class="val">mem_7f31c2</span></div>
+            </div>
+          </div>
+        </div>
+
+        <p class="chainlabel">Ended, kept queryable</p>
+
+        <div class="strip retired">
+          <span class="holder h-tomb"></span>
+          <div>
+            <div class="row r-main">
+              <div class="cell"><b>Content</b><span class="say doubt">Failover runs from the standby in us-east-2</span></div>
+              <div class="cell"><b>Freshness</b><span class="val doubt">0.13</span></div>
+            </div>
+            <div class="row r-four">
+              <div class="cell"><b>Valid from</b><span class="val doubt">04 NOV 2025</span></div>
+              <div class="cell"><b>Valid until</b><span class="val doubt">15 APR 2026 09:41</span></div>
+              <div class="cell"><b>Ended by</b><span class="val">mem_c81b40</span></div>
+              <div class="cell"><b>State</b><span class="stamp grey">Superseded</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="subbay">Tombstoned</div>
+
+      <div class="strip retired">
+        <span class="holder h-tomb"></span>
+        <div>
+          <div class="row r-main">
+            <div class="cell"><b>Was</b><span class="say doubt"><span class="punch"></span>Restarting the ingest pod cleared the backlog on 14 Feb</span></div>
+            <div class="cell"><b>Freshness</b><span class="val doubt">0.02</span></div>
+          </div>
+          <div class="row r-four">
+            <div class="cell"><b>Removed</b><span class="val">02 AUG 2026 02:58</span></div>
+            <div class="cell"><b>Age at removal</b><span class="val">169 d</span></div>
+            <div class="cell"><b>Unread for</b><span class="val">134 d</span></div>
+            <div class="cell"><b>Reason</b><span class="val">low_value_aged</span></div>
+          </div>
+        </div>
+      </div>
+
+      <p class="baynote" style="max-width:70ch">A tombstone keeps the content, the reason and the
+      time of removal, so an evicted memory can be argued with rather than merely missed. Filtering
+      to a kind never hides a tombstone: it moves it to the bottom of the rack.</p>
+
+    </div>
+  </section>
+</main>
+
+<footer class="source">
+  <h2>Source strip</h2>
+  <div class="srcrow"><span>Every row above, read from the live cluster this request</span><span class="verdict v-cov">MEASURED</span></div>
+  <div class="srcrow"><span>Freshness and score, computed by the database from policy</span><span class="verdict v-cov">MEASURED</span></div>
+  <div class="srcrow"><span>Row counts per kind, cached for 60 s</span><span class="verdict v-par">SAMPLED</span></div>
+  <div class="srcrow"><span>This page runs a filtered SQL query, so the candidate cap of 200 that bounds a recall does not apply here</span><span class="verdict v-cov">MEASURED</span></div>
+  <p class="colophon">
+    Half-lives, in days: entity fact 14, observation 30, runbook fact 90, resolution 180, rejected
+    hypothesis 365. Stale floor 0.5, similarity floor 0.6, candidate cap 200, grace window 24 hours.<br>
+    These are read from the running policy, not typed into this page.
+  </p>
+</footer>
+
+</body>
+</html>

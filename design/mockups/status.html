@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Status - Throughline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders:wght@100..900&family=Big+Shoulders+Stencil:wght@100..900&family=Petrona:ital,wght@0,300..800;1,300..800&family=B612+Mono:ital,wght@0,400;0,700;1,400&family=Caveat:wght@400..700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="board.css">
+<style>
+.panel{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:0;border-top:1px solid var(--rail-line)}
+.legend{border-right:1px solid var(--rail-line);border-bottom:1px solid var(--rail-line);padding:20px 24px 22px;display:flex;flex-direction:column;gap:12px}
+.legend h2{font-family:"Big Shoulders",sans-serif;font-weight:600;font-size:27px;letter-spacing:.07em;text-transform:uppercase;margin:0;color:var(--chalk)}
+.bulb{display:flex;align-items:center;gap:14px}
+.bulb .glass{width:56px;height:56px;border:3px solid;background:var(--rail);display:grid;place-items:center;font-family:"B612 Mono",ui-monospace,monospace;font-size:11px;font-weight:700;letter-spacing:.06em;flex:none}
+.g-ok{border-color:var(--lit-ok);color:var(--lit-ok)}
+.g-deg{border-color:var(--amber);color:var(--amber)}
+.g-unk{border-color:var(--unlit);color:var(--unlit);border-style:dashed;font-style:italic}
+.bulb .read{font-family:"Big Shoulders",sans-serif;font-weight:600;font-size:22px;letter-spacing:.1em;text-transform:uppercase}
+.r-ok{color:var(--lit-ok)}.r-deg{color:var(--amber)}.r-unk{color:var(--chalk-soft);font-style:italic;text-transform:none;font-family:"Petrona",serif;font-size:19px;letter-spacing:0}
+.legend p{margin:0;font-size:15.5px;color:var(--chalk-soft);max-width:44ch}
+.probe{font-family:"B612 Mono",ui-monospace,monospace;font-size:11.5px;color:var(--chalk-dim);letter-spacing:.05em;line-height:1.85;border-top:1px solid var(--rail-line);padding-top:10px}
+.probe b{color:var(--chalk-soft);font-weight:400}
+.headline{padding:22px 28px 6px;max-width:74ch}
+.headline p{font-size:20px;line-height:1.45;margin:0}
+@media (max-width:900px){.headline{padding:16px 14px 4px}.legend{border-right:0;padding:16px 14px 18px}}
+</style>
+</head>
+<body>
+
+<header class="header">
+  <h1 class="brand"><a href="landing.html">Throughline</a></h1>
+  <div class="designator">TLN-01 / Annunciator<br>Probed 02:33:52 UTC<br>eu-central-1</div>
+</header>
+
+<nav class="index" aria-label="Pages">
+  <a href="landing.html">The board</a>
+  <a href="demo.html">Console</a>
+  <a href="memory.html">Archive</a>
+  <a href="how-it-works.html">How it works</a>
+  <a href="#" aria-current="page">Status</a>
+</nav>
+
+<div class="headline">
+  <p>Four of the six legends below are lit from a probe that ran in this process. One reports the
+  last eviction sweep, which ran yesterday and is a stored receipt rather than a live probe. The
+  sixth has never been probed at all, so it stays unlit and says so. Nothing here is inferred from
+  something else being healthy, and an unlit legend is not a passing legend.</p>
+</div>
+
+<main class="panel">
+
+  <section class="legend">
+    <h2>Vector index</h2>
+    <div class="bulb">
+      <span class="glass g-ok">OK</span>
+      <span class="read r-ok">Present and planned</span>
+    </div>
+    <p>The index exists <em>and</em> the planner chose it. Those are two different claims, and this
+    legend only lights when both are true.</p>
+    <div class="probe">
+      <b>PROBE</b> SHOW INDEXES + EXPLAIN on a real recall<br>
+      <b>INDEX</b> (workspace_id, is_live, embedding vector_cosine_ops)<br>
+      <b>PLAN</b> vector search, prefix spans<br>
+      <b>RAN</b> 02:33:51, 41 ms ago
+    </div>
+  </section>
+
+  <section class="legend">
+    <h2>Embeddings</h2>
+    <div class="bulb">
+      <span class="glass g-deg">DEG</span>
+      <span class="read r-deg">Timing out</span>
+    </div>
+    <p>Both retrieval paths need a query vector, so while this is timing out a recall returns
+    UNKNOWN rather than an empty result. It is a coverage failure, not a slow search.</p>
+    <div class="probe">
+      <b>PROBE</b> embed one fixed string, 2,000 ms budget<br>
+      <b>RESULT</b> timed out at 2,004 ms, 3 of last 5<br>
+      <b>WIDTH</b> read from the provider, not assumed<br>
+      <b>RAN</b> 02:33:50, 2 s ago
+    </div>
+  </section>
+
+  <section class="legend">
+    <h2>MCP transport</h2>
+    <div class="bulb">
+      <span class="glass g-unk">U</span>
+      <span class="read r-unk">Nobody has looked</span>
+    </div>
+    <p>No probe has run since this process started, so there is nothing to report. This legend
+    stays unlit rather than green, because an unlit lamp is not an OK lamp.</p>
+    <div class="probe">
+      <b>PROBE</b> not yet run this process<br>
+      <b>LAST KNOWN</b> never<br>
+      <b>WHY</b> credentials not configured<br>
+      <b>RAN</b> <span style="font-style:italic">never</span>
+    </div>
+  </section>
+
+  <section class="legend">
+    <h2>Memory of record</h2>
+    <div class="bulb">
+      <span class="glass g-ok">OK</span>
+      <span class="read r-ok">Reachable</span>
+    </div>
+    <p>CockroachDB Cloud, eu-central-1. Schema at the migration the code expects, checked both ways
+    so a database ahead of the code does not read as up to date.</p>
+    <div class="probe">
+      <b>PROBE</b> SELECT 1 + migration checksum compare<br>
+      <b>DRIFT</b> none, in either direction<br>
+      <b>ROWS</b> 4,102 live, 11 tombstoned<br>
+      <b>RAN</b> 02:33:52, now
+    </div>
+  </section>
+
+  <section class="legend">
+    <h2>Agent model</h2>
+    <div class="bulb">
+      <span class="glass g-ok">OK</span>
+      <span class="read r-ok">Answering</span>
+    </div>
+    <p>Amazon Bedrock, eu-central-1. The model id and the embedding width are configuration read
+    from the account, never constants compiled in.</p>
+    <div class="probe">
+      <b>PROBE</b> one token completion<br>
+      <b>LATENCY</b> 612 ms, p95 1,140 ms<br>
+      <b>BUDGET ALARM</b> armed before first call<br>
+      <b>RAN</b> 02:33:44, 8 s ago
+    </div>
+  </section>
+
+  <section class="legend">
+    <h2>Last eviction sweep</h2>
+    <div class="bulb">
+      <span class="glass g-deg">REC</span>
+      <span class="read r-deg">Stored receipt, not re-probed</span>
+    </div>
+    <p>A sweep that removes nothing still publishes a receipt. Silence from the sweeper would be
+    indistinguishable from a sweeper that never ran. This lamp is not green, because the sweep ran
+    yesterday and nothing has checked on it since.</p>
+    <div class="probe">
+      <b>REMOVED</b> 11 rows, all tombstoned<br>
+      <b>REFUSED</b> 3 inside the 24 h grace window<br>
+      <b>REFUSED</b> 1 rejected hypothesis, half-life 365 d<br>
+      <b>RAN</b> 02:58:44 yesterday
+    </div>
+  </section>
+
+</main>
+
+<footer class="source">
+  <h2>Source strip</h2>
+  <div class="srcrow"><span>Four of the six legends above, each from a probe that ran in this process</span><span class="verdict v-cov">MEASURED</span></div>
+  <div class="srcrow"><span>Last eviction sweep, a stored receipt from 02:58:44 yesterday, not re-probed since</span><span class="verdict v-par">SAMPLED</span></div>
+  <div class="srcrow"><span>Embedding provider, sampled over the last five calls</span><span class="verdict v-par">SAMPLED</span></div>
+  <div class="srcrow"><span>MCP transport</span><span class="verdict v-unk">UNKNOWN</span></div>
+  <p class="colophon">
+    A capability this page has not observed is never reported as working. If a probe fails, the
+    legend degrades and says which probe failed; if a probe has not run, the legend stays unlit.
+  </p>
+</footer>
+
+</body>
+</html>

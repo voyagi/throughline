@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Console - Throughline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders:wght@100..900&family=Big+Shoulders+Stencil:wght@100..900&family=Petrona:ital,wght@0,300..800;1,300..800&family=B612+Mono:ital,wght@0,400;0,700;1,400&family=Caveat:wght@400..700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="board.css">
+<style>
+.split{display:grid;grid-template-columns:40fr 28px 60fr;min-height:820px}
+.log{border-right:1px solid var(--rail-line)}
+.panehead{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:12px 22px 10px;border-bottom:1px solid var(--rail-line)}
+.panehead h2{font-family:"Big Shoulders",sans-serif;font-weight:600;font-size:26px;letter-spacing:.1em;text-transform:uppercase;margin:0;color:var(--chalk)}
+.panehead span{font-family:"Big Shoulders",sans-serif;font-weight:600;font-size:14px;color:var(--chalk-dim);letter-spacing:.15em;text-transform:uppercase}
+.utt{display:grid;grid-template-columns:92px minmax(0,1fr);border-bottom:1px solid var(--rail-line);padding:13px 20px 15px 0}
+.utt.op{border-left:5px solid var(--pen)}
+.utt time{font-family:"B612 Mono",ui-monospace,monospace;font-size:11.5px;color:var(--chalk-dim);padding:4px 8px 0 14px;white-space:nowrap}
+.utt .who{font-family:"Big Shoulders",sans-serif;font-weight:600;font-size:14px;letter-spacing:.18em;text-transform:uppercase;color:var(--chalk-dim);margin:0 0 5px}
+.utt.op .who{color:#96acdf}
+.utt p.said{margin:0;font-size:16.5px;line-height:1.47;color:var(--chalk)}
+.utt p.said em{font-style:italic;color:var(--chalk-soft)}
+.chip{display:inline-block;font-family:"B612 Mono",ui-monospace,monospace;font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:2px 7px;color:#20241e;vertical-align:1px}
+.c-res{background:var(--res)}.c-rej{background:var(--rej);color:#fff}.c-ent{background:var(--ent);color:#fff}
+.utt .verdict{margin-top:10px}
+.slot{background:var(--rail);border-left:1px solid var(--rail-deep);border-right:1px solid var(--rail-deep);position:relative}
+.slot:after{content:"";position:absolute;left:50%;top:36px;bottom:36px;width:6px;margin-left:-3px;background:var(--rail-deep);box-shadow:inset 0 0 0 1px var(--rail-line)}
+.slotlabel{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-90deg);font-family:"Big Shoulders",sans-serif;font-weight:600;font-size:13px;letter-spacing:.3em;color:var(--chalk-dim);white-space:nowrap}
+.composer{border-top:3px solid var(--rail);padding:14px 22px 16px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px;align-items:end}
+.composer label{display:block;font-family:"Big Shoulders",sans-serif;font-weight:600;font-size:14px;letter-spacing:.17em;text-transform:uppercase;color:var(--chalk-dim);margin-bottom:6px}
+.composer .field{background:var(--rail);border:1px solid var(--rail-line);padding:10px 12px;font-size:16px;color:var(--chalk-soft)}
+.btn{background:var(--buff);color:var(--ink);border:0;font-family:"Big Shoulders",sans-serif;font-weight:700;font-size:21px;letter-spacing:.09em;text-transform:uppercase;padding:11px 24px;cursor:pointer}
+.rack.live{padding:16px 22px 22px;max-width:none}
+@media (max-width:980px){
+  .split{grid-template-columns:1fr}
+  .slot{display:none}
+  .log{border-right:0;border-bottom:3px solid var(--rail)}
+  .utt{grid-template-columns:78px minmax(0,1fr);padding-right:14px}
+  .utt time{padding-left:10px;font-size:11px}
+  .panehead{flex-wrap:wrap}
+  .panehead,.composer,.rack.live{padding-left:14px;padding-right:14px}
+  .composer{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<header class="header">
+  <h1 class="brand"><a href="landing.html">Throughline</a></h1>
+  <div class="designator">TLN-01 / Position and board<br>INC-3310 checkout latency<br>eu-central-1</div>
+</header>
+
+<nav class="index" aria-label="Pages">
+  <a href="landing.html">The board</a>
+  <a href="#" aria-current="page">Console</a>
+  <a href="memory.html">Archive</a>
+  <a href="how-it-works.html">How it works</a>
+  <a href="status.html">Status</a>
+</nav>
+
+<div class="annunciator">
+  <div class="lamp"><b>Vector index</b><span class="state s-ok">OK</span></div>
+  <div class="lamp"><b>Embeddings</b><span class="state s-deg">DEGRADED</span></div>
+  <div class="lamp"><b>MCP transport</b><span class="state s-unk">UNKNOWN</span></div>
+  <div class="lamp"><b>Rows on the board</b><span class="state s-ok">4,102</span></div>
+</div>
+
+<div class="split">
+
+  <section class="log">
+    <div class="panehead"><h2>R/T log</h2><span>WATCH 02:10 &middot; ILSE ON POSITION</span></div>
+
+    <article class="utt op">
+      <time>02:14:02</time>
+      <div>
+        <p class="who">On call &middot; ilse</p>
+        <p class="said">Checkout p99 went from 180 ms to 4.2 s about ten minutes ago. Only eu-central-1. Have we seen this before?</p>
+      </div>
+    </article>
+
+    <article class="utt">
+      <time>02:14:09</time>
+      <div>
+        <p class="who">Throughline</p>
+        <p class="said">Twice, and both times the first hypothesis was wrong. It was pool exhaustion behind a slow migration <span class="chip c-res">Resolution</span>, and it was not the CDN <span class="chip c-rej">Rejected</span>. I also have a pool ceiling figure, but it is past its half-life, so I have cocked it rather than quote it at you. I stopped at the candidate cap, so treat this as partial rather than exhaustive.</p>
+        <span class="verdict v-par">ANN INDEX &middot; 200 OF 4,102 READ &middot; CAP REACHED &middot; 6 BELOW THE SIMILARITY FLOOR &middot; 78 MS &middot; PARTIAL</span>
+      </div>
+    </article>
+
+    <article class="utt op">
+      <time>02:31:01</time>
+      <div>
+        <p class="who">On call &middot; ilse</p>
+        <p class="said">Anything about the standby region? I want to know where failover lands before I touch it.</p>
+      </div>
+    </article>
+
+    <article class="utt">
+      <time>02:31:07</time>
+      <div>
+        <p class="who">Throughline</p>
+        <p class="said"><em>No search ran, so I will not tell you there is nothing.</em> The embedder timed out at 2,004 ms, and both retrieval paths need a query vector, so neither one ran and I read 0 of 4,102 rows. I can retry it.</p>
+        <span class="verdict v-unk">NO PATH &middot; 0 OF 4,102 READ &middot; UNKNOWN</span>
+      </div>
+    </article>
+
+    <article class="utt op">
+      <time>02:33:40</time>
+      <div>
+        <p class="who">On call &middot; ilse</p>
+        <p class="said">Retry it. <span class="hand">ceiling is already at 200 btw</span></p>
+      </div>
+    </article>
+
+    <article class="utt">
+      <time>02:33:52</time>
+      <div>
+        <p class="who">Throughline</p>
+        <p class="said">The embedder answered this time, so the vector index ran. It stopped at the candidate cap of 200, so this answer is bounded and I will not call it exhaustive. Failover currently lands in eu-west-1, superseded from us-east-2 in April. I have recorded your ceiling correction and superseded the old figure rather than overwriting it.</p>
+        <span class="verdict v-par">ANN INDEX &middot; 200 OF 4,102 READ &middot; CAP REACHED &middot; 46 MS &middot; PARTIAL</span>
+      </div>
+    </article>
+
+    <form class="composer" onsubmit="return false">
+      <div>
+        <label for="say">Transmit</label>
+        <div class="field" id="say">Cancelling the migration now, will confirm whether p99 recovers</div>
+      </div>
+      <button class="btn" type="submit">Send and record</button>
+    </form>
+  </section>
+
+  <div class="slot" aria-hidden="true"><span class="slotlabel">Printer</span></div>
+
+  <section>
+    <div class="panehead"><h2>The board</h2><span>LIVE &middot; 02:33:52 &middot; 11 STRIPS THIS INCIDENT</span></div>
+    <div class="rack live">
+
+      <div class="subbay">Recalled</div>
+
+      <div class="strip">
+        <span class="holder h-res"></span>
+        <div>
+          <div class="row r-main">
+            <div class="cell"><b>Content</b><span class="say">Cancelling the migration holding the lock is what actually fixed it</span></div>
+            <div class="cell"><b>Score</b><span class="val">0.81</span></div>
+          </div>
+          <div class="row r-four">
+            <div class="cell"><b>Kind</b><span class="val">RESOLUTION</span></div>
+            <div class="cell"><b>Source</b><span class="val">INC-2291</span></div>
+            <div class="cell"><b>Half-life</b><span class="val">180 d</span></div>
+            <div class="cell"><b>Confirmed</b><span class="val">3x</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="strip">
+        <span class="holder h-rej"></span>
+        <div>
+          <div class="row r-main">
+            <div class="cell"><b>Content</b><span class="say">It was not the CDN. Forty minutes lost proving that in March.</span></div>
+            <div class="cell"><b>Score</b><span class="val">0.74</span></div>
+          </div>
+          <div class="row r-four">
+            <div class="cell"><b>Kind</b><span class="val">REJECTED HYPOTHESIS</span></div>
+            <div class="cell"><b>Source</b><span class="val">INC-2291</span></div>
+            <div class="cell"><b>Half-life</b><span class="val">365 d</span></div>
+            <div class="cell"><b>State</b><span class="stamp prot">Protected</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="strip cocked">
+        <span class="holder h-ent"></span>
+        <div>
+          <div class="row r-main">
+            <div class="cell"><b>Content</b><span class="say doubt">Pool ceiling is 120 connections</span></div>
+            <div class="cell"><b>Score</b><span class="val doubt">0.48</span></div>
+          </div>
+          <div class="row r-four">
+            <div class="cell"><b>Kind</b><span class="val">ENTITY FACT</span></div>
+            <div class="cell"><b>Age</b><span class="val">32 d</span></div>
+            <div class="cell"><b>Half-life</b><span class="val">14 d</span></div>
+            <div class="cell"><b>State</b><span class="stamp cock">Cocked</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="subbay">Unknown</div>
+
+      <div class="empty">
+        <span class="holder"></span>
+        <div class="slip">
+          <span class="k">Refusal slip &middot; 02:31:07</span>
+          <div class="v">NO SEARCH RAN. VERDICT: UNKNOWN.</div>
+          <div class="fields">
+            <div><span>QUERY</span> standby region, failover</div>
+            <div><span>PATH</span> none, both need a query vector</div>
+            <div><span>READ</span> 0 of 4,102</div>
+            <div><span>ELAPSED</span> 2,004 ms</div>
+            <div><span>STOPPED BY</span> embedder_unreachable</div>
+            <div><span>EXCLUDED</span> nothing was examined</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="subbay">Refused</div>
+      <div><span class="tag">Evict 3 entries &middot; inside the 24 h grace window</span></div>
+      <div><span class="tag">Overwrite mem_7f31c2 &middot; superseded instead, old row kept</span></div>
+      <div><span class="tag">Write with no provenance &middot; rejected at the boundary</span></div>
+
+      <div class="subbay">Written</div>
+
+      <div class="strip">
+        <span class="holder"></span>
+        <div>
+          <div class="row r-main">
+            <div class="cell"><b>Content</b><span class="say">p99 on checkout is 4.2 s, eu-central-1 only</span></div>
+            <div class="cell"><b>Freshness</b><span class="val">1.00</span></div>
+          </div>
+          <div class="row r-four">
+            <div class="cell"><b>Kind</b><span class="val">OBSERVATION</span></div>
+            <div class="cell"><b>Asserted by</b><span class="val">ilse</span></div>
+            <div class="cell"><b>Incident</b><span class="val">INC-3310</span></div>
+            <div class="cell"><b>Protected</b><span class="val">24 h</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="strip">
+        <span class="holder h-ent"></span>
+        <div>
+          <div class="row r-main">
+            <div class="cell"><b>Content</b><span class="say">Pool ceiling is 200 connections</span></div>
+            <div class="cell"><b>Freshness</b><span class="val">1.00</span></div>
+          </div>
+          <div class="row r-four">
+            <div class="cell"><b>Kind</b><span class="val">ENTITY FACT</span></div>
+            <div class="cell"><b>Asserted by</b><span class="val">ilse</span></div>
+            <div class="cell"><b>Supersedes</b><span class="val">mem_2a04ef</span></div>
+            <div class="cell"><b>Protected</b><span class="val">24 h</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+</div>
+
+<footer class="source">
+  <h2>Source strip</h2>
+  <div class="srcrow"><span>Every strip on the board, written by the recall that produced it</span><span class="verdict v-cov">MEASURED</span></div>
+  <div class="srcrow"><span>Scores and freshness, computed by the database from policy</span><span class="verdict v-cov">MEASURED</span></div>
+  <div class="srcrow"><span>Elapsed times, measured per call on this connection</span><span class="verdict v-cov">MEASURED</span></div>
+  <div class="srcrow"><span>Whether the standby region has prior incidents</span><span class="verdict v-unk">UNKNOWN</span></div>
+  <p class="colophon">
+    The last row is the point of this page. At 02:31 the search could not run, so that question has
+    no answer here, and the board shows an empty holder rather than a confident nothing.
+  </p>
+</footer>
+
+</body>
+</html>
