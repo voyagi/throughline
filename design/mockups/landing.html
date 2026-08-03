@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Throughline - an agent that keeps the strips</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders:wght@100..900&family=Big+Shoulders+Stencil:wght@100..900&family=Petrona:ital,wght@0,300..800;1,300..800&family=B612+Mono:ital,wght@0,400;0,700;1,400&family=Caveat:wght@400..700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="board.css">
+<style>
+.lineage{display:grid;grid-template-columns:minmax(0,560px) minmax(0,1fr);gap:28px;align-items:start;padding:24px 28px 2px;max-width:1120px}
+.lineage img{width:100%;display:block;border:3px solid var(--rail);background:var(--buff)}
+.lineage figcaption{font-style:italic;font-size:14px;color:var(--chalk-soft);margin-top:9px}
+.lineage p{margin:0 0 12px;font-size:17px}
+.opening{padding:24px 28px 4px;max-width:74ch}
+.opening p{font-size:21px;line-height:1.45;margin:0}
+.opening p em{font-style:italic;color:var(--amber)}
+@media (max-width:900px){.lineage{grid-template-columns:1fr;padding:16px 14px 2px}.opening{padding:18px 14px 2px}.opening p{font-size:18.5px}}
+</style>
+</head>
+<body>
+
+<header class="header">
+  <h1 class="brand">Throughline</h1>
+  <div class="designator">TLN-01<br>CRDB x AWS<br>Agentic memory</div>
+</header>
+
+<nav class="index" aria-label="Pages">
+  <a href="landing.html" aria-current="page">The board</a>
+  <a href="demo.html">Console</a>
+  <a href="memory.html">Archive</a>
+  <a href="how-it-works.html">How it works</a>
+  <a href="status.html">Status</a>
+</nav>
+
+<div class="annunciator">
+  <div class="lamp"><b>Vector index</b><span class="state s-ok">OK</span></div>
+  <div class="lamp"><b>Embeddings</b><span class="state s-deg">DEGRADED</span></div>
+  <div class="lamp"><b>MCP transport</b><span class="state s-unk">UNKNOWN</span></div>
+  <div class="lamp"><b>Rows on the board</b><span class="state s-ok">4,102</span></div>
+</div>
+
+<div class="board">
+  <div class="watch" aria-hidden="true">
+    <div class="tick major"><span>02:10</span></div>
+    <div class="tick"><span>02:25</span></div>
+    <div class="tick major"><span>02:40</span></div>
+    <div class="tick"><span>02:55</span></div>
+    <div class="tick major"><span>03:10</span></div>
+    <div class="tick"><span>03:25</span></div>
+    <div class="tick major"><span>03:40</span></div>
+    <div class="tick"><span>03:55</span></div>
+    <div class="tick"></div><div class="tick"></div><div class="tick"></div><div class="tick"></div>
+    <div class="tick"></div><div class="tick"></div><div class="tick"></div><div class="tick"></div>
+    <div class="tick"></div><div class="tick"></div><div class="tick"></div><div class="tick"></div>
+  </div>
+
+  <main>
+
+    <section class="bay">
+      <div class="bayhead">
+        <span class="bayno">Bay 1</span>
+        <h2 class="baylabel">The fact that expired</h2>
+        <p class="baynote">A record that is still on the board but will not sit flush.</p>
+      </div>
+
+      <div class="opening">
+        <p>Throughline is an on-call agent that answers from what it remembers, and hands you the
+        paperwork every time. Three things go wrong silently in every other memory layer.
+        <em>This board is those three things, made physical.</em></p>
+      </div>
+
+      <figure class="lineage">
+        <div>
+          <img src="../assets/french-flight-strip-2008.jpg" alt="A scan of a paper flight progress strip filled in by hand during an air traffic control training simulation at ENAC in France, 2008.">
+          <figcaption>Flight progress strip, ENAC training simulation, France, 2008. Public domain, via Wikimedia Commons.</figcaption>
+        </div>
+        <div>
+          <p>Controllers kept these long after the screens arrived. The strip was the legal record of
+          what was actually said, written while it was happening, by people who could not afford to
+          trust their own recall.</p>
+          <p>An agent's memory has the same job and almost never does it. A vector store returns a
+          sentence with no idea whether it is still true, no record of who asserted it, and no way
+          to say "I did not actually check".</p>
+          <span class="hand">this is the lineage.</span>
+        </div>
+      </figure>
+
+      <div class="rack">
+        <div class="strip">
+          <span class="holder h-run"></span>
+          <div>
+            <div class="row r-main">
+              <div class="cell"><b>Content</b><span class="say doubt">Failover runs from the standby in us-east-2</span></div>
+              <div class="cell"><b>Freshness</b><span class="val doubt">0.13</span></div>
+            </div>
+            <div class="row r-four">
+              <div class="cell"><b>Kind</b><span class="val">RUNBOOK FACT</span></div>
+              <div class="cell"><b>Half-life</b><span class="val">90 d</span></div>
+              <div class="cell"><b>End dated</b><span class="val">15 APR 2026</span></div>
+              <div class="cell"><b>State</b><span class="stamp grey">Superseded</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="strip cocked">
+          <span class="holder h-run"></span>
+          <div>
+            <div class="row r-main">
+              <div class="cell"><b>Content</b><span class="say">Failover runs from the standby in eu-west-1</span></div>
+              <div class="cell"><b>Freshness</b><span class="val">0.43</span></div>
+            </div>
+            <div class="row r-four">
+              <div class="cell"><b>Kind</b><span class="val">RUNBOOK FACT</span></div>
+              <div class="cell"><b>Valid from</b><span class="val">15 APR 2026</span></div>
+              <div class="cell"><b>Supersedes</b><span class="val">mem_7f31c2</span></div>
+              <div class="cell"><b>State</b><span class="stamp cock">Cocked</span></div>
+            </div>
+          </div>
+        </div>
+
+        <p class="baynote" style="max-width:66ch;margin:4px 0 0">Past one half-life for its kind, a
+        record is returned flagged rather than dropped, because a stale fact you can see is safer
+        than one that vanished. The row it replaced stays queryable with its end date. Nothing is
+        overwritten, ever.</p>
+      </div>
+    </section>
+
+    <section class="bay">
+      <div class="bayhead">
+        <span class="bayno">Bay 2</span>
+        <h2 class="baylabel">The search that never ran</h2>
+        <p class="baynote">An empty holder is information. It is not the same as an empty result.</p>
+      </div>
+      <div class="rack">
+        <div class="empty">
+          <span class="holder"></span>
+          <div class="slip">
+            <span class="k">Refusal slip &middot; 02:31:07</span>
+            <div class="v">NO SEARCH RAN. VERDICT: UNKNOWN.</div>
+            <p>The embedding provider timed out at 2,004 ms, so 0 of 4,102 rows were read. Nothing
+            was excluded, because nothing was examined. The agent is blocked from turning this into
+            "no prior incidents".</p>
+            <div class="fields">
+              <div><span>QUERY</span> standby region, failover</div>
+              <div><span>PATH</span> none</div>
+              <div><span>READ</span> 0 of 4,102</div>
+              <div><span>ELAPSED</span> 2,004 ms</div>
+              <div><span>STOPPED BY</span> embedder_unreachable</div>
+              <div><span>CANDIDATE CAP</span> 200, unused</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="strip retired">
+          <span class="holder h-tomb"></span>
+          <div>
+            <div class="row r-three">
+              <div class="cell"><b>What everyone else returns</b><span class="say doubt">"I found nothing relevant about the standby region."</span></div>
+              <div class="cell"><b>Rows actually read</b><span class="val doubt">0</span></div>
+              <div class="cell"><b>Backing</b><span class="stamp">Unbacked</span></div>
+            </div>
+          </div>
+        </div>
+
+        <p class="baynote" style="max-width:66ch;margin:4px 0 0">Absence of a result is not absence
+        of a fact. Every recall carries a coverage verdict of COVERED, PARTIAL or UNKNOWN, and
+        UNKNOWN is the one the agent cannot launder.</p>
+      </div>
+    </section>
+
+    <section class="bay">
+      <div class="bayhead">
+        <span class="bayno">Bay 3</span>
+        <h2 class="baylabel">The eviction that ate the newest entry</h2>
+        <p class="baynote">Every sweep publishes what it removed and what it refused to touch.</p>
+      </div>
+      <div class="rack">
+        <div class="strip">
+          <span class="holder h-tomb"></span>
+          <div>
+            <div class="row r-main">
+              <div class="cell"><b>Was</b><span class="say doubt"><span class="punch"></span>Restarting the ingest pod cleared the backlog on 14 Feb</span></div>
+              <div class="cell"><b>Freshness</b><span class="val doubt">0.02</span></div>
+            </div>
+            <div class="row r-four">
+              <div class="cell"><b>Removed</b><span class="val">02:58:44</span></div>
+              <div class="cell"><b>Age</b><span class="val">169 d</span></div>
+              <div class="cell"><b>Unread for</b><span class="val">134 d</span></div>
+              <div class="cell"><b>State</b><span class="stamp grey">Withdrawn</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div><span class="tag">Refused &middot; 3 entries inside the 24 hour grace window</span></div>
+
+        <div class="strip">
+          <span class="holder h-rej"></span>
+          <div>
+            <div class="row r-main">
+              <div class="cell"><b>Content</b><span class="say">It was not the CDN. We lost forty minutes proving that in March.</span></div>
+              <div class="cell"><b>Freshness</b><span class="val">0.75</span></div>
+            </div>
+            <div class="row r-four">
+              <div class="cell"><b>Kind</b><span class="val">REJECTED HYPOTHESIS</span></div>
+              <div class="cell"><b>Half-life</b><span class="val">365 d</span></div>
+              <div class="cell"><b>Source</b><span class="val">INC-2291</span></div>
+              <div class="cell"><b>State</b><span class="stamp prot">Protected</span></div>
+            </div>
+          </div>
+        </div>
+
+        <p class="baynote" style="max-width:66ch;margin:4px 0 0">The entry with no usage history is
+        the one that arrived an hour ago, so a store that evicts by score alone throws away the
+        incident most likely to recur. Protection is stamped at write time by the policy that wrote
+        the row, so no later policy can quietly un-protect it. Removal writes a tombstone, and a
+        rejected hypothesis outlives everything else on the board because knowing what did not work
+        is half of an incident archive.</p>
+      </div>
+    </section>
+
+    <section class="bay">
+      <div class="bayhead">
+        <span class="bayno">Bay 4</span>
+        <h2 class="baylabel">Active</h2>
+        <p class="baynote">Live strips, posting from the cluster this page is reading right now.</p>
+      </div>
+      <div class="rack">
+        <div class="strip">
+          <span class="holder"></span>
+          <div>
+            <div class="row r-main">
+              <div class="cell"><b>Content</b><span class="say">p99 on checkout is 4.2 s, eu-central-1 only</span></div>
+              <div class="cell"><b>Freshness</b><span class="val">1.00</span></div>
+            </div>
+            <div class="row r-four">
+              <div class="cell"><b>Kind</b><span class="val">OBSERVATION</span></div>
+              <div class="cell"><b>Asserted by</b><span class="val">ilse</span></div>
+              <div class="cell"><b>Incident</b><span class="val">INC-3310</span></div>
+              <div class="cell"><b>Protected</b><span class="val">24 h</span></div>
+            </div>
+          </div>
+        </div>
+        <div style="padding-top:10px;display:flex;gap:12px;flex-wrap:wrap">
+          <a class="cta" href="demo.html"><span class="holder h-res"></span><span class="lbl">Open the console</span></a>
+          <a class="cta ghost" href="memory.html"><span class="holder h-tomb"></span><span class="lbl">Audit the archive</span></a>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<footer class="source">
+  <h2>Source strip</h2>
+  <div class="srcrow"><span>Memory rows and scores, live CockroachDB cluster</span><span class="verdict v-cov">MEASURED</span></div>
+  <div class="srcrow"><span>Recall receipts and eviction counters</span><span class="verdict v-cov">MEASURED</span></div>
+  <div class="srcrow"><span>Bedrock model latency</span><span class="verdict v-par">SAMPLED</span></div>
+  <div class="srcrow"><span>MCP transport reachability</span><span class="verdict v-unk">UNKNOWN</span></div>
+  <p class="colophon">
+    Unknown is not a low score. It means nobody has looked yet, and we will not print a number we
+    did not earn.<br>
+    Memory of record: CockroachDB Cloud, eu-central-1, vector index on (workspace_id, is_live).
+    Agent on Amazon Bedrock.<br>
+    Flight strip scan: Wikimedia Commons, public domain. Strip practice after Mackay, ACM TOCHI
+    1999, DOI 10.1145/331490.331491.
+  </p>
+</footer>
+
+</body>
+</html>
