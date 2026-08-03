@@ -69,10 +69,25 @@ export function decideCoverage(inputs: CoverageInputs): CoverageVerdict {
     };
   }
 
-  return {
-    coverage: 'COVERED',
-    reason: `The search examined all ${inputs.candidatesConsidered} candidates in the workspace.`,
-  };
+  // The wording depends on the path, because the two paths make genuinely different promises and an
+  // earlier version made the stronger one for both.
+  //
+  // An exact scan compares every live row, so "examined everything" is true. An approximate nearest
+  // neighbour index searches the whole workspace but may miss a close match BY DESIGN: that is what
+  // approximate means, and it is the trade the index exists to make. Claiming exhaustiveness there
+  // overstates what happened, in the one field a reader relies on to know how much to trust the
+  // answer.
+  return inputs.retrievalPath === 'ann_index'
+    ? {
+        coverage: 'COVERED',
+        reason:
+          `The search covered the whole workspace and examined ${inputs.candidatesConsidered} candidates ` +
+          'through the approximate index. Approximate means a close match can be missed by design.',
+      }
+    : {
+        coverage: 'COVERED',
+        reason: `The search compared every live row in the workspace, ${inputs.candidatesConsidered} of them.`,
+      };
 }
 
 /**

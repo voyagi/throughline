@@ -94,14 +94,17 @@ Working now:
 - The live database path: schema, migrations, a connection layer that keeps credentials out of
   logs, and a capability probe that asks the running cluster what it can actually do. Migrations
   are applied and the probe runs green against a real CockroachDB Cloud cluster.
-- 99 tests, including property tests and several written specifically to go red if a protection is
+- 144 tests, including property tests and several written specifically to go red if a protection is
   removed.
 - The quality gate chain, with a written record of which gates have actually been proven to fail
   in [docs/gates.md](docs/gates.md).
 
+- The repository layer: remembering, recalling, superseding and evicting against real rows, with
+  every recall returning a receipt. `npm run verify:live` exercises all of it end to end against a
+  real cluster and asserts each outcome rather than printing it for a human to eyeball.
+
 Not built yet:
 
-- The repository layer: remembering, superseding and evicting against real rows.
 - The agent, the HTTP surface and the Bedrock adapter.
 - The web console, the memory inspector and the status page.
 - The deployed stack and the public demo URL.

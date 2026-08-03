@@ -42,6 +42,18 @@ export { splitStatements } from './sql-statements.ts';
 export type { ProbeOptions } from './capability.ts';
 export { probeCapabilities, retrievalPathFor } from './capability.ts';
 
+export type { MemoryRow } from './rows.ts';
+export { formatVector, parseVector, rowToMemory } from './rows.ts';
+
+export type {
+  EvictionOutcome,
+  MemoryRepository,
+  RecallQuery,
+  RememberInput,
+  RepositoryOptions,
+} from './repository.ts';
+export { createRepository } from './repository.ts';
+
 export type { MemoryPolicy } from './policy.ts';
 export { DEFAULT_POLICY, MS_PER_DAY } from './policy.ts';
 
