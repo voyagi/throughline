@@ -25,6 +25,8 @@ are the reasons this discipline pays.
 | Cross-browser compat | `npm run lint` | NO | No client code yet |
 | Bundle size | `npm run gate:size` | NO | No built bundle yet |
 | Tracked-file check | `npm run gate:artifacts` | YES | Caught a really tracked `.build-lane` on live data, exit 1, and reports UNKNOWN with exit 2 against an empty index |
+| `.npmrc` credential rule | `npm run gate:artifacts` | YES | A planted `//registry.npmjs.org/:_authToken=` line, exit 1, naming file and line without printing the value |
+| Dependency advisories | `npm run gate:advisories` | YES | A removed acceptance for a live HIGH, exit 1. Also exit 2 against a tree with no dependencies, and it prints a verdict through a junction where it used to print nothing at all |
 | Test suite | `npm test` | YES | Nine separate protections were deleted one at a time and every one went red. See below |
 
 ## Protections with a test that goes red when the protection is deleted
@@ -84,9 +86,17 @@ existed because the fixes from the first were themselves unexamined code.
 
 ## Why the tracked-file check is narrower than it looks
 
-`scripts/check-tracked-files.mjs` compares tracked PATHS against a fixed list. It does not read file
-content and it does not guess. Green means "no path on the list is tracked", which is narrower than
-"this repo leaks nothing", and the script says so in its own header.
+`scripts/check-tracked-files.mjs` compares tracked PATHS against a fixed list, and reads the content
+of exactly one kind of file. Green means "no path on the list is tracked and no tracked `.npmrc`
+carries a credential", which is narrower than "this repo leaks nothing", and the script says so in
+its own header.
+
+That one content rule exists because `.npmrc` is deliberately tracked, so the supply chain cooldown
+travels with the repository instead of living on one laptop. It is the only file here whose format
+holds both ordinary configuration and registry credentials, and no path rule can tell those apart.
+Every tracked `.npmrc` at any depth is read, comment lines included, because a commented-out token
+is still a committed token: the `#` stops npm and stops nothing else. Proven failable on a planted
+`_authToken` line, and the failure names the file and line without printing the value.
 
 It replaced a larger content-scanning gate that was carried in from elsewhere. That gate reported
 this repo clean while four of its own files named unrelated private projects, because its content

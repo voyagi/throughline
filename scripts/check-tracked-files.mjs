@@ -1,22 +1,27 @@
-#!/usr/bin/env node
 /**
  * Fails the build when a file that should never be tracked is tracked.
+ *
+ * No shebang, deliberately. This runs as `node scripts/check-tracked-files.mjs` and is never
+ * executed directly, and a shebang on a file checked out with CRLF makes a vitest import of it die
+ * with "SyntaxError: Invalid or unexpected token" on Windows while passing on Linux. That already
+ * cost this repository one commit whose own tests could not run on the platform they were written
+ * on. `.gitattributes` pins LF for fresh checkouts; this removes the trigger as well as the cause.
  *
  * This repo is going public, and untracking is index-only: anything committed once stays readable
  * in history forever. Prose in a checklist cannot fail a build, so this exists to make the rule
  * mechanical.
  *
  * WHAT THIS IS NOT: it checks tracked PATHS against a fixed list, plus ONE content rule described
- * below. It does not otherwise read file content and it does not guess. A green result means "no
- * path on the list is tracked and .npmrc carries no credential", which is narrower than "this repo
- * leaks nothing". Said plainly here so nobody reads the green as broader than it is.
+ * below. It reads no other file's content and it does not guess. A green result means "no path on
+ * the list is tracked and no tracked .npmrc carries a credential", which is narrower than "this
+ * repo leaks nothing". Said plainly here so nobody reads the green as broader than it is.
  *
  * THE ONE CONTENT RULE. `.npmrc` is deliberately tracked, because the supply chain cooldown has to
  * travel with the repository rather than live on one laptop. That makes it the one file here whose
  * whole purpose is to hold npm configuration and whose format also accepts registry credentials.
- * A path rule cannot tell those apart, so this reads that single file and fails on an auth line.
- * The cost of missing it is not a bad build: it is a token committed to a repository that becomes
- * public, where removing it from the index changes nothing about history.
+ * A path rule cannot tell those apart, so every tracked `.npmrc` at any depth is read and an auth
+ * line fails the build. The cost of missing one is not a bad build: it is a token committed to a
+ * repository that becomes public, where removing it from the index changes nothing about history.
  *
  * Matching is at ANY DEPTH, deliberately. A root-anchored version of this script passed a tracked
  * `apps/api/.env` and a tracked `packages/memory/.claude/settings.json` while reporting clean, so
@@ -102,22 +107,51 @@ function listTrackedFiles() {
  * Auth-bearing npm config keys, as they appear in an .npmrc.
  *
  * Matched with an optional registry-scope prefix, because the real shape of a leak is
- * `//registry.npmjs.org/:_authToken=...` rather than a bare key. Case-insensitive, and the value
- * is never printed: the point is to fail, not to reproduce the secret in a build log.
+ * `//registry.npmjs.org/:_authToken=...` rather than a bare key. `certfile` and `keyfile` are
+ * absent on purpose: those name a path, not a secret.
  */
-const NPMRC_CREDENTIAL = /^\s*(?:\/\/[^\s=]*:)?_(?:auth|authtoken|password|auth_token)\s*=/i;
+const NPMRC_CREDENTIAL =
+  /^\s*(?:[#;]\s*)?(?:\/\/[^\s=]*:)?_(?:auth|authtoken|auth_token|password|secret)\s*=/i;
 
-function npmrcCredentialLines(root) {
-  const file = path.join(root, '.npmrc');
-  if (!existsSync(file)) return [];
-  const found = [];
-  const lines = readFileSync(file, 'utf8').split(/\r?\n/);
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    if (line.trimStart().startsWith('#') || line.trimStart().startsWith(';')) continue;
-    if (NPMRC_CREDENTIAL.test(line)) found.push(index + 1);
+/**
+ * A credential embedded in a registry URL, which is the shape carrying no `_` key at all.
+ *
+ * `registry=https://user:token@host/` is perfectly ordinary npm configuration and a perfectly
+ * ordinary leak. A colon-separated pair before the `@` is required so an everyday
+ * `https://host/path` value does not trip it.
+ */
+const URL_CREDENTIAL = /^\s*(?:[#;]\s*)?[\w@/:.-]*=\s*\w+:\/\/[^\s:@/]+:[^\s@/]+@/i;
+
+/**
+ * Every tracked `.npmrc`, at any depth, read for something that should never have been committed.
+ *
+ * THREE decisions, each from a specific miss found by review:
+ *
+ * Depth, not the root only. This script's own header says depth is where a real leak turns up,
+ * because nobody puts the second copy at the top. A tracked `apps/api/.npmrc` used to pass.
+ *
+ * Comment lines are scanned too. A commented-out token is still a committed token: the `#` stops
+ * npm reading it and stops nothing else. Whoever reads the public repository does not care that
+ * the credential was disabled.
+ *
+ * TRACKED files, not files on disk. A developer's untracked local `.npmrc` full of tokens is
+ * exactly what should exist and is none of this gate's business.
+ */
+function npmrcCredentialHits(root, tracked) {
+  const hits = [];
+  for (const relative of tracked) {
+    if (path.basename(relative) !== '.npmrc') continue;
+    const file = path.join(root, relative);
+    if (!existsSync(file)) continue;
+    const lines = readFileSync(file, 'utf8').split(/\r?\n/);
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index] ?? '';
+      if (NPMRC_CREDENTIAL.test(line) || URL_CREDENTIAL.test(line)) {
+        hits.push(`${relative}:${index + 1}`);
+      }
+    }
   }
-  return found;
+  return hits;
 }
 
 function main() {
@@ -150,22 +184,24 @@ function main() {
     process.exit(1);
   }
 
-  const credentialLines = npmrcCredentialLines(root);
-  if (credentialLines.length > 0) {
-    console.error(
-      `[tracked-files] .npmrc carries an auth line at line ${credentialLines.join(', ')}. The ` +
-        'value is not printed here on purpose.',
-    );
+  const credentialHits = npmrcCredentialHits(root, tracked);
+  if (credentialHits.length > 0) {
+    console.error(`[tracked-files] ${credentialHits.length} auth line(s) in a tracked .npmrc:`);
+    // Path and line number only. The value is never printed: the point is to fail the build, not to
+    // reproduce the secret in a log that is itself readable.
+    for (const hit of credentialHits) console.error(`  ${hit}`);
     console.error('');
-    console.error('That file is tracked and this repository becomes public. Move the credential to');
-    console.error('~/.npmrc or an environment variable. If it was ever COMMITTED, removing it from');
-    console.error('the index changes nothing: rotate the token, because history keeps it.');
+    console.error('Those files are tracked and this repository becomes public. Move the credential');
+    console.error('to ~/.npmrc or an environment variable. Commenting it out is not enough, because');
+    console.error('the value stays readable. If it was ever COMMITTED, removing it from the index');
+    console.error('changes nothing, so rotate the token: history keeps it.');
     process.exit(1);
   }
 
+  const npmrcCount = tracked.filter((entry) => path.basename(entry) === '.npmrc').length;
   console.log(
     `[tracked-files] clean (${tracked.length} tracked paths checked against the list, ` +
-      'and .npmrc checked for auth lines)',
+      `${npmrcCount} tracked .npmrc read for auth lines)`,
   );
   process.exit(0);
 }

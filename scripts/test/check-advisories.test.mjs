@@ -160,8 +160,17 @@ describe('summariseAudit', () => {
 
   it('refuses a report shape it cannot read rather than calling it empty', () => {
     // The failure that matters: a future npm changing this shape must not read as zero findings.
-    for (const bad of [null, undefined, {}, { vulnerabilities: null }, 'not a report']) {
-      expect(() => summariseAudit(bad)).toThrow(/vulnerabilities/);
+    // The reason differs by which guard catches first, and asserting the reason rather than just
+    // the throw is what keeps the guards individually load bearing.
+    const cases = [
+      [null, /vulnerabilities object/],
+      [undefined, /vulnerabilities object/],
+      ['not a report', /vulnerabilities object/],
+      [{}, /report version/],
+      [{ auditReportVersion: 2, vulnerabilities: null }, /vulnerabilities object/],
+    ];
+    for (const [bad, expected] of cases) {
+      expect(() => summariseAudit(bad)).toThrow(expected);
     }
   });
 
@@ -175,6 +184,34 @@ describe('summariseAudit', () => {
     expect(() => summariseAudit(reportOf({}, { dependencies: undefined }))).toThrow(
       /no dependency count at all/,
     );
+  });
+
+  it('refuses a report version nobody has read the shape of', () => {
+    // Fail closed on a future npm. A new schema is unknown, not clean, and the cost of being wrong
+    // in the other direction is a silent green on a gate whose only job is to not do that.
+    expect(() => summariseAudit({ ...LIVE_REPORT, auditReportVersion: 3 })).toThrow(/report version/);
+    expect(() => summariseAudit({ ...LIVE_REPORT, auditReportVersion: undefined })).toThrow(
+      /report version/,
+    );
+  });
+
+  it('refuses an array where the vulnerabilities object should be', () => {
+    // An array passes every typeof check and Object.entries yields index-to-value pairs, so this
+    // reads as zero findings and a clean verdict unless something says otherwise.
+    expect(() => summariseAudit(reportOf([]))).toThrow(/vulnerabilities object/);
+  });
+
+  it('refuses a summary total that is not a number, whatever shape it took', () => {
+    // The guard below only fired on `total > 0`, which disarmed it on every drift it exists to
+    // catch: a missing summary, a renamed key and a stringly-typed count all returned clean.
+    for (const metadata of [
+      { vulnerabilities: undefined },
+      { vulnerabilities: { totals: 3 } },
+      { vulnerabilities: { total: '3' } },
+      { vulnerabilities: [] },
+    ]) {
+      expect(() => summariseAudit(reportOf({}, metadata))).toThrow(/summary total/);
+    }
   });
 
   it('refuses a report whose own summary counts more than it could read', () => {

@@ -9,8 +9,12 @@
 # they were written on, and CI was green, which is the worst possible arrangement of those two
 # facts.
 #
-# `text=auto eol=lf` normalises on commit and checks out LF on every platform. The index here is
-# already LF, so this changes the working tree rather than the history.
+# `text=auto eol=lf` normalises on commit and checks out LF on every platform. The index here was
+# already LF, so `git add --renormalize .` produced no changes at all: this governs what a FRESH
+# clone gets, which is what CI and anyone reading this repository will have. An existing working
+# tree keeps its CRLF files until they are next checked out, and that is fine. Do not try to fix
+# that with `git checkout-index --force`: it overwrites every tracked file from the index and
+# throws away uncommitted work, which is how this line came to be written twice.
 * text=auto eol=lf
 
 # Binary, so git never tries to translate anything inside them.
