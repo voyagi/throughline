@@ -139,9 +139,10 @@ milliseconds.
 The mechanism is worth getting right, because the plausible-sounding version is wrong and the wrong
 version is a trap. The key class holds no whitespace, so the key never competes for a run of spaces.
 What competes is the leading whitespace and the whitespace before the equals, and a NULLABLE key is
-what lets them share one run: with a star the key can match empty at every split point, so the two
-runs divide the input in as many ways as it is long. The plus removes that by making the key unable
-to match empty, not by bounding its length.
+what lets them share one run: with a star the key can match empty at every split point, and the
+second run may also stop short rather than take the remainder, so the two divide the input in
+quadratically many ways. The plus removes that by making the key unable to match empty, not by
+bounding its length.
 
 **That distinction matters for the next person who touches this.** The obvious way to close the
 first divergence listed below, a key containing whitespace, is to add `\s` to the key class and keep

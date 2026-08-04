@@ -234,11 +234,22 @@ describe('the .npmrc secret rule', () => {
     // paying the cost has to pick inputs where the cost is affordable.
     //
     // So the sizes are chosen to make a regression fail in under a second while healthy code stays
-    // in microseconds. Measured reference points for the two regressions this is aimed at: the
-    // nullable-key version costs about 178 ms at 16,000 characters, and the whitespace-in-key
-    // version is cubic and costs about 0.3 seconds at 1,000. Both trip a 100 ms ceiling almost
-    // immediately, and the healthy margin is still four orders of magnitude.
-    const sizes = [1_000, 4_000, 16_000];
+    // in microseconds. The two regressions this is aimed at behave quite differently, and saying
+    // "both trip it immediately" was measured to be false:
+    //
+    //   whitespace-in-key (cubic)   trips on the FIRST size, at roughly 250 ms
+    //   nullable key (quadratic)    passes 1,000 and 4,000 and only trips at 16,000
+    //
+    // 32,000 is included for that second one, where it costs about 730 ms against 0.07 ms healthy.
+    // The sizes run ASCENDING on purpose: the cubic case would take geometric time at the largest
+    // size, and the first failed expectation aborts the test before it can get there.
+    //
+    // Healthy margin, measured over 19,500 samples rather than estimated: p50 0.008 ms, p99.9
+    // 0.115 ms, worst single sample 0.376 ms including JIT warm-up. So the ceiling is roughly 266x
+    // the worst case and four orders of magnitude above the median, and it survived a run under 24
+    // CPU burners because the strings are built BEFORE the clock starts and the timed window holds
+    // only the regex work.
+    const sizes = [1_000, 4_000, 16_000, 32_000];
     for (const size of sizes) {
       const pathological = [
         ' '.repeat(size),

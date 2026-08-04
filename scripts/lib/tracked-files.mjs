@@ -89,8 +89,9 @@ export function isForbidden(trackedPath) {
  * wrong version is dangerous. The key class holds NO whitespace, so the key never competes with
  * anything for a run of spaces. The competing pair is `^\s*` and the `\s*` before the `=`, and a
  * NULLABLE key is what lets them share one run: with `*` the key can match empty at every split
- * point, so the two whitespace runs divide the input in O(n) ways. `+` removes that by making the
- * key unable to match empty, not by bounding anything.
+ * point, so the two whitespace runs divide the input in O(n squared) ways, since the second run may
+ * also stop short rather than consume the remainder. `+` removes that by making the key unable to
+ * match empty, not by bounding anything.
  *
  * READ THAT AGAIN BEFORE CLOSING THE FIRST DIVERGENCE ABOVE. The obvious way to cover a key
  * containing whitespace is to add `\s` to the key class and keep the `+`. That is far worse than
