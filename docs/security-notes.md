@@ -122,8 +122,20 @@ resolved tree, not by assuming the override applied.
 - Dependency installs respect the three day release age cooldown, set in this repository's own
   `.npmrc` rather than only in a developer's home directory. It is never bypassed to clear a
   finding faster, because "no advisory yet" inside that window means detection has not opened, not
-  that a package is clean. Measured before committing: `npm ci` is unaffected by it, so
-  reproducible installs and CI are not slowed or broken by the rule.
+  that a package is clean.
+  Its reach is narrower than the sentence above sounds, and the narrower version is the true one.
+  `min-release-age` governs RESOLUTION, so it applies to `npm install` and not to `npm ci`, which
+  reads the lockfile. It also requires npm 11.10.0 or newer, where the key was introduced; an older
+  npm treats it as an unknown key, warns once and continues. CI runs `npm ci` on the Node 22 line,
+  which bundles npm 10.9.x, so the cooldown does nothing there and never did. `engines.npm` names
+  the version that makes it real. What actually protects CI is the committed lockfile plus
+  `npm run gate:advisories`. An earlier version of this section claimed the cooldown covered CI,
+  which was the same shape of error as the one that put it in this file to begin with.
 - A zero finding result is only reported as clean when the scan is confirmed to have run. A scan
   that produced no output is UNKNOWN. The advisory gate exits 2, distinct from both clean and
-  failing, when it cannot reach the registry.
+  failing, when it cannot reach the registry, when the acceptance list is malformed, when the tree
+  it audited has no dependencies at all, and when npm's own summary counts vulnerabilities the gate
+  could not read out of the report. The last two were added after a review measured the gate
+  printing "clean (0 finding(s))" against an empty tree and against a report whose shape had
+  drifted: extracting nothing and there being nothing were the same value, which is precisely the
+  failure this project exists to argue against, committed by the component built to catch it.

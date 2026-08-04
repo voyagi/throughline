@@ -6,9 +6,17 @@
  * in history forever. Prose in a checklist cannot fail a build, so this exists to make the rule
  * mechanical.
  *
- * WHAT THIS IS NOT: it checks tracked PATHS against a fixed list. It does not read file content
- * and it does not guess. A green result means "no path on the list is tracked", which is narrower
- * than "this repo leaks nothing". Said plainly here so nobody reads the green as broader than it is.
+ * WHAT THIS IS NOT: it checks tracked PATHS against a fixed list, plus ONE content rule described
+ * below. It does not otherwise read file content and it does not guess. A green result means "no
+ * path on the list is tracked and .npmrc carries no credential", which is narrower than "this repo
+ * leaks nothing". Said plainly here so nobody reads the green as broader than it is.
+ *
+ * THE ONE CONTENT RULE. `.npmrc` is deliberately tracked, because the supply chain cooldown has to
+ * travel with the repository rather than live on one laptop. That makes it the one file here whose
+ * whole purpose is to hold npm configuration and whose format also accepts registry credentials.
+ * A path rule cannot tell those apart, so this reads that single file and fails on an auth line.
+ * The cost of missing it is not a bad build: it is a token committed to a repository that becomes
+ * public, where removing it from the index changes nothing about history.
  *
  * Matching is at ANY DEPTH, deliberately. A root-anchored version of this script passed a tracked
  * `apps/api/.env` and a tracked `packages/memory/.claude/settings.json` while reporting clean, so
@@ -20,6 +28,8 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 
 /** Directory names that must never appear as a path segment, at any depth. */
 const FORBIDDEN_DIRECTORY_SEGMENTS = [
@@ -88,9 +98,33 @@ function listTrackedFiles() {
   return output.split('\0').filter((entry) => entry.length > 0);
 }
 
+/**
+ * Auth-bearing npm config keys, as they appear in an .npmrc.
+ *
+ * Matched with an optional registry-scope prefix, because the real shape of a leak is
+ * `//registry.npmjs.org/:_authToken=...` rather than a bare key. Case-insensitive, and the value
+ * is never printed: the point is to fail, not to reproduce the secret in a build log.
+ */
+const NPMRC_CREDENTIAL = /^\s*(?:\/\/[^\s=]*:)?_(?:auth|authtoken|password|auth_token)\s*=/i;
+
+function npmrcCredentialLines(root) {
+  const file = path.join(root, '.npmrc');
+  if (!existsSync(file)) return [];
+  const found = [];
+  const lines = readFileSync(file, 'utf8').split(/\r?\n/);
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line.trimStart().startsWith('#') || line.trimStart().startsWith(';')) continue;
+    if (NPMRC_CREDENTIAL.test(line)) found.push(index + 1);
+  }
+  return found;
+}
+
 function main() {
   let tracked;
+  let root;
   try {
+    root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
     tracked = listTrackedFiles();
   } catch (error) {
     console.error(`[tracked-files] UNKNOWN: could not enumerate tracked files: ${error.message}`);
@@ -116,7 +150,23 @@ function main() {
     process.exit(1);
   }
 
-  console.log(`[tracked-files] clean (${tracked.length} tracked paths checked against the list)`);
+  const credentialLines = npmrcCredentialLines(root);
+  if (credentialLines.length > 0) {
+    console.error(
+      `[tracked-files] .npmrc carries an auth line at line ${credentialLines.join(', ')}. The ` +
+        'value is not printed here on purpose.',
+    );
+    console.error('');
+    console.error('That file is tracked and this repository becomes public. Move the credential to');
+    console.error('~/.npmrc or an environment variable. If it was ever COMMITTED, removing it from');
+    console.error('the index changes nothing: rotate the token, because history keeps it.');
+    process.exit(1);
+  }
+
+  console.log(
+    `[tracked-files] clean (${tracked.length} tracked paths checked against the list, ` +
+      'and .npmrc checked for auth lines)',
+  );
   process.exit(0);
 }
 
