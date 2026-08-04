@@ -110,7 +110,7 @@ like "the rule matches on the key, never on what follows the equals", which soun
 the wrong axis entirely. **Neither rule is a parser.** Both are line-shape heuristics approximating
 npm's ini syntax, and every place the approximation differs from npm is a gap by construction.
 
-Four gaps have been found and closed, each after a comment claimed the enumeration was finished:
+Nine gaps have been found and closed, each after a comment claimed the enumeration was finished:
 
 - the bare `key` and `password` config names, which hold an inline PEM and a plaintext password and
   have no leading underscore,
@@ -133,9 +133,21 @@ are scanned because a commented-out token is still a committed token. The marker
 does not stop whoever reads the repository.
 
 Closing the whitespace gap introduced quadratic backtracking in the gate itself, measured at 37
-seconds for a 200,000 character line, because the leading whitespace and the key pattern both
-competed for the same run of spaces. Bounding the key to one-or-more brings that to 0.76
+seconds for a 200,000 character line. Bounding the key to one-or-more brings that to 0.76
 milliseconds.
+
+The mechanism is worth getting right, because the plausible-sounding version is wrong and the wrong
+version is a trap. The key class holds no whitespace, so the key never competes for a run of spaces.
+What competes is the leading whitespace and the whitespace before the equals, and a NULLABLE key is
+what lets them share one run: with a star the key can match empty at every split point, so the two
+runs divide the input in as many ways as it is long. The plus removes that by making the key unable
+to match empty, not by bounding its length.
+
+**That distinction matters for the next person who touches this.** The obvious way to close the
+first divergence listed below, a key containing whitespace, is to add `\s` to the key class and keep
+the plus. That is far worse than the problem the trade avoids: measured at 138 seconds for an 8,000
+character line, against 37 seconds for 200,000. Three whitespace-capable quantifiers in a row is
+cubic. Closing that gap needs a different shape and a timing measurement beside it.
 
 **That bound costs coverage, and an earlier version of this paragraph claimed it did not.** It loses
 the empty-key form, ` = https://user:token@host/`, which npm parses to the key `""` and resolves.

@@ -58,11 +58,12 @@ export function isForbidden(trackedPath) {
  * it. Read this before changing either one.
  *
  * They are line-shape heuristics that approximate npm's ini syntax, and every place the
- * approximation differs from npm is a gap by construction. SEVEN have been found and closed so far,
+ * approximation differs from npm is a gap by construction. NINE have been found and closed so far,
  * each after a comment claimed the enumeration was finished: the bare `key` and `password` config
- * names, whitespace around the equals, quoted keys, quoted values, an empty username in the URL
- * form, and a scheme containing `+` such as `git+https`. Every one was found by someone checking
- * what npm ACCEPTS rather than what the regex reads nicely as.
+ * names, whitespace around the equals, quoted keys, quoted values, a doubled `##` comment marker,
+ * ini `[]` array syntax, an empty username in the URL form, and a scheme containing `+` such as
+ * `git+https`. Every one was found by someone checking what npm ACCEPTS rather than what the regex
+ * reads nicely as.
  *
  * So the rule for editing these is: change them only against npm's own parser, and add a fixture in
  * both directions. Do not reason from the regex to what npm does. That is the mistake, every time.
@@ -79,11 +80,23 @@ export function isForbidden(trackedPath) {
  * what keeps the rule from firing on ordinary prose, so this is left open rather than guessed at.
  *
  * AN EMPTY KEY. ` = https://user:token@host/` parses to the key `""` and resolves. A DELIBERATE
- * TRADE: the key pattern is `+` rather than `*`, and with `*` the leading `\s*` and the key both
- * compete for a run of spaces, backtracking quadratically at 37 seconds per 200,000 characters
- * against 0.76 milliseconds bounded. A gate one long line can stall is a gate somebody deletes, so
- * this misses a form nobody writes on purpose instead. Said out loud rather than left as an
- * accident, and pinned by a test that states why it is open.
+ * TRADE: the key pattern is `+` rather than `*`, and with `*` the match backtracks quadratically,
+ * 37 seconds per 200,000 characters against 0.76 milliseconds bounded. A gate one long line can
+ * stall is a gate somebody deletes, so this misses a form nobody writes on purpose instead. Pinned
+ * by a test that states why it is open.
+ *
+ * WHY `+` WORKS, stated exactly, because the plausible-sounding version of this is wrong and the
+ * wrong version is dangerous. The key class holds NO whitespace, so the key never competes with
+ * anything for a run of spaces. The competing pair is `^\s*` and the `\s*` before the `=`, and a
+ * NULLABLE key is what lets them share one run: with `*` the key can match empty at every split
+ * point, so the two whitespace runs divide the input in O(n) ways. `+` removes that by making the
+ * key unable to match empty, not by bounding anything.
+ *
+ * READ THAT AGAIN BEFORE CLOSING THE FIRST DIVERGENCE ABOVE. The obvious way to cover a key
+ * containing whitespace is to add `\s` to the key class and keep the `+`. That is far worse than
+ * the problem this trade avoids: measured at 138 SECONDS for an 8,000 character line, against 37
+ * seconds for 200,000. Three whitespace-capable quantifiers in a row is cubic. If that divergence
+ * is ever closed, it needs a different shape entirely and a timing measurement to go with it.
  *
  * A value split across lines is NOT a divergence, and the reason previously given for that was
  * wrong. npm's ini has no line continuation, so `registry=https://u:p\` and `@host/` are two keys
@@ -148,11 +161,12 @@ export const NPMRC_CREDENTIAL = new RegExp(
  * canonical way to put a bare token in a registry URL, and requiring one character missed exactly
  * the most likely real leak in the file. npm's own redactor classifies all three as credentials.
  *
- * `[\w@/:.-]+` rather than `*`, and this one costs coverage on purpose. With `*` the leading `\s*`
- * and the key can both consume a run of spaces, which backtracks quadratically: 200,000 spaces
- * measured at 37 seconds against 0.76 milliseconds bounded. The price is the empty-key form, listed
- * with the other known divergences above. A build gate that one long line can stall is a build gate
- * somebody eventually deletes, so the trade goes this way, deliberately and in writing.
+ * `[\w@/:.-]+` rather than `*`, and this one costs coverage on purpose. A NULLABLE key lets `^\s*`
+ * and the `\s*` before the `=` divide one run of spaces in O(n) ways, which backtracks
+ * quadratically: 200,000 spaces measured at 37 seconds against 0.76 milliseconds. The `+` fixes it
+ * by making the key unable to match empty, not by bounding its length, and the difference between
+ * those two explanations is a 138 second trap documented with the divergences above. The price is
+ * the empty-key form. A build gate one long line can stall is a build gate somebody deletes.
  */
 export const URL_CREDENTIAL =
   /^\s*(?:[#;]+\s*)?["']?[\w@/:.-]+(?:\[\])?["']?\s*=\s*["']?[\w+.-]+:\/\/[^\s:@/]*:[^\s@/]+@/i;

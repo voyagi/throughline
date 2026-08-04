@@ -210,8 +210,9 @@ describe('the .npmrc secret rule', () => {
 
   it('does NOT cover an empty key, which is a known and deliberate divergence', () => {
     // ` = https://user:token@host/` parses to the key "" and resolves in npm. The key pattern is
-    // `+` rather than `*` because with `*` the leading whitespace and the key both compete for a
-    // run of spaces and the match backtracks quadratically: 37 seconds at 200k characters. This
+    // `+` rather than `*` because a NULLABLE key lets the leading whitespace and the whitespace
+    // before the equals share one run of spaces, backtracking quadratically: 37 seconds at 200k
+    // characters. The `+` works by making the key unable to match empty, not by bounding it. This
     // test exists so the divergence is a recorded decision rather than a surprise, and so that
     // anyone who closes it has to delete a test that says why it is open.
     expect(credentialLinesIn(` = https://u:p@host/`)).toEqual([]);
@@ -220,6 +221,38 @@ describe('the .npmrc secret rule', () => {
 
   it('does NOT cover a key containing whitespace, the other known divergence', () => {
     expect(credentialLinesIn('my key = https://u:p@host/')).toEqual([]);
+  });
+
+  it('stays fast on pathological lines, which nothing pinned until it nearly bit', () => {
+    // WHY THE INPUTS ARE SMALL, which is the whole design of this test.
+    //
+    // The measurement happens AFTER the call returns, so a catastrophic regression does not fail
+    // here, it HANGS: a synchronous regex blocks the thread, which blocks vitest's own timeout too.
+    // Proven the hard way. Planting the trap described in lib/tracked-files.mjs (adding \s to the
+    // key class) and running this file with 200,000 character inputs ran past TEN MINUTES before it
+    // was killed, against a documented estimate of 138 seconds. A guard that only reports after
+    // paying the cost has to pick inputs where the cost is affordable.
+    //
+    // So the sizes are chosen to make a regression fail in under a second while healthy code stays
+    // in microseconds. Measured reference points for the two regressions this is aimed at: the
+    // nullable-key version costs about 178 ms at 16,000 characters, and the whitespace-in-key
+    // version is cubic and costs about 0.3 seconds at 1,000. Both trip a 100 ms ceiling almost
+    // immediately, and the healthy margin is still four orders of magnitude.
+    const sizes = [1_000, 4_000, 16_000];
+    for (const size of sizes) {
+      const pathological = [
+        ' '.repeat(size),
+        `registry${' '.repeat(size)}x`,
+        `registry = ${'#'.repeat(size)}`,
+        `registry=https://${':'.repeat(size)}x`,
+        `${'a'.repeat(size)}x`,
+      ];
+      for (const line of pathological) {
+        const startedAt = performance.now();
+        credentialLinesIn(line);
+        expect(performance.now() - startedAt).toBeLessThan(100);
+      }
+    }
   });
 
   it('reports every offending line by its 1-based number', () => {
