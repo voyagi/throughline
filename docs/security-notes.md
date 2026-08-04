@@ -126,8 +126,10 @@ resolved tree, not by assuming the override applied.
   Its reach is narrower than the sentence above sounds, and the narrower version is the true one.
   `min-release-age` governs RESOLUTION, so it applies to `npm install` and not to `npm ci`, which
   reads the lockfile. It also requires npm 11.10.0 or newer, where the key was introduced; an older
-  npm ignores it in silence. Measured on npm 10.9.8: no warning for this key or for a deliberately
-  nonsense one, exit 0 either way, while 11.14.1 does warn about the nonsense one. So on an old npm
+  npm ignores it in silence. The version is verified against the npm changelog. The silence was
+  measured on npm 10.9.8 during review on 2026-08-04 (no warning for this key or for a deliberately
+  nonsense one, exit 0 either way, while 11.14.1 does warn about the nonsense one) and is recorded
+  as measured-once rather than reproducible here, since this machine runs 11.14.1. So on an old npm
   there is nothing at all to notice, which is worse than a warning and is why `engines.npm` names
   the version that makes the setting real. CI runs `npm ci` on the Node 22 line, which bundles
   npm 10.9.x, so the cooldown does nothing there and never did. What actually protects CI is the

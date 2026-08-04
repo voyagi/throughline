@@ -182,7 +182,7 @@ describe('summariseAudit', () => {
       summariseAudit(reportOf({}, { dependencies: { total: 0 } })),
     ).toThrow(/0 dependencies/);
     expect(() => summariseAudit(reportOf({}, { dependencies: undefined }))).toThrow(
-      /no dependency count at all/,
+      /dependency count is undefined rather than a number/,
     );
   });
 
@@ -212,6 +212,17 @@ describe('summariseAudit', () => {
     ]) {
       expect(() => summariseAudit(reportOf({}, metadata))).toThrow(/summary total/);
     }
+  });
+
+  it('says which thing is wrong when the dependency count is not a number', () => {
+    // The message used to read "reported 15 dependencies. A tree with nothing in it cannot be
+    // audited", which contradicts itself in one sentence for a stringly-typed count.
+    expect(() => summariseAudit(reportOf({}, { dependencies: { total: '15' } }))).toThrow(
+      /dependency count is "15" rather than a number/,
+    );
+    expect(() => summariseAudit(reportOf({}, { dependencies: { total: 0 } }))).toThrow(
+      /reported 0 dependencies/,
+    );
   });
 
   it('refuses a report whose own summary counts more than it could read', () => {
@@ -360,6 +371,36 @@ describe('decide', () => {
       ACCEPTED_TODAY[1],
     ];
     expect(decide({ findings, accepted: pastHorizon, today: '2026-08-04' }).status).toBe('fail');
+  });
+
+  it('keys an acceptance unambiguously, whatever the id and package contain', () => {
+    // Mutation testing found nothing pinning the separator: reverting keyOf to a plain `:` left
+    // every test green. The pair below is why a separator is the wrong shape regardless of which
+    // character is chosen. `A:B` + `C` and `A` + `B:C` collapse to the same string under `:`, so
+    // the live entry marks the stale one as matched and its staleness is never reported.
+    const findings = [
+      { id: 'GHSA-a:b', package: 'c', severity: 'high', title: 'one', url: '' },
+    ];
+    const accepted = [
+      {
+        id: 'GHSA-a:b',
+        package: 'c',
+        severity: 'high',
+        reason: 'live',
+        recheckAfter: '2026-09-01',
+      },
+      {
+        id: 'GHSA-a',
+        package: 'b:c',
+        severity: 'high',
+        reason: 'stale, and it must not hide behind the entry above',
+        recheckAfter: '2026-09-01',
+      },
+    ];
+    const result = decide({ findings, accepted, today: '2026-08-04' });
+    const stale = result.problems.filter((problem) => problem.kind === 'stale_acceptance');
+    expect(stale).toHaveLength(1);
+    expect(stale[0].package).toBe('b:c');
   });
 
   it('does not let a live acceptance mark a stale one with the same id as matched', () => {

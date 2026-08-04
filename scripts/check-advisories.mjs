@@ -54,11 +54,28 @@ function runAudit(cwd) {
     });
   } catch (error) {
     const stdout = typeof error?.stdout === 'string' ? error.stdout : '';
-    if (stdout.trim().startsWith('{')) return stdout;
+    // A report and a failure BOTH arrive as JSON on stdout, and telling them apart matters for the
+    // message a human reads. A failed audit emits `{"error":{...}}` with no `vulnerabilities`, and
+    // returning that as a report meant the version assertion fired and advised somebody to go read
+    // npm's new report format when the registry was simply unreachable. The complaint text below
+    // was written for exactly this case and had become unreachable for it.
+    if (stdout.trim().startsWith('{') && !isNpmErrorPayload(stdout)) return stdout;
     throw new Error(
       `npm audit could not run: ${npmComplaint(error)}. Offline, or no lockfile? This gate needs ` +
         'the registry and refuses to report clean without it.',
     );
+  }
+}
+
+/** True when the JSON on stdout is npm reporting a failure rather than an audit report. */
+function isNpmErrorPayload(stdout) {
+  try {
+    const parsed = JSON.parse(stdout);
+    return Boolean(parsed?.error) && parsed?.vulnerabilities === undefined;
+  } catch {
+    // Unparseable JSON is not an error payload this can read, and the caller treats it as a failure
+    // anyway. Saying "no" here keeps that single decision in one place.
+    return false;
   }
 }
 

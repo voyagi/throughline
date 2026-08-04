@@ -109,10 +109,16 @@ function assertReadableReport(report) {
  */
 function assertAudited(report, findings) {
   const dependencies = report.metadata?.dependencies?.total;
-  if (typeof dependencies !== 'number' || dependencies <= 0) {
+  if (typeof dependencies !== 'number') {
     throw new Error(
-      `npm audit reported ${dependencies === undefined ? 'no dependency count at all' : `${dependencies} dependencies`}. ` +
-        'A tree with nothing in it cannot be audited, so this is unknown rather than clean.',
+      `npm audit's dependency count is ${JSON.stringify(dependencies)} rather than a number, so ` +
+        'there is no way to tell whether anything was audited. Unknown, not clean.',
+    );
+  }
+  if (dependencies <= 0) {
+    throw new Error(
+      `npm audit reported ${dependencies} dependencies. A tree with nothing in it cannot be ` +
+        'audited, so this is unknown rather than clean.',
     );
   }
 

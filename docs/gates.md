@@ -87,9 +87,17 @@ existed because the fixes from the first were themselves unexamined code.
 ## Why the tracked-file check is narrower than it looks
 
 `scripts/check-tracked-files.mjs` compares tracked PATHS against a fixed list, and reads the content
-of exactly one kind of file. Green means "no path on the list is tracked and no tracked `.npmrc`
-carries a credential", which is narrower than "this repo leaks nothing", and the script says so in
-its own header.
+of exactly one kind of file. Green means "no path on the list is tracked, and no tracked `.npmrc`
+carries one of the NAMED auth keys or a credential embedded in a URL".
+
+That phrasing is deliberate and it is the third attempt at it. It is narrower than "no tracked
+`.npmrc` carries a credential", which is what this said until a review proved otherwise: npm's `key`
+holds an inline PEM private key rather than a path, the rule named only the underscore-prefixed keys
+and `key` has no underscore, and a tracked `.npmrc` carrying a private key made this gate print
+`clean` and exit 0. The near-miss is worth keeping in mind. The comment excluding `certfile` and
+`keyfile` as "a path, not a secret" was correct about those two and landed one character from the
+inline siblings that are the secret itself. Detection by an enumerated list is a floor, and the
+floor should be described as a floor.
 
 That one content rule exists because `.npmrc` is deliberately tracked, so the supply chain cooldown
 travels with the repository instead of living on one laptop. It is the only file here whose format

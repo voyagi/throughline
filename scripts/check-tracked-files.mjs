@@ -13,8 +13,10 @@
  *
  * WHAT THIS IS NOT: it checks tracked PATHS against a fixed list, plus ONE content rule described
  * below. It reads no other file's content and it does not guess. A green result means "no path on
- * the list is tracked and no tracked .npmrc carries a credential", which is narrower than "this
- * repo leaks nothing". Said plainly here so nobody reads the green as broader than it is.
+ * the list is tracked, and no tracked .npmrc carries one of the NAMED auth keys or a credential
+ * embedded in a URL". That is narrower than "no tracked .npmrc carries a credential", which is
+ * itself narrower than "this repo leaks nothing", and the distance between those three is exactly
+ * where the last miss lived. Said plainly so nobody reads the green as broader than it is.
  *
  * THE ONE CONTENT RULE. `.npmrc` is deliberately tracked, because the supply chain cooldown has to
  * travel with the repository rather than live on one laptop. That makes it the one file here whose
@@ -106,12 +108,28 @@ function listTrackedFiles() {
 /**
  * Auth-bearing npm config keys, as they appear in an .npmrc.
  *
- * Matched with an optional registry-scope prefix, because the real shape of a leak is
- * `//registry.npmjs.org/:_authToken=...` rather than a bare key. `certfile` and `keyfile` are
- * absent on purpose: those name a path, not a secret.
+ * Two families, because npm has two and only one of them starts with an underscore.
+ *
+ * The underscore family is the familiar one, matched with an optional registry-scope prefix
+ * because the real shape of a leak is `//registry.npmjs.org/:_authToken=...` rather than a bare key.
+ *
+ * `key` and `cert` have no underscore and are the ones that got missed. npm's `key` holds an
+ * INLINE PEM private key, not a path: a tracked `.npmrc` carrying one passed this gate and exited
+ * 0, proven end to end. The near-miss is instructive. An earlier comment here excluded `certfile`
+ * and `keyfile` as "a path, not a secret", which is correct for those two and lands exactly one
+ * character away from the inline siblings that ARE the secret. `keyfile` and `certfile` stay
+ * excluded; `key` and `cert` do not.
  */
-const NPMRC_CREDENTIAL =
-  /^\s*(?:[#;]\s*)?(?:\/\/[^\s=]*:)?_(?:auth|authtoken|auth_token|password|secret)\s*=/i;
+const NPMRC_CREDENTIAL = new RegExp(
+  '^\\s*(?:[#;]\\s*)?(?:' +
+    // //host/:_authToken=, or a bare _auth=
+    '(?:\\/\\/[^\\s=]*:)?_(?:auth|authtoken|auth_token|password|secret)' +
+    '|' +
+    // key= and cert= carry the PEM itself. Anchored so keyfile and certfile do not match.
+    '(?:\\/\\/[^\\s=]*:)?(?:key|cert)' +
+    ')\\s*=',
+  'i',
+);
 
 /**
  * A credential embedded in a registry URL, which is the shape carrying no `_` key at all.
