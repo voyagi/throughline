@@ -138,9 +138,17 @@ resolved tree, not by assuming the override applied.
   begin with.
 - A zero finding result is only reported as clean when the scan is confirmed to have run. A scan
   that produced no output is UNKNOWN. The advisory gate exits 2, distinct from both clean and
-  failing, when it cannot reach the registry, when the acceptance list is malformed, when the tree
-  it audited has no dependencies at all, and when npm's own summary counts vulnerabilities the gate
-  could not read out of the report. The last two were added after a review measured the gate
-  printing "clean (0 finding(s))" against an empty tree and against a report whose shape had
-  drifted: extracting nothing and there being nothing were the same value, which is precisely the
-  failure this project exists to argue against, committed by the component built to catch it.
+  failing, in six situations: it cannot reach the registry; npm reports a failure rather than a
+  report, such as a missing lockfile; the acceptance list is malformed; the audit report announces
+  a schema version this gate has not been taught to read; the tree it audited has no dependencies
+  at all; and npm's own summary counts vulnerabilities the gate could read none of. The last four
+  were added after reviews measured the gate printing "clean (0 finding(s))" against an empty tree
+  and against a report whose shape had drifted. Extracting nothing and there being nothing were the
+  same value, which is precisely the failure this project exists to argue against, committed by the
+  component built to catch it.
+- The `.npmrc` secret rule detects an enumerated list of npm config keys plus credentials embedded
+  in a URL. It is a floor, not a proof, and the list has been wrong twice: `key` holds an inline PEM
+  private key rather than a path, and `password` holds a plaintext password while its underscore
+  sibling was caught all along. Both were found by review, one round apart, each time next to a
+  comment asserting the enumeration was complete. It is now tested from both directions, twenty
+  lines that must fail the build and thirty-two that must not, in `scripts/test/tracked-files.test.mjs`.

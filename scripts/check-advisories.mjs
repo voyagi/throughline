@@ -67,11 +67,19 @@ function runAudit(cwd) {
   }
 }
 
-/** True when the JSON on stdout is npm reporting a failure rather than an audit report. */
+/**
+ * True when the JSON on stdout is npm reporting a failure rather than an audit report.
+ *
+ * An `error` member is enough on its own. The first version also required `vulnerabilities` to be
+ * absent, which reads as more careful and is the opposite: a payload carrying BOTH would have been
+ * treated as a clean report with an error stapled to it. npm's audit command cannot emit that shape
+ * today, but its display layer merges the two by design, so the conjunct was betting on an
+ * implementation detail staying still. Erring towards "this run failed" costs an exit 2 and a
+ * re-run; erring the other way reports a green.
+ */
 function isNpmErrorPayload(stdout) {
   try {
-    const parsed = JSON.parse(stdout);
-    return Boolean(parsed?.error) && parsed?.vulnerabilities === undefined;
+    return Boolean(JSON.parse(stdout)?.error);
   } catch {
     // Unparseable JSON is not an error payload this can read, and the caller treats it as a failure
     // anyway. Saying "no" here keeps that single decision in one place.
