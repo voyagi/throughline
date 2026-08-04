@@ -5,7 +5,51 @@ file when it is fixed and the fix is confirmed by a re-run, never when it is exp
 
 ## Open
 
-### CVE-2026-14257, brace-expansion 5.0.7, HIGH, bundled inside aws-cdk-lib
+### CVE-2026-69152, brace-expansion 5.0.8, HIGH, bundled inside aws-cdk-lib
+
+This is the successor to the finding below, and the shape of the change is worth stating plainly:
+the dated upgrade ran, it worked, and the HIGH count did not move. `aws-cdk-lib` 2.263.0 bundles
+brace-expansion 5.0.8, which closes CVE-2026-14257. A second advisory then landed on the same
+package: CVE-2026-69152 (GHSA-rgw5-rvv9-x895) covers 4.0.0 through 5.0.8 and is fixed in 5.0.9,
+which no released `aws-cdk-lib` bundles yet. An upgrade that closes a CVE and inherits its
+replacement is progress, not a clean result, and calling it clean would be the exact false claim
+this file exists to prevent.
+
+- Measured 2026-08-04, not assumed. `npm install aws-cdk-lib@latest -w @throughline/infra`
+  resolved to 2.263.0 (published 2026-07-31T16:53Z, 3.79 days old, so past the cooldown). The
+  bundled copy moved 5.0.7 to 5.0.8. `trivy fs --scanners vuln,secret --severity HIGH,CRITICAL`
+  then reported CVE-2026-14257 gone and CVE-2026-69152 open on the same path.
+- The `overrides` route was re-tested against this version rather than assumed to still fail. An
+  entry pinning `^5.0.9` was added, `npm install` was run, and
+  `node_modules/aws-cdk-lib/node_modules/brace-expansion` was still 5.0.8 afterwards. The cause is
+  visible in `aws-cdk-lib`'s own manifest: `bundleDependencies` names `minimatch`, so minimatch and
+  its dependency tree ship inside the tarball and npm never re-resolves them. The override was
+  removed again. The top level copy in this tree is already 5.0.9 and was before the override, so
+  the entry protected nothing at all.
+- Reachability is unchanged from the entry below: synthesis time only, never in Lambda, never in
+  the request path, and every glob pattern reaching it is one this repo wrote.
+- Fix path: an `aws-cdk-lib` release that bundles minimatch with brace-expansion 5.0.9 or later.
+  Action, dated: re-check on or after **2026-08-11**, and record the outcome here either way.
+
+### GHSA-8j4g-w8fx-2239, hono, MODERATE, deferred by the cooldown
+
+`npm audit` surfaced this during the same upgrade: hono before 4.12.34 has a ReDoS in the CORS
+middleware, reachable through the `Access-Control-Request-Headers` header. `apps/api` declares
+`hono: ^4`.
+
+- Not fixed today, and deliberately so. 4.12.34 was published 2026-08-03T02:36Z and 4.13.0 on
+  2026-08-03T21:54Z, so on 2026-08-04 both sit inside the three day supply chain cooldown. The
+  cooldown is not bypassed to clear a finding faster.
+- Exposure today is nil in the strict sense: no HTTP surface exists yet, so the CORS middleware is
+  not mounted anywhere. That is a fact about today, not a mitigation.
+- Action, dated: on or after **2026-08-06**, `npm install hono@latest -w @throughline/api`, then
+  re-run `npm audit` and trivy. Whoever builds the HTTP surface before that date configures CORS
+  with an explicit origin allowlist rather than a reflected origin, and re-checks this line.
+
+### CVE-2026-14257, brace-expansion 5.0.7, HIGH, bundled inside aws-cdk-lib, SUPERSEDED
+
+Closed on 2026-08-04 by the upgrade described above, and kept here rather than moved to Closed
+because its replacement is still open on the same path. Read the two entries together.
 
 Found by `trivy fs --scanners vuln,secret --severity HIGH,CRITICAL` on 2026-08-02, immediately
 after the first dependency install.
@@ -30,8 +74,9 @@ after the first dependency install.
   clear a finding faster: inside that window "no advisory yet" means detection has not opened, not
   that a package is clean. The command was run, the outcome was measured, and this line records
   what happened rather than what was intended.
-- Action, dated: on or after **2026-08-04**, re-run the same command and then re-run trivy. If the
-  finding survives the bump, record that here rather than assuming the upgrade cleared it.
+- Action, dated **2026-08-04**: done. The command was re-run, 2.263.0 installed, and trivy re-run.
+  This CVE is gone from the tree and CVE-2026-69152 took its place on the same path. The outcome
+  is recorded above rather than inferred from the upgrade having succeeded.
 
 ## Closed
 
