@@ -90,6 +90,83 @@ existed because the fixes from the first were themselves unexamined code.
 of exactly one kind of file. Green means "no path on the list is tracked, and no tracked `.npmrc`
 carries one of the NAMED auth keys or a credential embedded in a URL".
 
+### A gate that tests for secrets must not look like it contains them
+
+GitGuardian failed PR #6 on two lines of `scripts/test/tracked-files.test.mjs`: a Basic Auth String
+and a Generic Password. Both were fixtures, deliberately fake, proving the rule above catches those
+exact shapes. The scanner was still right to fire. A `user:password@host` string in committed source
+is precisely what it exists to stop, and "it is a test fixture" is something only a reader knows.
+
+Two tempting responses were rejected. Adding an exclusion for that path would also hide a real
+secret pasted there later. Splitting the literal so the detector cannot match it is the same evasion
+in better clothes, in a repository whose argument is that you do not route around a security control
+because you personally are confident.
+
+What changed was the VALUES, and explaining why that is safe took five attempts, four of which were
+wrong. That is worth more than the explanation itself, so here is the failure mode.
+
+Each wrong version described the regexes as if reading them told you what they do. They said things
+like "the rule matches on the key, never on what follows the equals", which sounds precise and is
+the wrong axis entirely. **Neither rule is a parser.** Both are line-shape heuristics approximating
+npm's ini syntax, and every place the approximation differs from npm is a gap by construction.
+
+Four gaps have been found and closed, each after a comment claimed the enumeration was finished:
+
+- the bare `key` and `password` config names, which hold an inline PEM and a plaintext password and
+  have no leading underscore,
+- whitespace around the equals, which npm accepts and one rule handled while the other did not,
+- a quoted value, which is the form `npm config list` PRINTS, so pasting npm's own output produced
+  exactly the shape the gate could not see,
+- a quoted key and ini array syntax, both of which npm resolves normally, and a doubled `##` marker,
+  which it does not. All three defeated both rules,
+- an EMPTY USERNAME in the URL form, `https://:TOKEN@host/`, which is the canonical way to put a
+  bare token in a registry URL and was therefore the likeliest real leak of the lot,
+- a scheme containing a plus, `git+https://` and `git+ssh://`, both ordinary npm registry values.
+
+Every one was found by checking what npm ACCEPTS, never by rereading the regex, and the last three
+only by running a differential against npm's own parser and its own redactor. So the rule for
+editing these is: change them only against npm's parser, and add a fixture in both directions.
+
+Comment lines are scanned, and the reason is not that npm honours them. It does not: its ini skips
+any line starting `#` or `;`, singly or doubled, so a commented assignment configures nothing. They
+are scanned because a commented-out token is still a committed token. The marker stops npm, and
+does not stop whoever reads the repository.
+
+Closing the whitespace gap introduced quadratic backtracking in the gate itself, measured at 37
+seconds for a 200,000 character line, because the leading whitespace and the key pattern both
+competed for the same run of spaces. Bounding the key to one-or-more brings that to 0.76
+milliseconds.
+
+**That bound costs coverage, and an earlier version of this paragraph claimed it did not.** It loses
+the empty-key form, ` = https://user:token@host/`, which npm parses to the key `""` and resolves.
+That is a deliberate trade: the alternative is a build gate one long line can stall. It is listed
+below and pinned by a test that states why it is open, so closing it means deleting a test that
+argues against you.
+
+**The list of remaining differences is OPEN, and that is the most important sentence here.** Every
+previous version of this section enumerated the gaps as though the enumeration were finished, and
+every one of those versions was wrong within a day. Three more forms were found after the list
+itself became the claim. What follows is the gaps somebody has looked for, not the gaps there are.
+
+The key character class is a family rather than an item: the rules match `[\w@/:.-]` on the key
+side, and npm's ini accepts a key containing anything else, whitespace and every one of
+`% + ~ ! , * $ & ( ) ' \ [ ] { } ^ | < > ?` and tab among them. Widening it is not obviously right,
+because the key side is also what stops the rule firing on ordinary prose, so it is left open rather
+than guessed at. The empty key is the other, described above.
+
+"A value split across lines" was listed here and is not a divergence at all, and the reason first
+given for that was also wrong. npm's ini has no line continuation, so such a value parses as two
+keys and npm does not reconstitute the URL either. There is no credential for it to resolve.
+
+The 81 tests passed unchanged when only the fixture values moved, which is the proof those values
+were never load-bearing. The count is higher now because closing the gaps added its own fixtures.
+
+The general rule for this repo: a fixture that has to look like a real credential to test something
+is a sign the rule under test is matching the wrong thing. And a permanently red secret scanner is
+worse than no scanner, because it teaches everyone to scroll past the one that matters.
+
+### The green result is narrower than it sounds, and the wording is on its third attempt
+
 That phrasing is deliberate and it is the third attempt at it. It is narrower than "no tracked
 `.npmrc` carries a credential", which is what this said until a review proved otherwise: npm's `key`
 holds an inline PEM private key rather than a path, the rule named only the underscore-prefixed keys

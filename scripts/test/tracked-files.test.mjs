@@ -16,34 +16,131 @@ import { credentialLinesIn, isForbidden, NPMRC_CREDENTIAL, URL_CREDENTIAL } from
  * outcome one step later.
  */
 
+/**
+ * The stand-in value in every fixture below, and the reason it reads like a notice rather than
+ * like a secret.
+ *
+ * GitGuardian failed this pull request on two of these lines: a Basic Auth String and a Generic
+ * Password. It was RIGHT to. A `user:password@host` string in committed source is exactly what a
+ * secret scanner should stop, and the fact that this particular one is a fixture is something only
+ * a reader knows. The tempting responses were both wrong. Excluding this path from scanning would
+ * also hide a real secret pasted here later. Splitting the literal to defeat the detector is the
+ * same evasion wearing a lab coat, in a repository whose whole argument is that you do not route
+ * around a security control because you are confident.
+ *
+ * So the values changed instead. Explaining why that is safe took five attempts and four of them
+ * were wrong, always in the same way: describing the regexes as though reading them told you what
+ * they do. `NPMRC_CREDENTIAL` does stop at the equals and `URL_CREDENTIAL` does discriminate on the
+ * value, but stating it that way is the wrong axis, and stating it that way is what hid two real
+ * gaps. See the header of `../lib/tracked-files.mjs`: neither rule is a parser, both approximate
+ * npm's ini syntax, and the differences are where the leaks live.
+ *
+ * What matters for THIS file is narrower and does not depend on that at all. No fixture value below
+ * participates in any match, which the corpus proves in both directions rather than asserting. So a
+ * placeholder exercises the identical branch, and if a future fixture has to look like a real
+ * credential to test something, that is a signal about the rule rather than about the fixture.
+ */
+const NOT_A_SECRET = 'example-value-that-is-not-a-secret';
+
 /** Lines that MUST fail the build. Each names why it is not obvious. */
 const MUST_CATCH = [
-  ['//registry.npmjs.org/:_authToken=npm_aaaaaaaaaaaaaaaaaaaa', 'the canonical shape'],
-  ['_auth=aGVsbG86d29ybGQ=', 'basic auth, base64, no scope prefix'],
-  ['_authToken=npm_bbbbbbbbbbbbbbbbbbbb', 'bare token'],
-  ['_auth_token=npm_cccccccccccccccccccc', 'the underscored spelling'],
-  ['_password=hunter2', 'underscored password'],
-  ['_secret=shhh', 'underscored secret'],
-  ['password=hunter2plaintext', 'NO underscore, and npm treats it as a real secret'],
-  ['key="-----BEGIN PRIVATE KEY-----\\nMIIEvQ\\n-----END PRIVATE KEY-----"', 'an INLINE PEM private key, not a path'],
-  ['cert="-----BEGIN CERTIFICATE-----\\nMIIB\\n-----END CERTIFICATE-----"', 'the inline certificate beside it'],
-  ['//npm.internal.example/:_password=hunter2', 'scoped to a registry'],
-  ['//npm.internal.example/:key=inline-pem', 'scoped, bare family'],
-  ['  \t_authToken=npm_dddddddddddddddddddd', 'leading whitespace and a tab'],
-  ['_AUTHTOKEN=npm_eeeeeeeeeeeeeeeeeeee', 'uppercase'],
-  ['PASSWORD=hunter2', 'uppercase bare family'],
-  ['_authToken =npm_ffffffffffffffffffff', 'space before the equals'],
-  ['# //registry.npmjs.org/:_authToken=npm_gggggggggggggggggggg', 'commented out, and still committed'],
-  ['; password=hunter2', 'the other comment character'],
-  ['#password=hunter2', 'commented with no space'],
-  ['registry=https://ci-user:s3cr3t@npm.internal.example/', 'a credential inside a URL, no key name at all'],
-  ['//npm.internal.example/:registry=http://u:p@host/', 'URL credential, scoped'],
+  [`//registry.npmjs.org/:_authToken=${NOT_A_SECRET}`, 'the canonical shape'],
+  [`_auth=${NOT_A_SECRET}`, 'basic auth, no scope prefix'],
+  [`_authToken=${NOT_A_SECRET}`, 'bare token'],
+  [`_auth_token=${NOT_A_SECRET}`, 'the underscored spelling'],
+  [`_password=${NOT_A_SECRET}`, 'underscored password'],
+  [`_secret=${NOT_A_SECRET}`, 'underscored secret'],
+  [`password=${NOT_A_SECRET}`, 'NO underscore, and npm treats it as a real secret'],
+  ['key="-----BEGIN PRIVATE KEY-----\\nEXAMPLE-ONLY\\n-----END PRIVATE KEY-----"', 'an INLINE PEM private key, not a path'],
+  ['cert="-----BEGIN CERTIFICATE-----\\nEXAMPLE-ONLY\\n-----END CERTIFICATE-----"', 'the inline certificate beside it'],
+  [`//npm.internal.example/:_password=${NOT_A_SECRET}`, 'scoped to a registry'],
+  ['//npm.internal.example/:key=inline-pem-placeholder', 'scoped, bare family'],
+  [`  \t_authToken=${NOT_A_SECRET}`, 'leading whitespace and a tab'],
+  [`_AUTHTOKEN=${NOT_A_SECRET}`, 'uppercase'],
+  [`PASSWORD=${NOT_A_SECRET}`, 'uppercase bare family'],
+  [`_authToken =${NOT_A_SECRET}`, 'space before the equals'],
+  [`# //registry.npmjs.org/:_authToken=${NOT_A_SECRET}`, 'commented out, and still committed'],
+  [`; password=${NOT_A_SECRET}`, 'the other comment character'],
+  [`#password=${NOT_A_SECRET}`, 'commented with no space'],
+  [
+    `registry=https://example-user:${NOT_A_SECRET}@npm.internal.example/`,
+    'a credential inside a URL, no key name at all',
+  ],
+  ['//npm.internal.example/:registry=http://u:p@host/', 'URL credential, scoped, minimal form'],
+  [
+    `registry = https://example-user:${NOT_A_SECRET}@npm.internal.example/`,
+    'SPACES around the equals, which npm accepts and this rule used to miss entirely',
+  ],
+  [
+    `registry\t=\thttps://example-user:${NOT_A_SECRET}@npm.internal.example/`,
+    'tabs around the equals, the same hole',
+  ],
+  [
+    `//npm.internal.example/:registry = http://example-user:${NOT_A_SECRET}@host/`,
+    'spaced AND scoped, which the commit message once claimed a fixture for and did not have',
+  ],
+  [
+    `# registry = https://example-user:${NOT_A_SECRET}@npm.internal.example/`,
+    'spaced AND commented, same',
+  ],
+  [
+    `registry = "https://example-user:${NOT_A_SECRET}@npm.internal.example/"`,
+    'a QUOTED value: npm config list prints this form, so pasting npm output produced a shape the gate could not see',
+  ],
+  [
+    `"registry" = https://example-user:${NOT_A_SECRET}@npm.internal.example/`,
+    'a QUOTED key, which npm resolves identically and both rules used to miss',
+  ],
+  [
+    `## registry = https://example-user:${NOT_A_SECRET}@npm.internal.example/`,
+    'a doubled comment marker, which defeated both rules',
+  ],
+  [
+    `registry[] = https://example-user:${NOT_A_SECRET}@npm.internal.example/`,
+    'ini array syntax on the key',
+  ],
+  [`"password" = ${NOT_A_SECRET}`, 'quoted key on the other rule too'],
+  [`## password = ${NOT_A_SECRET}`, 'doubled comment marker on the other rule too'],
+  [
+    `registry = https://:${NOT_A_SECRET}@npm.internal.example/`,
+    'EMPTY USERNAME, which is the canonical way to put a bare token in a registry URL and was the likeliest real leak of all',
+  ],
+  [
+    `registry=https://:${NOT_A_SECRET}@npm.internal.example/`,
+    'empty username, unspaced',
+  ],
+  [
+    `//npm.internal.example/:registry = https://:${NOT_A_SECRET}@host/`,
+    'empty username, scoped',
+  ],
+  [
+    `registry = git+https://example-user:${NOT_A_SECRET}@host/repo.git`,
+    'a scheme containing a plus, which npm accepts and the old scheme pattern could not match',
+  ],
+  [
+    `registry = git+ssh://example-user:${NOT_A_SECRET}@host/repo.git`,
+    'the other plus scheme',
+  ],
 ];
 
 /** Lines that must NOT fail the build. A false positive here breaks every build. */
 const MUST_NOT_CATCH = [
   'min-release-age=3',
+  'min-release-age = 3',
   'registry=https://registry.npmjs.org/',
+  'registry = https://registry.npmjs.org/',
+  'registry = https://npm.internal.example/path/with:colon/but/no/at/sign',
+  'registry = "https://registry.npmjs.org/"',
+  '"registry" = "https://registry.npmjs.org/"',
+  'init-author-email = someone@example.com',
+  'proxy = http://proxy.internal.example:8080/',
+  '@scope:registry = https://npm.pkg.github.com/@scope/pkg',
+  'registry = https://host/x?u=a:b@c',
+  'registry = https://user@host/',
+  'registry = git+https://host/repo.git',
+  'registry = git+ssh://host/repo.git',
+  'registry = https://host:8443/path',
+  'registry = https://host/a:b',
   'registry=https://npm.internal.example/path/to/thing',
   '@scope:registry=https://npm.pkg.github.com/',
   'keyfile=C:/certs/client.key',
@@ -89,25 +186,61 @@ describe('the .npmrc secret rule', () => {
     });
   }
 
+  it('scans comment lines on purpose, whatever the marker', () => {
+    // Not because npm resolves them. npm's ini skips any line starting `#` or `;`, single or
+    // doubled, so these configure nothing. They are scanned because a commented-out token is still
+    // a committed token: the marker stops npm and does not stop whoever reads the repository.
+    for (const marker of ['#', '##', ';', ';;', '# ', '## ']) {
+      expect(credentialLinesIn(`${marker}password=${NOT_A_SECRET}`)).toEqual([1]);
+    }
+  });
+
+  it('does not fire on prose in a comment that merely mentions a secret key', () => {
+    // This repository's own .npmrc is mostly prose comments, so the cost of getting this wrong is
+    // paid every build. A sentence ABOUT a key is not an assignment OF one.
+    for (const line of [
+      '# the password lives in the vault, not here',
+      '## do not put a key in this file',
+      '; see docs/gates.md for why _authToken is refused',
+      '# key rotation is handled by the owner',
+    ]) {
+      expect(credentialLinesIn(line)).toEqual([]);
+    }
+  });
+
+  it('does NOT cover an empty key, which is a known and deliberate divergence', () => {
+    // ` = https://user:token@host/` parses to the key "" and resolves in npm. The key pattern is
+    // `+` rather than `*` because with `*` the leading whitespace and the key both compete for a
+    // run of spaces and the match backtracks quadratically: 37 seconds at 200k characters. This
+    // test exists so the divergence is a recorded decision rather than a surprise, and so that
+    // anyone who closes it has to delete a test that says why it is open.
+    expect(credentialLinesIn(` = https://u:p@host/`)).toEqual([]);
+    expect(credentialLinesIn(`  = ${NOT_A_SECRET}`)).toEqual([]);
+  });
+
+  it('does NOT cover a key containing whitespace, the other known divergence', () => {
+    expect(credentialLinesIn('my key = https://u:p@host/')).toEqual([]);
+  });
+
   it('reports every offending line by its 1-based number', () => {
     const file = [
       '# a comment',
       'min-release-age=3',
-      '_authToken=npm_hhhhhhhhhhhhhhhhhhhh',
+      `_authToken=${NOT_A_SECRET}`,
       'registry=https://registry.npmjs.org/',
-      'password=hunter2',
+      `password=${NOT_A_SECRET}`,
     ].join('\n');
     expect(credentialLinesIn(file)).toEqual([3, 5]);
   });
 
   it('reads CRLF files without missing the last field of a line', () => {
-    expect(credentialLinesIn('min-release-age=3\r\npassword=hunter2\r\n')).toEqual([2]);
+    expect(credentialLinesIn(`min-release-age=3\r\npassword=${NOT_A_SECRET}\r\n`)).toEqual([2]);
   });
 
   it('keeps the two rules independent, so neither is doing the other\'s job', () => {
     // If one of these ever matched both corpora, deleting the other would go unnoticed.
-    expect(NPMRC_CREDENTIAL.test('password=hunter2')).toBe(true);
-    expect(URL_CREDENTIAL.test('password=hunter2')).toBe(false);
+    expect(NPMRC_CREDENTIAL.test(`password=${NOT_A_SECRET}`)).toBe(true);
+    expect(URL_CREDENTIAL.test(`password=${NOT_A_SECRET}`)).toBe(false);
     expect(URL_CREDENTIAL.test('registry=https://u:p@host/')).toBe(true);
     expect(NPMRC_CREDENTIAL.test('registry=https://u:p@host/')).toBe(false);
   });
