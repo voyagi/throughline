@@ -1,0 +1,25 @@
+{
+  "$comment": [
+    "Advisories that are known, assessed and deliberately still here. Read by scripts/check-advisories.mjs.",
+    "An entry is a dated decision, not a suppression: when recheckAfter passes, the gate fails until",
+    "a human looks again. Deleting an entry whose advisory is gone is required, not optional, because",
+    "an acceptance that matches nothing reads as a live risk assessment.",
+    "The full reasoning for each entry lives in docs/security-notes.md. Keep the two in step."
+  ],
+  "accepted": [
+    {
+      "id": "GHSA-rgw5-rvv9-x895",
+      "package": "brace-expansion",
+      "severity": "high",
+      "reason": "Bundled inside aws-cdk-lib, which names minimatch in bundleDependencies, so npm never re-resolves it and an overrides entry cannot reach it. Measured: adding the override left the nested copy at 5.0.8. No released aws-cdk-lib bundles the fixed 5.0.9 yet. Reachable only at synthesis time on a developer machine or in CI, never in Lambda and never in the request path, over glob patterns this repository wrote itself.",
+      "recheckAfter": "2026-08-11"
+    },
+    {
+      "id": "GHSA-8j4g-w8fx-2239",
+      "package": "hono",
+      "severity": "moderate",
+      "reason": "ReDoS in the CORS middleware. Fixed in 4.12.34, published 2026-08-03, which is inside the min-release-age cooldown this repository sets in .npmrc. The cooldown is not bypassed to clear a finding faster. No HTTP surface is mounted yet, which is a fact about today rather than a mitigation.",
+      "recheckAfter": "2026-08-06"
+    }
+  ]
+}

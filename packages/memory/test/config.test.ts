@@ -7,7 +7,17 @@ import {
   secretsOf,
 } from '../src/config.ts';
 
-const PASSWORD = 'sup3r-s3cret-rotated-password';
+/**
+ * Not a password, and written so that no scanner, reviewer or stranger reading the public
+ * repository has to take that on faith.
+ *
+ * The value is load-bearing only in that it must be findable inside the connection string below, so
+ * the redaction tests can prove it was removed. Its CONTENT is irrelevant, and an earlier version
+ * spelled it in leetspeak, which reads exactly like a real credential to anything scanning for one.
+ * The reasoning is in docs/gates.md: a fixture that has to look like a real secret is a sign the
+ * code under test is matching the wrong thing.
+ */
+const PASSWORD = 'example-value-that-is-not-a-secret';
 const URL_WITH_SECRET = `postgresql://throughline:${PASSWORD}@cluster.example.cloud:26257/defaultdb?sslmode=verify-full`;
 
 describe('loadDatabaseConfig', () => {

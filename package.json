@@ -6,7 +6,8 @@
   "description": "An incident-response agent whose memory you can audit, backed by CockroachDB.",
   "license": "MIT",
   "engines": {
-    "node": ">=22"
+    "node": ">=22",
+    "npm": ">=11.10.0"
   },
   "workspaces": [
     "packages/*",
@@ -25,8 +26,9 @@
     "gate:deps": "depcruise packages apps infra --config .dependency-cruiser.cjs",
     "gate:size": "size-limit",
     "gate:artifacts": "node scripts/check-tracked-files.mjs",
+    "gate:advisories": "node scripts/check-advisories.mjs",
     "gate:precommit": "eslint . && jscpd .",
-    "gate": "npm run gate:types && npm run gate:complexity && npm run gate:dup && npm run gate:deps && npm run gate:artifacts",
+    "gate": "npm run gate:types && npm run gate:complexity && npm run gate:dup && npm run gate:deps && npm run gate:artifacts && npm run gate:advisories",
     "verify:ship": "node verify-ship.mjs",
     "mutate": "stryker run",
     "db:up": "docker compose up -d",

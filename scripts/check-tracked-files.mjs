@@ -1,74 +1,46 @@
-#!/usr/bin/env node
 /**
  * Fails the build when a file that should never be tracked is tracked.
+ *
+ * No shebang, deliberately. This runs as `node scripts/check-tracked-files.mjs` and is never
+ * executed directly, and a shebang on a file checked out with CRLF makes a vitest import of it die
+ * with "SyntaxError: Invalid or unexpected token" on Windows while passing on Linux. That already
+ * cost this repository one commit whose own tests could not run on the platform they were written
+ * on. `.gitattributes` pins LF for fresh checkouts; this removes the trigger as well as the cause.
  *
  * This repo is going public, and untracking is index-only: anything committed once stays readable
  * in history forever. Prose in a checklist cannot fail a build, so this exists to make the rule
  * mechanical.
  *
- * WHAT THIS IS NOT: it checks tracked PATHS against a fixed list. It does not read file content
- * and it does not guess. A green result means "no path on the list is tracked", which is narrower
- * than "this repo leaks nothing". Said plainly here so nobody reads the green as broader than it is.
+ * The DECISIONS live in `lib/tracked-files.mjs` and are tested there. This file owns the
+ * filesystem, the git calls and the exit codes, and nothing a test needs to hold still.
+ *
+ * WHAT THIS IS NOT: it checks tracked PATHS against a fixed list, plus ONE content rule described
+ * below. It reads no other file's content and it does not guess. A green result means "no path on
+ * the list is tracked, and no tracked .npmrc carries one of the NAMED secret keys or a credential
+ * embedded in a URL". That is narrower than "no tracked .npmrc carries a credential", which is
+ * itself narrower than "this repo leaks nothing". The distance between those three is exactly where
+ * the last two misses lived, so it is spelled out rather than implied.
+ *
+ * THE ONE CONTENT RULE. `.npmrc` is deliberately tracked, because the supply chain cooldown has to
+ * travel with the repository rather than live on one laptop. That makes it the one file here whose
+ * whole purpose is to hold npm configuration and whose format also accepts registry credentials.
+ * A path rule cannot tell those apart, so every tracked `.npmrc` at any depth is read and a secret
+ * line fails the build. The cost of missing one is not a bad build: it is a token committed to a
+ * repository that becomes public, where removing it from the index changes nothing about history.
  *
  * Matching is at ANY DEPTH, deliberately. A root-anchored version of this script passed a tracked
  * `apps/api/.env` and a tracked `packages/memory/.claude/settings.json` while reporting clean, so
  * the only mechanical gate was strictly narrower than the .gitignore beside it. Depth is exactly
  * where a real leak turns up, because nobody puts the second copy at the root.
  *
- * Exit codes: 0 clean, 1 a forbidden path is tracked, 2 the scan could not run. A scan that could
- * not run is never reported as clean.
+ * Exit codes: 0 clean, 1 a forbidden path is tracked or a credential is in a tracked .npmrc,
+ * 2 the scan could not run. A scan that could not run is never reported as clean.
  */
 
 import { execFileSync } from 'node:child_process';
-
-/** Directory names that must never appear as a path segment, at any depth. */
-const FORBIDDEN_DIRECTORY_SEGMENTS = [
-  '.claude',
-  '.codex',
-  '.agents',
-  '.planning',
-  '.crash-buffers',
-];
-
-/** Exact file names that must never be tracked, at any depth. */
-const FORBIDDEN_FILE_NAMES = [
-  'claude.md',
-  'agents.md',
-  'human-todo.md',
-  'verification.md',
-  '.build-lane',
-];
-
-/** Path prefixes that must never be tracked. Anchored, because these name one specific place. */
-const FORBIDDEN_PATH_PREFIXES = ['design/_scratch/'];
-
-/**
- * Environment files, in both shapes: `.env`, `.env.production`, and `prod.env`.
- *
- * The third shape was missed until `git check-ignore secrets/prod.env` was actually run and came
- * back NOT ignored. A pattern anchored on a leading `.env` looks exhaustive and is not, and the
- * gate having the same blind spot as the .gitignore meant neither layer would have caught it.
- *
- * `.env.example` SHOULD be tracked, so it is carved out by name rather than by hoping the pattern
- * happens to miss it.
- */
-const ENV_FILE = /^(\.env(\..+)?|.+\.env)$/;
-const ALLOWED_ENV_FILES = new Set(['.env.example', '.env.sample', '.env.template']);
-
-function isForbidden(trackedPath) {
-  const candidate = trackedPath.toLowerCase();
-  const segments = candidate.split('/');
-  const basename = segments[segments.length - 1] ?? '';
-
-  if (FORBIDDEN_PATH_PREFIXES.some((prefix) => candidate.startsWith(prefix))) return true;
-  if (segments.slice(0, -1).some((segment) => FORBIDDEN_DIRECTORY_SEGMENTS.includes(segment))) {
-    return true;
-  }
-  if (FORBIDDEN_FILE_NAMES.includes(basename)) return true;
-  if (ENV_FILE.test(basename) && !ALLOWED_ENV_FILES.has(basename)) return true;
-
-  return false;
-}
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+import { credentialLinesIn, isForbidden } from './lib/tracked-files.mjs';
 
 /**
  * List every tracked path, repo-relative.
@@ -77,9 +49,7 @@ function isForbidden(trackedPath) {
  * relative to the current directory: run from a subdirectory it lists only that subtree, and the
  * resulting non-empty list sails past the empty-index guard below while checking almost nothing.
  */
-function listTrackedFiles() {
-  const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
-  if (!root) throw new Error('git rev-parse --show-toplevel returned nothing');
+function listTrackedFiles(root) {
   const output = execFileSync('git', ['ls-files', '--full-name', '-z'], {
     cwd: root,
     encoding: 'utf8',
@@ -88,10 +58,32 @@ function listTrackedFiles() {
   return output.split('\0').filter((entry) => entry.length > 0);
 }
 
+/**
+ * Every tracked `.npmrc`, at any depth, read for something that should never have been committed.
+ *
+ * TRACKED files, not files on disk. A developer's untracked local `.npmrc` full of tokens is
+ * exactly what should exist and is none of this gate's business.
+ */
+function npmrcCredentialHits(root, tracked) {
+  const hits = [];
+  for (const relative of tracked) {
+    if (path.basename(relative) !== '.npmrc') continue;
+    const file = path.join(root, relative);
+    if (!existsSync(file)) continue;
+    for (const line of credentialLinesIn(readFileSync(file, 'utf8'))) {
+      hits.push(`${relative}:${line}`);
+    }
+  }
+  return hits;
+}
+
 function main() {
   let tracked;
+  let root;
   try {
-    tracked = listTrackedFiles();
+    root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
+    if (!root) throw new Error('git rev-parse --show-toplevel returned nothing');
+    tracked = listTrackedFiles(root);
   } catch (error) {
     console.error(`[tracked-files] UNKNOWN: could not enumerate tracked files: ${error.message}`);
     console.error('[tracked-files] Refusing to report clean on a scan that did not run.');
@@ -116,7 +108,25 @@ function main() {
     process.exit(1);
   }
 
-  console.log(`[tracked-files] clean (${tracked.length} tracked paths checked against the list)`);
+  const credentialHits = npmrcCredentialHits(root, tracked);
+  if (credentialHits.length > 0) {
+    console.error(`[tracked-files] ${credentialHits.length} secret line(s) in a tracked .npmrc:`);
+    // Path and line number only. The value is never printed: the point is to fail the build, not to
+    // reproduce the secret in a log that is itself readable.
+    for (const hit of credentialHits) console.error(`  ${hit}`);
+    console.error('');
+    console.error('Those files are tracked and this repository becomes public. Move the credential');
+    console.error('to ~/.npmrc or an environment variable. Commenting it out is not enough, because');
+    console.error('the value stays readable. If it was ever COMMITTED, removing it from the index');
+    console.error('changes nothing, so rotate the secret: history keeps it.');
+    process.exit(1);
+  }
+
+  const npmrcCount = tracked.filter((entry) => path.basename(entry) === '.npmrc').length;
+  console.log(
+    `[tracked-files] clean (${tracked.length} tracked paths checked against the list, ` +
+      `${npmrcCount} tracked .npmrc read for secret lines)`,
+  );
   process.exit(0);
 }
 
