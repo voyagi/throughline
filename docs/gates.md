@@ -112,18 +112,23 @@ tests where the baseline is 495 and nothing in the output said so. Mutation runs
 against the baseline COUNT, never against the absence of failures, which is the same rule this
 repository applies to every other check that can return zero results for two different reasons.
 
-### The agent loop: eleven mutations against the absence controls
+### The agent loop: thirteen mutations against the absence controls
 
 The agent must be structurally unable to report an absence it did not establish, and three
 independent controls are claimed for that. Each protection was removed on its own, the whole suite
 was run, the failures were recorded, and the tree was restored and confirmed clean before the next
-one. The baseline is 627 tests across 19 files, and every one of the eleven runs also collected
-627, which is the only reason the red counts below mean anything.
+one.
 
-These numbers were measured twice. The first pass ran against a 605 test baseline and was published
-with a count that described the wrong mutation, which a review caught; the whole set was re-measured
-against the tree as it now stands rather than patched. Eleven bullets follow, one per mutation,
-counted from the list itself.
+**Measured at commit `01bfe35`, baseline 652 tests across 19 files.** Every one of the thirteen runs
+also collected 652, which is the only reason the red counts below mean anything. The commit is named
+because this set has now been measured three times: the first pass ran at 605 and published a count
+that described the wrong mutation, the second ran at 627 and was overtaken by the next review round
+before anyone read it. A mutation count is a statement about ONE tree, so that tree is named rather
+than left implied. The numbers describe the source and tests as of `01bfe35`; a later commit that
+touches only documentation leaves them standing, and any commit that touches
+`apps/api/src/agent/**` or its tests makes them unverified until they are re-run.
+
+Thirteen bullets follow, one per mutation, counted from the list itself.
 
 - Control 1, ordering: the coverage verdict pushed second instead of first (5 red). Most are the
   tests that read line one under each verdict. One is the offline end-to-end run, because the local
@@ -137,7 +142,7 @@ counted from the list itself.
   because `worseOf` has unit tests of its own that this one leaves green. The single red is the loop
   test that recalls UNKNOWN and then COVERED; the reverse ordering still passes under the mutation,
   which is exactly why both orderings are tested.
-- Control 3: `judgeAnswer` permitting every answer (12 red). The widest blast radius here, and the
+- Control 3: `judgeAnswer` permitting every answer (13 red). The widest blast radius here, and the
   honest reading is that control 3 is load bearing across the whole suite rather than that this
   mutation is a sharper proof than the others.
 - A failed recall no longer degrading the turn to UNKNOWN (2 red). The fail-open hole that reading
@@ -145,16 +150,25 @@ counted from the list itself.
   kept COVERED, and the absence claim was permitted on a search that had broken.
 - `worseOf` losing its allowlist, so an unrecognised verdict scores -1 through `indexOf` and is
   silently dropped (3 red).
-- The refusal pushed back as a `tool_result` carrying an id no `tool_call` announced (5 red).
+- The refusal pushed back as a `tool_result` carrying an id no `tool_call` announced (6 red).
 - An empty PARTIAL recall described as "a real absence" again (2 red). A cut-short search that
   returned nothing has established nothing, and saying otherwise invited the exact claim control 3
   then refuses.
 - The record-format flattening removed, so a memory's stored content can forge an `id` or
   `asserted by` line of its own (3 red).
 - The budget branch announcing its `tool_call` AFTER the budget check rather than before, which is
-  how it came to emit results for ids nothing had announced (1 red).
+  how it came to emit results for ids nothing had announced (5 red).
 - The operator shown `verdict.refusal`, the second-person text written for the model, instead of
-  `refusalForTheUser` (2 red).
+  `refusalForTheUser` (3 red).
+- The round-cap notice pushed as an `assistant` turn rather than in the loop's own role (1 red).
+  This one is worth more than its count. It is the THIRD instance of a single defect, loop-authored
+  text under the model's role, and the first two were each fixed on one path while the sibling kept
+  doing it. The test that kills it enumerates all five exits from `runAgentTurn` instead of
+  asserting "on any path" from one of them, which is precisely what hid the first two.
+- A whole-word archive noun turned back into a prefix stem, `memories` to `memor` (2 red). The
+  prefix form is how "The container has no memory limit set" became a withheld answer. The negative
+  controls that kill this are one per RETAINED stem; the block that preceded them tested only
+  alternatives that had been deleted, which is why it could not see the same bug twice.
 
 Not proven by mutation, and said plainly rather than counted in: the `CoverageUnknownError` arm in
 `runTool`. `createRepository` does not throw it, because `runRecall` catches an embedder failure, a
