@@ -28,11 +28,15 @@ export {
   loadDatabaseConfig,
   loadEmbeddingConfig,
   redact,
+  SCHEMA_IDENTIFIER,
   secretsOf,
 } from './config.ts';
 
 export type { Database } from './db.ts';
 export { createDatabase, DatabaseError, quoteIdentifier } from './db.ts';
+
+export type { CleanupOutcome, CleanupRequest } from './cleanup.ts';
+export { deleteWorkspaceRows, WORKSPACE_TABLES } from './cleanup.ts';
 
 export type { Migration, MigrationOutcome, MigrationReport, MigrationStatus } from './migrate.ts';
 export { checksumOf, loadMigrations, MigrationDriftError, runMigrations } from './migrate.ts';

@@ -39,6 +39,7 @@
     "probe": "node --env-file-if-exists=.env --experimental-strip-types packages/memory/src/cli/probe.ts",
     "verify:live": "node --env-file-if-exists=.env --experimental-strip-types packages/memory/src/cli/verify-live.ts",
     "verify:mcp": "node --env-file-if-exists=.env --experimental-strip-types apps/api/src/cli/verify-mcp.ts",
+    "measure:freshness": "node --env-file-if-exists=.env --experimental-strip-types apps/api/src/cli/measure-freshness.ts",
     "dev:api": "npm run dev -w @throughline/api",
     "dev:web": "npm run dev -w @throughline/web"
   },

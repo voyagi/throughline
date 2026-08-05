@@ -30,7 +30,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import type { MemoryRecord } from '@throughline/memory';
+import { SCHEMA_IDENTIFIER, type MemoryRecord } from '@throughline/memory';
 import { McpError, type McpClient, type McpFailureKind } from './mcp-client.ts';
 
 /** A memory id is a UUID and nothing else is accepted into a query. */
@@ -43,8 +43,11 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  */
 const WORKSPACE_ID = /^[A-Za-z0-9_.:-]{1,64}$/;
 
-/** A bare lowercase SQL identifier, matching the rule `loadDatabaseConfig` enforces on the schema. */
-const SCHEMA_NAME = /^[a-z_][a-z0-9_]*$/;
+// The schema rule is IMPORTED, not restated. It used to be a byte-for-byte copy of the one in
+// `loadDatabaseConfig` with a comment asserting they matched and nothing holding them to it, which
+// is the arrangement that drifts. The direction that hurts is not the obvious one: this module
+// refusing a schema the config accepts turns every verification of that schema into UNKNOWN, so
+// the component built to say "the channel could not look" would be the reason it could not look.
 
 /**
  * The fields this channel actually compares, named so that nobody has to infer the coverage.
@@ -175,7 +178,7 @@ export function missingColumns(row: Record<string, unknown>): string[] {
  * would be a verification of short memories.
  */
 export function buildVerificationQuery(schema: string, workspaceId: string, memoryId: string): string {
-  if (!SCHEMA_NAME.test(schema)) {
+  if (!SCHEMA_IDENTIFIER.test(schema)) {
     throw new McpError(
       'query_not_bounded',
       `The schema name ${JSON.stringify(schema)} is not a bare lowercase SQL identifier, so it is ` +
@@ -321,7 +324,18 @@ export function compareMemoryToRow(
   return differences;
 }
 
-/** What the channel saw that the application record has no field for. Reported, never compared. */
+/**
+ * What the channel saw that the application record has no field for. Reported, never compared.
+ *
+ * An unreadable value is REPORTED as unreadable rather than left out. `(embedding IS NULL)` is a
+ * boolean expression, so a value that is not a boolean means the channel rendered it as something
+ * else, the string `"true"` being the obvious way, and dropping the observation on that ground
+ * would take the only line about the embedding off the report with nothing to say it had gone.
+ * Silence about a thing that was looked at is the shape this codebase refuses everywhere else.
+ *
+ * An ABSENT column is different and is left out: `missingColumns` has already turned that row into
+ * UNKNOWN and named the column, so repeating it here would be a second voice on a settled point.
+ */
 export function observationsFrom(row: Record<string, unknown>): ChannelObservation[] {
   const observations: ChannelObservation[] = [];
   const isNull = row['embedding_is_null'];
@@ -329,6 +343,13 @@ export function observationsFrom(row: Record<string, unknown>): ChannelObservati
     observations.push({
       label: 'embedding present in the database',
       value: isNull ? 'no' : 'yes',
+    });
+  } else if ('embedding_is_null' in row) {
+    observations.push({
+      label: 'embedding present in the database',
+      value:
+        `unreadable: the channel returned ${isNull === null ? 'null' : `a ${typeof isNull}`} where ` +
+        'this column is a boolean, so nothing is claimed about the embedding either way',
     });
   }
   const model = asText(row['embedding_model']);
@@ -365,7 +386,11 @@ export async function verifyMemory(
     );
   }
 
-  const startedAt = Date.now();
+  // ONE clock, and the injected one. `checkedAt` came from `clock()` while `elapsedMs` came from
+  // `Date.now()`, so a caller injecting a clock for determinism got a report that was deterministic
+  // in one field and not in the other, and the test for it could only assert `>= 0`. A number that
+  // cannot be asserted exactly is a number nothing is pinning.
+  const startedAt = clock().getTime();
   const base = {
     memoryId,
     workspaceId,
@@ -388,11 +413,12 @@ export async function verifyMemory(
         ? error.message
         : 'The verification channel failed in a way this code does not recognise, so nothing was ' +
           'read and nothing is known.';
+    const failedAt = clock();
     return {
       ...base,
       verdict: 'UNKNOWN',
-      checkedAt: clock(),
-      elapsedMs: Date.now() - startedAt,
+      checkedAt: failedAt,
+      elapsedMs: failedAt.getTime() - startedAt,
       reason: sentence,
       differences: [],
       observations: [],
@@ -401,7 +427,7 @@ export async function verifyMemory(
   }
 
   const checkedAt = clock();
-  const elapsedMs = Date.now() - startedAt;
+  const elapsedMs = checkedAt.getTime() - startedAt;
 
   if (rows.length > 1) {
     return {
@@ -523,6 +549,25 @@ export async function verifyMemory(
   }
 
   if (memory) {
+    // THE MEASUREMENT BEHIND THE LAST SENTENCE, and the limit of what it can carry.
+    //
+    // This verdict says a row is missing, which is the most alarming thing this component can
+    // report, so the alternative explanation, that the write is simply not visible over here yet,
+    // has to be ruled out by something other than confidence. It used to rest on a single sample of
+    // 436 ms, which rules out the multi-second follower-read window it was aimed at and says
+    // nothing at all about a shorter one.
+    //
+    // Re-measured properly on 2026-08-05 with `npm run measure:freshness` (25 trials): every row
+    // written over the application path was found by the FIRST read this channel attempted
+    // afterwards, none missed, the fastest of those reads landing 330 ms after the write returned.
+    //
+    // What that establishes is narrower than "there is no window", and the sentence below is
+    // worded to the narrower thing on purpose. An instrument that looks through this channel
+    // cannot observe faster than this channel, so a first-read hit bounds any invisible window
+    // BELOW 330 ms without measuring it. What it does establish is what this verdict actually
+    // needs: no read arriving after a completed write has ever failed to find the row, across 25
+    // consecutive attempts. Re-run the instrument rather than re-arguing the sentence: a trial
+    // that ever needs a second read is the result that changes this branch.
     return {
       ...base,
       verdict: 'DIVERGES',
@@ -531,9 +576,10 @@ export async function verifyMemory(
       reason:
         'The application holds this memory but an independent read of the same cluster does not ' +
         'find it. Either the write did not land where the application believes it did, or the two ' +
-        'channels are pointed at different databases. Settled by measurement rather than assumed ' +
-        'to be a timing artifact: this channel reads the present, and a row written over the ' +
-        'application path was visible here 436 ms later.',
+        'channels are pointed at different databases. Measured rather than assumed to be a timing ' +
+        'artifact, and stated to what was measured: over 25 trials this channel found a freshly ' +
+        'written row on the first read it attempted, the fastest of them 330 ms after the write ' +
+        'returned, so any window in which a written row is invisible here is shorter than that.',
       differences: [{ field: '(the row itself)', application: 'present', channel: 'not found' }],
       observations: [],
       failure: null,

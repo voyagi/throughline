@@ -555,6 +555,99 @@ describe('extractRpcPayload', () => {
     ).toThrow(/none of them was a result or an error/);
   });
 
+  it('does not mistake a server REQUEST sharing our id for the answer to ours', async () => {
+    // JSON-RPC id namespaces are per direction: a server numbering its own requests from one
+    // collides with ours immediately, and this protocol revision lets it send requests back to a
+    // client. The only thing separating such a message from our answer is that it carries neither
+    // a result nor an error, which is a shape rule doing an identity job, and it had no test.
+    const event = (payload: unknown): string => `event: message\ndata: ${JSON.stringify(payload)}\n\n`;
+    const collision = { jsonrpc: '2.0', id: 2, method: 'sampling/createMessage', params: {} };
+    const ours = { jsonrpc: '2.0', id: 2, result: { ok: true } };
+
+    expect(extractRpcPayload(event(collision) + event(ours), 'text/event-stream', 2)).toEqual(ours);
+    // Alone it is not an answer, and the reason says the stream held no result or error rather
+    // than blaming a request that answered somebody else.
+    expect(() => extractRpcPayload(event(collision), 'text/event-stream', 2)).toThrow(
+      /none of them was a result or an error/,
+    );
+  });
+
+  it('gives the unattributable-failure latitude to id NULL only, never to a missing id', async () => {
+    // `id: null` is what JSON-RPC requires of an error the server could not tie back to a request,
+    // and that narrow reading is deliberate rather than incidental. An error with no id at all is
+    // a different message: widening `=== null` to `== null`, or to a key-presence test, would let
+    // a message that never claimed to answer us become our answer.
+    const event = (payload: unknown): string => `event: message\ndata: ${JSON.stringify(payload)}\n\n`;
+    const absent = { jsonrpc: '2.0', error: { code: 0, message: LIVE_MESSAGES.tooLarge } };
+
+    expect(() => extractRpcPayload(event(absent), 'text/event-stream', 2)).toThrow(
+      /did not receive an answer/,
+    );
+    expect(() => extractRpcPayload(JSON.stringify(absent), 'application/json', 2)).toThrow(
+      /did not receive an answer/,
+    );
+    // The accepted case beside the refused one, so the boundary is legible in a single place.
+    const nulled = { ...absent, id: null };
+    expect(extractRpcPayload(event(nulled), 'text/event-stream', 2)).toEqual(nulled);
+  });
+
+  it('treats a payload that is not an object as no answer at all', async () => {
+    // The non-object guard inside `answersRequest` was an uncovered statement: correct, and
+    // pinned by nothing. `JSON.parse` hands back numbers, strings, booleans and null as happily
+    // as objects, and `'result' in 42` throws rather than returning false.
+    for (const payload of ['42', '"a string"', 'null', 'true']) {
+      expect(() =>
+        extractRpcPayload(`event: message\ndata: ${payload}\n\n`, 'text/event-stream', 2),
+      ).toThrow(/none of them was a result or an error/);
+    }
+  });
+
+  it('explains the foreign-message hazard only where a foreign message actually arrived', async () => {
+    // The closing sentence is about the temptation to treat somebody else's rows as ours. On a
+    // stream that carried no other response there is nothing to have been tempted by, and the
+    // sentence sent an operator hunting for a message that does not exist.
+    const event = (payload: unknown): string => `event: message\ndata: ${JSON.stringify(payload)}\n\n`;
+    const messageOf = (raw: string, contentType: string): string => {
+      try {
+        extractRpcPayload(raw, contentType, 2);
+      } catch (error) {
+        return (error as Error).message;
+      }
+      return '';
+    };
+
+    const foreign = messageOf(event({ jsonrpc: '2.0', id: 999, result: {} }), 'text/event-stream');
+    const body = messageOf('{"jsonrpc":"2.0","id":999,"result":{}}', 'application/json');
+    const none = messageOf(
+      event({ jsonrpc: '2.0', method: 'notifications/progress' }),
+      'text/event-stream',
+    );
+
+    expect(foreign).toMatch(/different query's rows/);
+    expect(body).toMatch(/different query's rows/);
+    expect(none).not.toMatch(/different query's rows/);
+    // What every one of them still says, so the trim did not take the substance with it.
+    for (const message of [foreign, body, none]) {
+      expect(message).toMatch(/Nothing was read, so nothing is known/);
+    }
+  });
+
+  it('treats a whitespace-only line as an event boundary, one character wider than the specification', () => {
+    // SSE dispatches an event on an EMPTY line; a line holding a space is a field. This client
+    // splits on both, and the latitude is deliberate: pinned here so it is a decision rather than
+    // an accident. Tightening it to the specification would join these two events, splice their
+    // payloads into one unparseable string, and report the read as unread, still failing closed,
+    // which is what makes the latitude affordable, but no longer the measured behaviour.
+    const raw =
+      'event: message\ndata: {"jsonrpc":"2.0","method":"notifications/progress"}\n \n' +
+      'event: message\ndata: {"jsonrpc":"2.0","id":2,"result":{"ok":true}}\n\n';
+    expect(extractRpcPayload(raw, 'text/event-stream', 2)).toEqual({
+      jsonrpc: '2.0',
+      id: 2,
+      result: { ok: true },
+    });
+  });
+
   it('numbers its requests, so the id check is checking something', async () => {
     // The invariant the whole id check rests on, and nothing pinned it: replacing
     // `id: (requestId += 1)` with `id: requestId` left every test green, which would make the
@@ -1230,8 +1323,11 @@ describe('createMcpClient, on the wire', () => {
   });
 
   it('gives up before opening a connection when the deadline has already passed', async () => {
-    // The `remaining <= 0` guard. Asserting the message alone cannot tell this apart from a normal
-    // timeout, so the assertion that carries the test is that the network was never touched.
+    // The `remaining <= 0` guard. Both assertions below go red if it is deleted, and the comment
+    // used to credit the wrong one: this double REJECTS, so removing the guard turns the message
+    // into "could not reach the server" and the first assertion fails too. `fetchCount` is the one
+    // that states the point, that the deadline is refused before a connection is opened, and it is
+    // the only one that would still fail against a double that answered successfully.
     let fetchCount = 0;
     let nowValue = 0;
     const client = createMcpClient({
@@ -1249,6 +1345,143 @@ describe('createMcpClient, on the wire', () => {
 
     await expect(client.callReadTool('list_databases', {})).rejects.toThrow(/did not answer within 2000 ms/);
     expect(fetchCount).toBe(0);
+  });
+
+  it('classifies a failure the server reports for the HANDSHAKE instead of carrying on', async () => {
+    // Every failure from this server is a JSON-RPC error at HTTP 200, `initialize` included, and
+    // nothing here checked for one. The refusal came back as an ordinary payload: kind dropped,
+    // server's own words dropped, `handshakeComplete` set anyway, and the first anyone heard of it
+    // was whatever the NEXT call said. Nothing is wrong with the tool call this double would have
+    // answered perfectly well. The point is that it is never reached.
+    let toolCallCount = 0;
+    const client = createMcpClient({
+      config: CONFIG,
+      fetchImpl: (_url, init) => {
+        const body = JSON.parse(init.body) as Recorded['body'];
+        if (body.method === 'initialize') {
+          return Promise.resolve(sse(echoId(errorPayload(LIVE_MESSAGES.noClusterId), body.id)));
+        }
+        if (body.method === 'notifications/initialized') return Promise.resolve(accepted());
+        toolCallCount += 1;
+        return Promise.resolve(sse(echoId(rowsPayload([{ one: 1 }]), body.id)));
+      },
+    });
+
+    const error: unknown = await client
+      .select({ database: 'defaultdb', sql: 'SELECT 1', limit: 2 })
+      .catch((thrown: unknown) => thrown);
+    expect(error).toBeInstanceOf(McpError);
+    expect((error as McpError).kind).toBe('cluster_scope_missing');
+    expect((error as McpError).serverMessage).toContain('cluster_id not provided');
+    expect(toolCallCount).toBe(0);
+  });
+
+  it('refuses a handshake answered with neither a result nor an error', async () => {
+    // `result: null` carries the KEY, so the parser's shape check passes it through as our answer.
+    // The handshake then read `?.protocolVersion` off nothing, shrugged, cached the session and
+    // marked itself complete: a session established by a response that established nothing.
+    const client = createMcpClient({
+      config: CONFIG,
+      fetchImpl: (_url, init) => {
+        const body = JSON.parse(init.body) as Recorded['body'];
+        if (body.method === 'initialize') {
+          return Promise.resolve(sse(echoId({ jsonrpc: '2.0', result: null }, body.id)));
+        }
+        if (body.method === 'notifications/initialized') return Promise.resolve(accepted());
+        return Promise.resolve(sse(echoId(rowsPayload([{ one: 1 }]), body.id)));
+      },
+    });
+    await expect(
+      client.select({ database: 'defaultdb', sql: 'SELECT 1', limit: 2 }),
+    ).rejects.toThrow(/neither a result nor an error/);
+  });
+
+  it('defaults the cluster id to the ARGUMENT side, which nothing else pinned', async () => {
+    // Flipping this default to 'header' left the whole suite green, because every test that leans
+    // on it asserts "exactly one of the two", which stays true either way. The live proof shows
+    // both modes working, so only the default itself says which side this client stands on.
+    const recorded: Recorded[] = [];
+    const client = createMcpClient({
+      config: CONFIG,
+      fetchImpl: fakeFetch([rowsPayload([])], recorded),
+    });
+    expect(client.clusterScope).toBe('argument');
+    await client.select({ database: 'defaultdb', sql: 'SELECT 1', limit: 2 });
+
+    const call = toolCalls(recorded)[0];
+    expect(call?.body.params?.arguments?.['cluster_id']).toBe(CONFIG.clusterId);
+    expect(call?.headers['mcp-cluster-id']).toBeUndefined();
+  });
+
+  it('echoes the protocol version the SERVER named, not the one it asked for', async () => {
+    // Every double answered with the same version as the constant, so the negotiation could be
+    // deleted with the suite green: `mcp-protocol-version` would still read '2025-06-18' and
+    // still look negotiated. A server that answers with a different revision is what tells them
+    // apart, and this protocol allows exactly that.
+    const recorded: Recorded[] = [];
+    const client = createMcpClient({
+      config: CONFIG,
+      fetchImpl: (_url, init) => {
+        const body = JSON.parse(init.body) as Recorded['body'];
+        recorded.push({ headers: init.headers, body });
+        if (body.method === 'initialize') {
+          return Promise.resolve(
+            sse(echoId({ jsonrpc: '2.0', result: { protocolVersion: '2099-01-01' } }, body.id)),
+          );
+        }
+        if (body.method === 'notifications/initialized') return Promise.resolve(accepted());
+        return Promise.resolve(sse(echoId(rowsPayload([]), body.id)));
+      },
+    });
+    await client.select({ database: 'defaultdb', sql: 'SELECT 1', limit: 2 });
+
+    expect(toolCalls(recorded)[0]?.headers['mcp-protocol-version']).toBe('2099-01-01');
+    // The notification is sent after the negotiation too, so it carries the same revision.
+    const announce = recorded.find((entry) => entry.body.method === 'notifications/initialized');
+    expect(announce?.headers['mcp-protocol-version']).toBe('2099-01-01');
+  });
+
+  it('numbers the RE-handshake past the call that failed, so no id is ever used twice', async () => {
+    // The uniqueness test in the parser block passes with `id: requestId` in the handshake,
+    // because `call` still increments. It stops being harmless on this path: the retry
+    // re-handshakes AFTER a tool call has failed, so a handshake that reused the id would be
+    // holding the id of that failed call, and a late answer to it would satisfy the id check.
+    const recorded: Recorded[] = [];
+    let toolCallCount = 0;
+    const client = createMcpClient({
+      config: CONFIG,
+      fetchImpl: (_url, init) => {
+        const body = JSON.parse(init.body) as Recorded['body'];
+        recorded.push({ headers: init.headers, body });
+        if (body.method === 'initialize') {
+          return Promise.resolve(
+            sse(echoId({ jsonrpc: '2.0', result: { protocolVersion: '2025-06-18' } }, body.id)),
+          );
+        }
+        if (body.method === 'notifications/initialized') return Promise.resolve(accepted());
+        toolCallCount += 1;
+        if (toolCallCount === 1) {
+          return Promise.resolve({
+            status: 404,
+            headers: { get: (): string | null => null },
+            text: (): Promise<string> => Promise.resolve(''),
+          });
+        }
+        return Promise.resolve(sse(echoId(rowsPayload([{ one: 1 }]), body.id)));
+      },
+    });
+
+    await client.select({ database: 'defaultdb', sql: 'SELECT 1 AS one', limit: 2 });
+
+    const ids = recorded
+      .filter((entry) => entry.body.id !== undefined)
+      .map((entry) => entry.body.id);
+    // initialize, the call that 404s, the re-handshake, the call that succeeds.
+    expect(ids).toHaveLength(4);
+    expect(new Set(ids).size).toBe(4);
+    // Named rather than left to the set: the re-handshake must be past the failed call, not
+    // merely different from it.
+    expect(Number(ids[2])).toBeGreaterThan(Number(ids[1]));
   });
 
   it('reuses the session across calls rather than handshaking every time', async () => {

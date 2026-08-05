@@ -1,4 +1,5 @@
-import { loadDatabaseConfig, loadEmbeddingConfig } from '../config.ts';
+import { loadDatabaseConfig, loadEmbeddingConfig, secretsOf } from '../config.ts';
+import { deleteWorkspaceRows } from '../cleanup.ts';
 import { createDatabase } from '../db.ts';
 import { probeCapabilities, retrievalPathFor } from '../capability.ts';
 import { createLocalEmbedder, type Embedder } from '../embeddings.ts';
@@ -240,22 +241,16 @@ async function main(): Promise<void> {
     if (failures > 0) process.exitCode = 1;
   } finally {
     // Cleanup runs even when a check threw, so a failed run does not leave rows behind that would
-    // skew the next one.
-    await db
-      .query(
-        `DELETE FROM ${quoteSchema(config.schema)}.memory_audit WHERE workspace_id = $1`,
-        [WORKSPACE],
-      )
-      .catch(() => undefined);
-    await db
-      .query(`DELETE FROM ${quoteSchema(config.schema)}.memory WHERE workspace_id = $1`, [WORKSPACE])
-      .catch(() => undefined);
+    // skew the next one. A cleanup that FAILS is reported rather than swallowed: the same DELETEs
+    // used to end in `.catch(() => undefined)`, which kept the run honest about its checks and
+    // silent about rows left in a live cluster.
+    await deleteWorkspaceRows(db, {
+      schema: config.schema,
+      workspaceId: WORKSPACE,
+      secrets: secretsOf(config),
+    });
     await db.close();
   }
-}
-
-function quoteSchema(schema: string): string {
-  return `"${schema.replace(/"/g, '""')}"`;
 }
 
 function passes(action: () => void): boolean {
