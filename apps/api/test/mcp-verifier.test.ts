@@ -426,13 +426,13 @@ describe('verifyMemory', () => {
     const report = await verifyMemory(clientReturning([]), REQUEST);
     expect(report.verdict).toBe('DIVERGES');
     expect(report.differences[0]?.channel).toBe('not found');
-    // Measured rather than assumed, and the wording is held to the measurement: over 25 trials
-    // (`npm run measure:freshness`, 2026-08-05) every row written over pg was found by the FIRST
-    // read this channel attempted, the fastest 330 ms after the write returned. That bounds any
-    // invisible window below 330 ms rather than showing there is none. An instrument reading
-    // through this channel cannot observe faster than the channel, which is why the sentence
-    // claims the bound and not the absence of a window.
-    expect(report.reason).toMatch(/25 trials/);
+    // Measured rather than assumed, and the wording is held to the measurement: over 50 trials in
+    // two runs (`npm run measure:freshness`, 2026-08-05) every row written over pg was found by
+    // the FIRST read this channel attempted, the fastest 330 ms after the write returned. That
+    // bounds any invisible window below 330 ms rather than showing there is none. An instrument
+    // reading through this channel cannot observe faster than the channel, which is why the
+    // sentence claims the bound and not the absence of a window.
+    expect(report.reason).toMatch(/50 trials/);
     expect(report.reason).not.toMatch(/no replication delay|never a delay|reads the present/);
   });
 

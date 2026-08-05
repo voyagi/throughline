@@ -557,17 +557,25 @@ export async function verifyMemory(
     // 436 ms, which rules out the multi-second follower-read window it was aimed at and says
     // nothing at all about a shorter one.
     //
-    // Re-measured properly on 2026-08-05 with `npm run measure:freshness` (25 trials): every row
-    // written over the application path was found by the FIRST read this channel attempted
-    // afterwards, none missed, the fastest of those reads landing 330 ms after the write returned.
+    // Re-measured properly on 2026-08-05 with `npm run measure:freshness`, two runs of 25 trials:
+    // every row written over the application path was found by the FIRST read this channel
+    // attempted afterwards, 50 of 50, none missed, the fastest of those reads landing 330 ms after
+    // the write returned and the slowest first read of a run 1948 ms.
     //
-    // What that establishes is narrower than "there is no window", and the sentence below is
-    // worded to the narrower thing on purpose. An instrument that looks through this channel
-    // cannot observe faster than this channel, so a first-read hit bounds any invisible window
-    // BELOW 330 ms without measuring it. What it does establish is what this verdict actually
-    // needs: no read arriving after a completed write has ever failed to find the row, across 25
-    // consecutive attempts. Re-run the instrument rather than re-arguing the sentence: a trial
-    // that ever needs a second read is the result that changes this branch.
+    // What that establishes is narrower than "there is no window", in two separate ways, and the
+    // sentence below is worded to the narrow version on purpose.
+    //
+    // First, an instrument that looks through this channel cannot observe faster than the channel,
+    // so a first-read hit bounds an invisible window without measuring it. Second, and this is the
+    // one that is easy to overstate: the 50 trials do not all support the 330 ms figure. Each
+    // trial bounds the window by its OWN read time, so the tightest bound any single observation
+    // gives is the fastest read, and reading it as a bound on the NEXT write also assumes the
+    // window does not vary between writes. What all 50 support together is the plainer statement,
+    // and the one this verdict actually needs: no read arriving after a completed write has ever
+    // failed to find the row.
+    //
+    // Re-run the instrument rather than re-arguing the sentence: a trial that ever needs a second
+    // read is the result that changes this branch.
     return {
       ...base,
       verdict: 'DIVERGES',
@@ -577,9 +585,9 @@ export async function verifyMemory(
         'The application holds this memory but an independent read of the same cluster does not ' +
         'find it. Either the write did not land where the application believes it did, or the two ' +
         'channels are pointed at different databases. Measured rather than assumed to be a timing ' +
-        'artifact, and stated to what was measured: over 25 trials this channel found a freshly ' +
-        'written row on the first read it attempted, the fastest of them 330 ms after the write ' +
-        'returned, so any window in which a written row is invisible here is shorter than that.',
+        'artifact, and stated to what was measured: over 50 trials, every row written over the ' +
+        'application path was already visible here on the first read attempted afterwards, and ' +
+        'the quickest of those reads came 330 ms after the write returned.',
       differences: [{ field: '(the row itself)', application: 'present', channel: 'not found' }],
       observations: [],
       failure: null,

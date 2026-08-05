@@ -46,10 +46,21 @@ export interface CleanupRequest {
 }
 
 /**
- * Delete every row a workspace owns. Never throws, never stays quiet about a failure.
+ * Delete every row a workspace owns. This never throws, and a failure is never silent.
  *
  * Each table is attempted even when an earlier one failed: stopping at the first failure would
  * leave more behind than it had to, and the caller learns about both either way.
+ *
+ * "Never throws" is load bearing rather than tidy, and the first version of this function did not
+ * manage it. Every caller runs it inside a `finally`, so anything thrown here replaces whatever
+ * the run was already failing with AND skips the `await db.close()` on the next line: the pool
+ * stays open and the script hangs instead of exiting. A failing DELETE could never do that. A
+ * `warn` callback that throws could, and `warn` is public on `CleanupRequest`.
+ *
+ * So the reporter is called defensively. That is not the silence this function exists to end: the
+ * outcome for every table is returned as a value regardless, carrying `failed` and the redacted
+ * reason. A reporter that cannot report is a broken reporter, not a finding about the database,
+ * and it must not be able to take the run down with it.
  */
 export async function deleteWorkspaceRows(
   db: Pick<Database, 'query'>,
@@ -76,11 +87,17 @@ export async function deleteWorkspaceRows(
         request.secrets,
       );
       outcomes.push({ table, failed: true, reason });
-      warn(
-        `[cleanup] could not remove workspace ${request.workspaceId} from ` +
-          `${request.schema}.${table}: ${reason}. Those rows are still in the cluster. This does ` +
-          'not fail the run, and it is not a finding about anything the run checked.',
-      );
+      try {
+        warn(
+          `[cleanup] could not remove workspace ${request.workspaceId} from ` +
+            `${request.schema}.${table}: ${reason}. Those rows are still in the cluster. This does ` +
+            'not fail the run, and it is not a finding about anything the run checked.',
+        );
+      } catch {
+        // The outcome above already carries this failure, so nothing is lost here that a caller
+        // cannot read. What would be lost by letting this escape is the rest of the cleanup and
+        // the `db.close()` that every caller runs on the next line.
+      }
     }
   }
 

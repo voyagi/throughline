@@ -31,9 +31,9 @@ const DEFAULT_TRIALS = 25;
 const GIVE_UP_MS = 20_000;
 
 interface Trial {
+  /** 1 means the row was there on the first read. Anything higher has measured a real window. */
   readonly polls: number;
   readonly visibleAfterMs: number;
-  readonly firstReadAtMs: number;
 }
 
 function percentile(sorted: readonly number[], fraction: number): number {
@@ -79,16 +79,13 @@ async function main(): Promise<void> {
 
       let polls = 0;
       let visibleAfterMs = Number.NaN;
-      let firstReadAtMs = Number.NaN;
       while (Date.now() - wroteAt < GIVE_UP_MS) {
         polls += 1;
         // The query the verifier itself sends, not a cheaper stand-in: a measurement of a
         // different read is a measurement of a different thing.
         const result = await client.select({ database, sql, limit: 2 });
-        const readAt = Date.now() - wroteAt;
-        if (polls === 1) firstReadAtMs = readAt;
         if (result.rows.length > 0) {
-          visibleAfterMs = readAt;
+          visibleAfterMs = Date.now() - wroteAt;
           break;
         }
       }
@@ -99,7 +96,7 @@ async function main(): Promise<void> {
         continue;
       }
 
-      trials.push({ polls, visibleAfterMs, firstReadAtMs });
+      trials.push({ polls, visibleAfterMs });
       console.log(
         `  trial ${String(trial).padStart(3)}  visible after ${String(visibleAfterMs).padStart(5)} ms  ` +
           `(${polls} read${polls === 1 ? '' : 's'})`,

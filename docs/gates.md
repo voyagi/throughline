@@ -21,7 +21,7 @@ are the reasons this discipline pays.
 | `infra-describes-does-not-run` | `npm run gate:deps` | YES | A planted `infra/` file importing application code |
 | `not-to-unresolvable` | `npm run gate:deps` | YES | A deliberately mistyped import |
 | `no-circular` | `npm run gate:deps` | YES | A two-file cycle |
-| Duplicated logic | `npm run gate:dup` | NO | Currently reports 0 clones. Prove with a pasted block |
+| Duplicated logic | `npm run gate:dup` | YES | Fired on a real clone rather than a planted one: nine lines of channel wiring copied out of `verify-mcp.ts` into a new `measure-freshness.ts`. The threshold is 0, so one clone is enough. Fixed by extracting `apps/api/src/cli/live-channels.ts` |
 | Cross-browser compat | `npm run lint` | NO | No client code yet |
 | Bundle size | `npm run gate:size` | NO | No built bundle yet |
 | Tracked-file check | `npm run gate:artifacts` | YES | Caught a really tracked `.build-lane` on live data, exit 1, and reports UNKNOWN with exit 2 against an empty index |
@@ -43,6 +43,71 @@ the suite was re-run. All nine went red.
 - The relative weighting of confirmation against contradiction.
 - The cosine remap in `cosineSimilarity`.
 - `describeCoverage` refusing to say "found nothing" under UNKNOWN coverage.
+
+### The verification channel, fourteen more
+
+Same method, run against the sweep that closed the review findings PR #7 left open. Each defect was
+put BACK into the source, the whole suite was run, and the failures were recorded before restoring.
+Eleven killed exactly the one test written for them. Three killed their own test and siblings that
+share the same guard, which is noted rather than tidied away, because a mutation with a wider blast
+radius than the finding it stands for is a weaker proof of that finding, not a stronger one.
+
+- The handshake classifying a server failure instead of carrying on (2 red).
+- The handshake refusing a response that carries neither a result nor an error.
+- `observationsFrom` reporting an unreadable embedding flag instead of dropping it.
+- The live-proof cleanup reporting a failed DELETE instead of swallowing it.
+- The schema rule staying identical across its two consumers, which fails on drift in either
+  direction rather than only the direction someone thought of.
+- `elapsedMs` coming from the injected clock (2 red, both about that clock).
+- The default cluster scope being `argument`.
+- The protocol version being the one the SERVER named.
+- A server REQUEST sharing our id not being read as our answer (3 red: the mutation also breaks
+  notification skipping, so only the new test names the collision itself).
+- The unattributable-failure latitude staying at `id: null` and not widening to a missing id.
+- The re-handshake numbering past the call that failed.
+- The foreign-rows hazard being explained only where a foreign message arrived.
+- The content-difference message saying "unknown" rather than printing `undefined`.
+- The non-object guard in `answersRequest`.
+- The SSE boundary staying one character wider than the specification.
+
+A fifteenth is structural rather than tested: `exchange` derives "expects an answer" from whether
+the body carries an id, so a request that waits for an answer with no id to recognise it by cannot
+be constructed. Breaking the derivation turns 17 tests red, which shows it is load bearing; no test
+can show the unrepresentable state, because it is unrepresentable.
+
+### And five more, from the review of that sweep
+
+The review planted 21 mutants of its own and killed all 21. It also found two protections that were
+claimed and not pinned, and one comment that was measurably false. The fixes for those were put
+through the same mutation pass:
+
+- The cleanup surviving a reporter that throws. This one matters more than it sounds: every caller
+  runs the cleanup inside a `finally`, so an exception there skips the `await db.close()` on the
+  next line, the pool stays open, and the script hangs rather than exits.
+- The default reporter writing to `console.warn`, which was the only uncovered function in that
+  file and therefore the one path where a live proof's cleanup could go quiet unnoticed.
+- A failed handshake leaving the client with no session. The review's mutant, `handshakeComplete =
+  true` inserted before the check, SURVIVED the original test: the first call still threw, so the
+  test stayed green, while a second call skipped the handshake and put a tool call on a session
+  that was never established. Killed now by asserting the second call re-handshakes.
+- The handshake refusal being described in the handshake's own words rather than in a sentence
+  `classifyServerMessage` measured on a `tools/call`.
+- The SSE whitespace latitude, in the shape that separates it from the specification.
+
+The last one is worth reading in the source. The comment justifying that latitude claimed both
+readings fail closed, and the review disproved it by execution: one event carrying a complete
+document, a whitespace-only line, then garbage, is returned as an answer here and reported as
+unread by a conformant reader. The behaviour was kept, because it is bounded by the id check and
+because changing this transport is how two fail-open defects were introduced here before. The
+false justification was not kept.
+
+#### One mutation scored UNKNOWN before it scored anything
+
+The first attempt at the cleanup mutant left a dangling `catch`, so the module never parsed, the
+cleanup suite never ran, and the harness printed "nothing red" while judging nothing. It ran 427
+tests where the baseline is 495 and nothing in the output said so. Mutation runs are now read
+against the baseline COUNT, never against the absence of failures, which is the same rule this
+repository applies to every other check that can return zero results for two different reasons.
 
 ## Found by proving, not by reading
 
@@ -255,6 +320,21 @@ did; no extra gate was added, because a check that duplicates CI is machinery wi
 npm run gate           # types, complexity, duplication, boundaries, tracked files
 npm run verify:ship    # the full surface, each step printing its own exit code
 ```
+
+Three things run only against a live cluster and are deliberately outside `npm run gate`, because a
+gate that cannot run offline is a gate people learn to skip:
+
+```bash
+npm run verify:live              # the memory layer, end to end on real rows
+npm run verify:mcp               # the verification channel, 29 asserted checks
+npm run measure:freshness -- 25  # how long a written row can stay invisible to that channel
+```
+
+The third one exists because a sentence in `mcp-verifier.ts` calls an absent row a FINDING rather
+than a replication artifact, and that is the most alarming thing the component can say. It rested
+on a single 436 ms sample, which rules out the multi-second window it was aimed at and says nothing
+about a shorter one. Re-measure rather than re-argue: a trial that ever needs a second read is the
+result that changes the code.
 
 `verify:ship` is the only acceptable evidence that this repo is clean at ship time. A sentence
 saying so is not evidence.

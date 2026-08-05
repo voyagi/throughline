@@ -635,9 +635,7 @@ describe('extractRpcPayload', () => {
   it('treats a whitespace-only line as an event boundary, one character wider than the specification', () => {
     // SSE dispatches an event on an EMPTY line; a line holding a space is a field. This client
     // splits on both, and the latitude is deliberate: pinned here so it is a decision rather than
-    // an accident. Tightening it to the specification would join these two events, splice their
-    // payloads into one unparseable string, and report the read as unread, still failing closed,
-    // which is what makes the latitude affordable, but no longer the measured behaviour.
+    // an accident.
     const raw =
       'event: message\ndata: {"jsonrpc":"2.0","method":"notifications/progress"}\n \n' +
       'event: message\ndata: {"jsonrpc":"2.0","id":2,"result":{"ok":true}}\n\n';
@@ -646,6 +644,31 @@ describe('extractRpcPayload', () => {
       id: 2,
       result: { ok: true },
     });
+  });
+
+  it('is MORE permissive than the specification here, not safer, and this is the shape that shows it', () => {
+    // The case above is one where both readings agree, so it cannot support the claim that the
+    // latitude fails closed. This one separates them, and it was found by review rather than by
+    // writing the test: a single event whose first data line is a complete document and whose
+    // later data line is garbage. Splitting on the whitespace line returns the document; a
+    // conformant reader joins the halves, fails to parse, and reports the read as unread.
+    //
+    // Pinned rather than fixed, because the permissiveness is bounded elsewhere: the id check
+    // still stands, so the worst case is a correctly addressed answer that arrived in a malformed
+    // frame, never another query's rows.
+    const raw =
+      'event: message\ndata: {"jsonrpc":"2.0","id":2,"result":{"ok":true}}\n \ndata: {not json\n\n';
+    expect(extractRpcPayload(raw, 'text/event-stream', 2)).toEqual({
+      jsonrpc: '2.0',
+      id: 2,
+      result: { ok: true },
+    });
+
+    // And the bound that makes it affordable: the same malformed frame carrying somebody else's
+    // id is refused rather than answered.
+    const foreign =
+      'event: message\ndata: {"jsonrpc":"2.0","id":999,"result":{"ok":true}}\n \ndata: {not json\n\n';
+    expect(() => extractRpcPayload(foreign, 'text/event-stream', 2)).toThrow(McpError);
   });
 
   it('numbers its requests, so the id check is checking something', async () => {
@@ -1323,11 +1346,13 @@ describe('createMcpClient, on the wire', () => {
   });
 
   it('gives up before opening a connection when the deadline has already passed', async () => {
-    // The `remaining <= 0` guard. Both assertions below go red if it is deleted, and the comment
-    // used to credit the wrong one: this double REJECTS, so removing the guard turns the message
-    // into "could not reach the server" and the first assertion fails too. `fetchCount` is the one
-    // that states the point, that the deadline is refused before a connection is opened, and it is
-    // the only one that would still fail against a double that answered successfully.
+    // The `remaining <= 0` guard, and a note about which assertion is really doing the work,
+    // because the previous note credited the wrong one and this one is measured. Delete the guard
+    // and the MESSAGE assertion is what fails: this double rejects, so the error becomes "could
+    // not reach the server", and the test stops there without ever reaching `fetchCount`.
+    // `fetchCount` is still the assertion that states the point, that the deadline is refused
+    // before a connection is opened, and it is the one that would carry this test against a double
+    // that answered successfully instead of rejecting.
     let fetchCount = 0;
     let nowValue = 0;
     const client = createMcpClient({
@@ -1354,11 +1379,13 @@ describe('createMcpClient, on the wire', () => {
     // was whatever the NEXT call said. Nothing is wrong with the tool call this double would have
     // answered perfectly well. The point is that it is never reached.
     let toolCallCount = 0;
+    let initializeCount = 0;
     const client = createMcpClient({
       config: CONFIG,
       fetchImpl: (_url, init) => {
         const body = JSON.parse(init.body) as Recorded['body'];
         if (body.method === 'initialize') {
+          initializeCount += 1;
           return Promise.resolve(sse(echoId(errorPayload(LIVE_MESSAGES.noClusterId), body.id)));
         }
         if (body.method === 'notifications/initialized') return Promise.resolve(accepted());
@@ -1371,9 +1398,26 @@ describe('createMcpClient, on the wire', () => {
       .select({ database: 'defaultdb', sql: 'SELECT 1', limit: 2 })
       .catch((thrown: unknown) => thrown);
     expect(error).toBeInstanceOf(McpError);
+    // The KIND survives, because it is drawn from the server's own words. The SENTENCE is the
+    // handshake's own: `classifyServerMessage` writes sentences measured on `tools/call`, and one
+    // of them would tell an operator that the server could not find the table this query names,
+    // about an exchange with neither a table nor a query in it.
     expect((error as McpError).kind).toBe('cluster_scope_missing');
+    expect((error as McpError).message).toMatch(/handshake itself was refused/);
+    expect((error as McpError).message).not.toMatch(/query|table|statement|rows/i);
     expect((error as McpError).serverMessage).toContain('cluster_id not provided');
     expect(toolCallCount).toBe(0);
+
+    // The second half, added after a review showed the first half did not pin what this comment
+    // claims. Setting `handshakeComplete = true` before the check SURVIVED: the call above still
+    // threw, so the test stayed green, while a LATER call skipped the handshake entirely and put a
+    // tool call on a session that was never established. A failed handshake has to leave the
+    // client believing it has no session, and only a second call can show that.
+    await expect(client.callReadTool('list_databases', {})).rejects.toThrow(
+      /handshake itself was refused/,
+    );
+    expect(toolCallCount).toBe(0);
+    expect(initializeCount).toBe(2);
   });
 
   it('refuses a handshake answered with neither a result nor an error', async () => {

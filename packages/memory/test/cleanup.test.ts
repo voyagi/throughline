@@ -108,6 +108,57 @@ describe('deleteWorkspaceRows', () => {
     }
   });
 
+  it('survives a reporter that throws, and still finishes the cleanup', async () => {
+    // Found by review, not by writing this file. Every caller runs this inside a `finally`, so a
+    // throw here does not merely replace the run's real error: it skips the `await db.close()` on
+    // the next line, the pool stays open and the script hangs instead of exiting. The first
+    // version of this function called `warn` unguarded and did exactly that, attempting one table
+    // of two before rejecting.
+    const db = createFakeDatabase(() => {
+      throw new Error('every delete fails');
+    });
+
+    const outcomes = await deleteWorkspaceRows(db, {
+      schema: 'throughline',
+      workspaceId: WORKSPACE,
+      secrets: [],
+      warn: () => {
+        throw new Error('the reporter is broken too');
+      },
+    });
+
+    // Both tables attempted, both reported, nothing thrown.
+    expect(outcomes.map((outcome) => outcome.table)).toEqual([...WORKSPACE_TABLES]);
+    expect(outcomes.every((outcome) => outcome.failed)).toBe(true);
+    expect(outcomes.every((outcome) => outcome.reason === 'every delete fails')).toBe(true);
+    expect(db.queries).toHaveLength(2);
+  });
+
+  it('writes to console.warn when the caller supplies no reporter', async () => {
+    // The default was the one uncovered function in this file, which makes it the one path where
+    // a live proof's cleanup could go quiet without any test noticing.
+    const original = console.warn;
+    const written: string[] = [];
+    console.warn = (message: unknown): void => {
+      written.push(String(message));
+    };
+
+    try {
+      await deleteWorkspaceRows(
+        createFakeDatabase(() => {
+          throw new Error('permission denied');
+        }),
+        { schema: 'throughline', workspaceId: WORKSPACE, secrets: [] },
+      );
+    } finally {
+      console.warn = original;
+    }
+
+    expect(written).toHaveLength(2);
+    expect(written[0]).toContain('[cleanup]');
+    expect(written[0]).toContain('permission denied');
+  });
+
   it('names the tables in the order a half-finished run should leave behind', async () => {
     // Audit rows first: they are the dependent record, so a run that dies between the two deletes
     // leaves the parent row, which is the half a human can find by looking for the workspace.

@@ -437,12 +437,24 @@ function answersRequest(parsed: unknown, expectedId?: number | string): boolean 
  * than in this client. Within a single event the lines ARE joined with newlines, which is what the
  * SSE specification says and is not the same as taking the last line.
  *
- * The boundary below is deliberately one character wider than the specification, which dispatches
- * on an EMPTY line: a line holding only spaces or tabs is a field, not a boundary. Both readings
- * fail closed, which is why the latitude is affordable: a boundary invented inside one event
- * leaves two unparseable halves, and the read is then reported as unread rather than as an answer.
- * Only a server that puts whitespace on its blank lines can tell the two apart, and none has been
- * measured doing it.
+ * The boundary below is one character wider than the specification, which dispatches on an EMPTY
+ * line: a line holding only spaces or tabs is a field, not a boundary. That latitude is kept, and
+ * the reason it was first written down here was WRONG, so the correct version is worth stating.
+ *
+ * The claim was that both readings fail closed. They do not. A review measured the shape that
+ * separates them: one event carrying a complete JSON-RPC document on its first `data:` line, then
+ * a whitespace-only line, then a `data:` line of garbage. This reader splits there and returns the
+ * complete document; a specification-conformant reader joins the two halves, fails to parse, and
+ * reports the read as unread. So against a server that puts whitespace on its blank lines, this is
+ * the more permissive of the two, not the safer one.
+ *
+ * It stays because the permissiveness is bounded by something other than this function. Whatever
+ * comes back still has to carry the id we sent, so the worst case is answering with a complete,
+ * correctly addressed response that arrived in a malformed frame. It cannot deliver another
+ * query's rows, which is the failure this module exists to prevent. Narrowing to the specification
+ * would trade that for a channel that reports UNKNOWN against a server doing something no server
+ * has been measured doing, and changing this transport is how two fail-open defects were
+ * introduced here before. The behaviour is pinned by tests in both shapes.
  */
 function sseEventPayloads(rawBody: string): string[] {
   return rawBody
@@ -942,7 +954,7 @@ export function createMcpClient(options: McpClientOptions): McpClient {
     // heard of it was whatever the next call happened to say. A `result: null` completed a
     // handshake outright. The one exchange that establishes the session is the worst place in this
     // client to lose a reason.
-    const result = assertNoServerError(payload, config.apiKey) as { protocolVersion?: unknown };
+    const result = assertHandshakeAccepted(payload, config.apiKey);
     if (typeof result.protocolVersion === 'string') negotiatedProtocol = result.protocolVersion;
     sessionId = sessionHeader;
 
@@ -1025,6 +1037,43 @@ export function createMcpClient(options: McpClientOptions): McpClient {
       };
     },
   };
+}
+
+/**
+ * The handshake held to the same failure rules as every other call, in its own words.
+ *
+ * The rules are `assertNoServerError`'s and are not restated. What is restated is the SENTENCE,
+ * and only for a failure the server reported: every sentence `classifyServerMessage` writes was
+ * measured on a `tools/call` and describes one, so handed a refused `initialize` it will say "the
+ * server could not find the table this query names" about an exchange containing no table and no
+ * query. A true sentence about the wrong situation is most of what this module spends its length
+ * avoiding, and it reaches an operator.
+ *
+ * The KIND is kept, because it is the machine-readable half and it is drawn from the server's own
+ * words rather than from the situation. So is `serverMessage`, masked, and the original on the
+ * cause.
+ *
+ * The discriminator is exact rather than convenient: `classifyServerMessage` cannot return
+ * `unrecognised_envelope`, so that kind is always one of this function's own structural
+ * complaints, and those are already written for any exchange. "A response carrying neither a
+ * result nor an error" is as true of a handshake as of a read, and stays.
+ */
+function assertHandshakeAccepted(payload: unknown, apiKey: string): { protocolVersion?: unknown } {
+  try {
+    return assertNoServerError(payload, apiKey) as { protocolVersion?: unknown };
+  } catch (error) {
+    if (error instanceof McpError && error.kind !== 'unrecognised_envelope') {
+      throw new McpError(
+        error.kind,
+        'The verification channel could not open a session with the CockroachDB Cloud MCP ' +
+          'server, because the handshake itself was refused. No read was attempted, so nothing ' +
+          "is known about any data. The server's own words are kept on the cause rather than " +
+          'repeated here, and the failure is named above.',
+        { serverMessage: error.serverMessage, cause: error },
+      );
+    }
+    throw error;
+  }
 }
 
 /** Refuse a tool that is not on the read list, and name a write tool as a write tool. */
