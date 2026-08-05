@@ -385,9 +385,11 @@ export function renderMemory(memory: MemoryRecord, similarity?: number, stale?: 
  * FOUR VERSIONS, WRONG FOUR WAYS. The pattern is not the recurring defect. The recurring defect is
  * that each version's negative controls were written from the author's mental model of the pattern
  * instead of derived from the pattern itself, so each round's controls could only catch the
- * previous round's bug. That is why the tests below now assert a STRUCTURAL property of
- * `ABSENCE_PHRASES` rather than only sampling sentences, and why the phrase list is data a test can
- * read rather than one long literal.
+ * previous round's bug. Rounds five and six then produced three SYNTACTIC controls over this list,
+ * each escapable in turn, because a test that reads the phrase STRINGS sees only the tail of the
+ * last group while the hazard sits at any depth. The control below is behavioural instead: it hands
+ * `buildAbsenceClaim` a list containing a deliberately broken branch and asserts what the resulting
+ * matcher DOES. The phrase list is still data a test can read rather than one long literal.
  *
  * THIS PREDICATE IS OPTIMISED FOR PRECISION AND ITS RECALL IS POOR. Both boundaries are closed, so
  * no token can be eaten by a longer word. "memory" appears ONLY inside the fixed phrase "incident
@@ -425,18 +427,38 @@ export const ABSENCE_PHRASES = [
   String.raw`nothing(?:\s+\w+){0,3}\s+(?:in\s+the\s+incident\s+memory|on\s+record|recorded)`,
 ];
 
-// BOTH boundaries. The leading `\b` was there from the start and the trailing one was not, so every
-// alternative's final token stayed a prefix and "no other incident" matched inside "no other
-// incidental costs".
-//
-// One trailing `\b` closes the whole alternation only while no branch ENDS on a separator or a
-// quantifier: a branch ending in `\s+` inverts the boundary into a demand for a word character
-// after the whitespace. That is a precondition on the list above, not a fact about it, so a test
-// asserts it by reading `ABSENCE_PHRASES` directly. Stated that way because the first version of
-// this sentence claimed every alternative "ends in a word character", which is false: four of the
-// seven end in a closing parenthesis, and the test written to prove the claim exempted exactly
-// that case, so a planted branch ending in `\s+)` passed the whole suite.
-const ABSENCE_CLAIM = new RegExp(String.raw`\b(?:${ABSENCE_PHRASES.join('|')})\b`, 'i');
+/**
+ * Build the matcher from a phrase list.
+ *
+ * BOTH boundaries are lookarounds rather than `\b`, and that is the whole of the fix that ends a
+ * six round argument with this one line. `\b` is not an assertion about the pattern, it is an
+ * assertion about the two characters either side of a position, so its meaning FLIPS depending on
+ * what the branch happened to end on. After a word character `...\b` means "no word character
+ * follows", which is what stops "no other incident" matching inside "no other incidental costs".
+ * After whitespace the same `\b` means the opposite: "a word character MUST follow". A branch whose
+ * match can end on a separator therefore turns the guard inside out and silently loses every
+ * sentence-final absence claim, which is the exact answer the guard exists to catch.
+ *
+ * `(?!\w)` says the thing that was always meant, in one direction only, so no branch can invert it.
+ * `(?<!\w)` is the mirror image at the front. VERIFIED rather than reasoned: old and new agree on
+ * all nine behavioural cases the suite pins, including the four prefix eating negatives the trailing
+ * boundary was added for, so this is a robustness change and not a behaviour change on today's list.
+ *
+ * Exported because that is what makes the property TESTABLE. Three versions of the control that
+ * guarded this were syntactic tests on the phrase SOURCE STRINGS, and a review escaped every one of
+ * them with six branch shapes, because a suffix test reads the last alternative of the last group
+ * and the hazard can sit in any alternative at any depth. A test can now hand this function a list
+ * containing a deliberately inverting branch and assert what the RESULT does, which is a property of
+ * the matcher rather than of anyone's reading of the strings.
+ *
+ * There is no longer a precondition on `ABSENCE_PHRASES` for a comment to get wrong. A branch that
+ * ends on a separator is now merely inert, never inverting.
+ */
+export function buildAbsenceClaim(phrases: readonly string[]): RegExp {
+  return new RegExp(String.raw`(?<!\w)(?:${phrases.join('|')})(?!\w)`, 'i');
+}
+
+const ABSENCE_CLAIM = buildAbsenceClaim(ABSENCE_PHRASES);
 
 export function claimsAbsence(text: string): boolean {
   return ABSENCE_CLAIM.test(text);

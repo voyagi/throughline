@@ -18,8 +18,8 @@
       "id": "GHSA-8j4g-w8fx-2239",
       "package": "hono",
       "severity": "moderate",
-      "reason": "ReDoS in the CORS middleware. Fixed in 4.12.34, published 2026-08-03, which is inside the min-release-age cooldown this repository sets in .npmrc. The cooldown is not bypassed to clear a finding faster. No HTTP surface is mounted yet, which is a fact about today rather than a mitigation.",
-      "recheckAfter": "2026-08-06"
+      "reason": "ReDoS in the CORS middleware via Access-Control-Request-Headers. Fixed in 4.12.34, published 2026-08-03T02:36Z, which is still inside the min-release-age cooldown this repository sets in .npmrc; it clears 2026-08-06T02:36Z. The cooldown is not bypassed to clear a finding faster. The previous reason here was that no HTTP surface was mounted yet, and that stopped being true on 2026-08-05. The mitigation now is that the vulnerable middleware is never imported: apps/api/src/http/cors.ts matches an exact Set of origins with no regular expression in it, and the no-hono-cors-middleware rule in .dependency-cruiser.cjs fails the build on any import of hono/cors, proven failable by planting that import and watching it fire by name.",
+      "recheckAfter": "2026-08-07"
     }
   ]
 }

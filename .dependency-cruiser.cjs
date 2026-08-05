@@ -46,6 +46,24 @@ module.exports = {
       },
     },
     {
+      name: 'no-hono-cors-middleware',
+      severity: 'error',
+      comment:
+        'hono/cors carries GHSA-8j4g-w8fx-2239, a ReDoS reachable through the ' +
+        'Access-Control-Request-Headers request header. The fix is hono 4.12.34, published inside ' +
+        'the min-release-age cooldown this repo sets in .npmrc, and that cooldown is not bypassed ' +
+        'to clear an advisory faster. So the middleware is never mounted: apps/api/src/http/cors.ts ' +
+        'does the same job with an exact-match allowlist and no regular expression at all. This ' +
+        'rule outlives the upgrade on purpose. A matched allowlist is a stronger position than a ' +
+        'patched reflector, and without a rule the import comes back the first time somebody ' +
+        'reaches for the obvious middleware.',
+      from: {},
+      // The RESOLVED path, matched under node_modules the same way the memory-core rule below
+      // learned to: the bare specifier `hono/cors` matches nothing, and `^node_modules/` alone
+      // misses a package installed into a workspace's own node_modules rather than hoisted.
+      to: { path: '(^|/)node_modules/hono/dist/middleware/cors' },
+    },
+    {
       name: 'browser-code-stays-in-the-browser',
       severity: 'error',
       comment:
@@ -113,6 +131,23 @@ module.exports = {
     ...(fs.existsSync(path.join(__dirname, 'tsconfig.json'))
       ? { tsConfig: { fileName: path.join(__dirname, 'tsconfig.json') } }
       : {}),
-    enhancedResolveOptions: { extensions: ['.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx'] },
+    // The resolver has to honour package EXPORTS MAPS, and it does not by default. Without these
+    // three fields a subpath import such as `hono/cors` or `@hono/node-server/conninfo` resolves to
+    // nothing at all, and the consequences run in both directions.
+    //
+    // A real import of a subpath that exists fails `not-to-unresolvable`, so the gate reports a
+    // violation for correct code. That is loud, and it is how this was found.
+    //
+    // The quiet direction is the one that matters. An unresolved module has NO PATH, and every rule
+    // here matches on paths, so `no-hono-cors-middleware` below could never have fired: it would
+    // have sat in this file looking like a control over the advisory while matching nothing, which
+    // is precisely the failure `docs/gates.md` opens by describing. Proven by planting the import
+    // and watching the wrong rule catch it.
+    enhancedResolveOptions: {
+      extensions: ['.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx'],
+      exportsFields: ['exports'],
+      conditionNames: ['import', 'require', 'node', 'default'],
+      mainFields: ['module', 'main'],
+    },
   },
 };

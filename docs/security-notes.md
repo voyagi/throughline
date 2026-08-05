@@ -49,13 +49,29 @@ middleware, reachable through the `Access-Control-Request-Headers` header. `apps
 `hono: ^4`.
 
 - Not fixed today, and deliberately so. 4.12.34 was published 2026-08-03T02:36Z and 4.13.0 on
-  2026-08-03T21:54Z, so on 2026-08-04 both sit inside the three day supply chain cooldown that
-  `.npmrc` now sets for this repository. The cooldown is not bypassed to clear a finding faster.
-- Exposure today is nil in the strict sense: no HTTP surface exists yet, so the CORS middleware is
-  not mounted anywhere. That is a fact about today, not a mitigation.
-- Action, dated: on or after **2026-08-06**, `npm install hono@latest -w @throughline/api`, then
-  re-run `npm audit` and trivy. Whoever builds the HTTP surface before that date configures CORS
-  with an explicit origin allowlist rather than a reflected origin, and re-checks this line.
+  2026-08-03T21:54Z, so on 2026-08-05 both still sit inside the three day supply chain cooldown
+  that `.npmrc` sets for this repository: 4.12.34 clears at 2026-08-06T02:36Z. The cooldown is not
+  bypassed to clear a finding faster, and `.npmrc` says so in its own words.
+- **The line that used to sit here was "no HTTP surface exists yet, so the middleware is not
+  mounted anywhere", labelled a fact about today rather than a mitigation. That sentence stopped
+  being true on 2026-08-05, when the HTTP surface shipped.** It is replaced by a real mitigation
+  rather than deleted, because the difference is the whole point of this file.
+- **The mitigation: `hono/cors` is never imported.** `apps/api/src/http/cors.ts` does the same job
+  with an exact-match `Set` of origins, which contains no regular expression, so there is no
+  pathological input for anyone to find. This is enforced rather than remembered: the
+  `no-hono-cors-middleware` rule in `.dependency-cruiser.cjs` fails the build on any import of the
+  middleware, and it was proven failable by planting that import and watching it fire BY NAME.
+  Watching it fire by name mattered: the first attempt was caught by `not-to-unresolvable` instead,
+  because the resolver was not reading package exports maps, so `hono/cors` resolved to nothing and
+  a path rule had no path to match. The rule looked like a control and was inert.
+- The mitigation outlives the upgrade and the rule stays afterwards. A matched allowlist is a
+  stronger position than a patched reflector, and without the rule the import returns the first
+  time somebody reaches for the obvious middleware.
+- Action, dated: on or after **2026-08-06**, `npm install hono@4.12.34 -w @throughline/api` (a
+  pinned version, not `@latest`, so the install cannot pull something published this morning), then
+  re-run `npm audit` and trivy, then delete this entry rather than extending it. The acceptance in
+  `scripts/accepted-advisories.json` is dated **2026-08-07** so that it expires if that does not
+  happen.
 
 ### CVE-2026-14257, brace-expansion 5.0.7, HIGH, bundled inside aws-cdk-lib, SUPERSEDED
 

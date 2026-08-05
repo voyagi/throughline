@@ -21,6 +21,7 @@ are the reasons this discipline pays.
 | `infra-describes-does-not-run` | `npm run gate:deps` | YES | A planted `infra/` file importing application code |
 | `not-to-unresolvable` | `npm run gate:deps` | YES | A deliberately mistyped import |
 | `no-circular` | `npm run gate:deps` | YES | A two-file cycle |
+| `no-hono-cors-middleware` | `npm run gate:deps` | YES | A planted `import { cors } from 'hono/cors'`, which fired the rule BY NAME. The first attempt fired `not-to-unresolvable` instead, because the resolver was not reading package exports maps, so the middleware resolved to no path and a path rule had nothing to match. See below |
 | Duplicated logic | `npm run gate:dup` | YES | Fired on a real clone rather than a planted one: nine lines of channel wiring copied out of `verify-mcp.ts` into a new `measure-freshness.ts`. The threshold is 0, so one clone is enough. Fixed by extracting `apps/api/src/cli/live-channels.ts` |
 | Cross-browser compat | `npm run lint` | NO | No client code yet |
 | Bundle size | `npm run gate:size` | NO | No built bundle yet |
@@ -119,25 +120,50 @@ independent controls are claimed for that. Each protection was removed on its ow
 was run, the failures were recorded, and the tree was restored and confirmed clean before the next
 one.
 
-**Measured at commit `01bfe35`, baseline 652 tests across 19 files.** Every one of the thirteen runs
-also collected 652, which is the only reason the red counts below mean anything.
+**Measured at commit `da283fe`, baseline 736 tests across 21 files.** Every one of the thirteen runs
+also collected 736, which is the only reason the red counts below mean anything. Each mutation was
+applied by a harness that REFUSES to run unless it changed exactly the line it names, because a
+mutation that silently failed to apply scores a green run against unmutated code, which is how this
+section once published a count for a tree nobody had mutated.
 
-**AND HEAD HAS SINCE MOVED PAST THAT COMMIT.** A fourth review round changed `claimsAbsence` and its
-tests again, which took the baseline to 659, so the counts below describe `01bfe35` and are PENDING
-RE-MEASUREMENT against the branch tip. They are published with that label rather than quietly
-carried forward, and re-measuring them is a named item in the handoff. Do not read them as
-describing the code at the tip.
+This is the fourth measurement of this set. The first ran at 605 and published a count that
+described the wrong mutation, the second ran at 627 and was overtaken before anyone read it, the
+third ran at 652 and was overtaken the same way. This one was taken LAST, after the HTTP surface
+landed, rather than first: re-measuring before the unit would have invalidated it a fourth time by
+the exact mechanism this paragraph describes.
 
-The commit is named because this set has now been measured three times and invalidated three times,
-each by the review round that followed it: the first pass ran at 605 and published a count that
-described the wrong mutation, the second ran at 627 and was overtaken before anyone read it, and
-this one was overtaken the same way. A mutation count is a statement about ONE tree. The rule for
+TWELVE OF THE THIRTEEN COUNTS ARE UNCHANGED from 652 to 736, which is worth more than it looks: the
+suite grew by 84 tests and the blast radius of every one of these mutations stayed exactly where it
+was, so the new tests neither cover this area nor mask it.
+
+**The thirteenth changed, from 2 red to 1, and the cause is measured rather than guessed.** At
+`01bfe35` the matcher was `\b(?:...)` with NO trailing boundary, verified by reading that commit.
+So the prefix stem really did eat "no memory limit", the negative control for RAM fired, and 2 was
+correct for that tree. The trailing boundary landed in the round-four fix, so a stem followed by a
+word character can no longer match at all, and that control can no longer fire. The one red left is
+`catches "There were no memories about checkout."`, named rather than counted. A wider variant of
+the same mutation, `memories` to `memor` at all four occurrences in the phrase list rather than one,
+was run to check that the drop was not the mutation being applied too narrowly: it rewrites all four
+occurrences of the word in that block, of which three are phrases and the fourth is a comment, and
+it scores 4 red with the RAM control green in that run too. A mutation count is a statement about ONE tree, and this
+is what that sentence costs when it is true.
+
+The rule for
 reading it: a commit that touches only documentation leaves these standing, and a commit that
-changes any file the suite loads makes them unverified until re-run. Read that set off
-`vitest.config.ts` rather than from memory, because it has now been written down too narrowly
-twice: first as `apps/api/src/agent/**`, then as `packages/*/src` plus `apps/api/src` plus their
-tests, which still omitted `scripts/test/**/*.test.mjs` and the `scripts/lib` modules it imports.
-Those account for 146 of the 652.
+changes any file the suite loads makes them unverified until re-run. That set is `packages/*/src`,
+`apps/api/src`, `scripts/lib`, and every directory named in `vitest.config.ts` `test.include`.
+
+It is written out here, maintenance cost and all, because it has now been got wrong THREE times and
+the third attempt was the instruction to derive it. First it was `apps/api/src/agent/**`. Then it
+was `packages/*/src` plus `apps/api/src` plus their tests, which omitted `scripts/test` entirely.
+Then it was "read that set off `vitest.config.ts`", and that file does not carry the answer: it
+lists three TEST globs and a coverage include, and it names `scripts/lib` nowhere, while
+`scripts/test/tracked-files.test.mjs` and `scripts/test/check-advisories.test.mjs` both import from
+it. A reader following that instruction reproduces the exact omission it was written to fix, which
+is worse than the omission, because it looks like a method. `scripts/test` and the `scripts/lib`
+modules it imports account for 146 of the 736, measured with `npx vitest run scripts/test` rather
+than inferred, and unchanged across every baseline this section has recorded because nothing under
+`scripts/` has moved since `01bfe35`.
 
 Thirteen bullets follow, one per mutation, counted from the list itself.
 
@@ -181,10 +207,15 @@ Thirteen bullets follow, one per mutation, counted from the list itself.
   doing it. The test that kills it drives five scenarios across all three exits from `runAgentTurn`
   (two pairs share a return) instead of
   asserting "on any path" from one of them, which is precisely what hid the first two.
-- A whole-word archive noun turned back into a prefix stem, `memories` to `memor` (2 red). The
-  prefix form is how "The container has no memory limit set" became a withheld answer. The negative
-  controls that kill this are one per RETAINED stem; the block that preceded them tested only
-  alternatives that had been deleted, which is why it could not see the same bug twice.
+- A whole-word archive noun turned back into a prefix stem, `memories` to `memor` (1 red, and it was
+  2 at `01bfe35`). The one red is `catches "There were no memories about checkout."`. The sentence
+  this bullet used to credit, "The container has no memory limit set", is NOT withheld by this
+  mutation any more and the proof is that its test stayed green under the run: a stem followed by a
+  word character cannot match once there is a trailing boundary, and at `01bfe35` there was not one.
+  So the RAM control this bullet named is no longer what kills this mutation, and saying so is the
+  point of re-measuring rather than carrying a number forward. The negative controls are still one
+  per RETAINED stem; the block that preceded them tested only alternatives that had been deleted,
+  which is why it could not see the same bug twice.
 
 Not proven by mutation, and said plainly rather than counted in: the `CoverageUnknownError` arm in
 `runTool`. `createRepository` does not throw it, because `runRecall` catches an embedder failure, a
@@ -197,6 +228,40 @@ for either, because tightening them is a design change rather than a regression.
 bound to the TURN, not to the question: a turn that searched one subject may assert absence about
 another. And a recall refused by its own schema never reached the repository, so it leaves the
 verdict alone.
+
+### The HTTP surface: three mutations against the demo's ceilings
+
+Same method, run at `da283fe` against a baseline of 736. These three are the guarantees the surface
+actually makes, as opposed to the things it merely does.
+
+- The daily ceiling checked AFTER the model call instead of before (1 red, and it is the right one:
+  `refuses without calling the model at all`). The test counts the model's calls and asserts zero on
+  a refusal, which is the only thing that makes the ordering a fact rather than a comment in the
+  handler. Checking afterwards spends the money and then reports that it should not have.
+- The CORS allowlist reflecting whatever arrived in `Origin` (4 red, at both the unit and the route
+  level). A reflector is not a weaker allowlist, it is no policy at all, and it is one deleted
+  condition away from being what this file has instead of `hono/cors`.
+- The error mapper interpolating the thrown value into the response body (2 red, the unit and the
+  end-to-end). Both assert on the ARN, the account id and the connection string that the planted
+  error carries. This is the mutation that matters most, because the property is invisible when it
+  holds: a response that leaks a role ARN looks exactly like one that does not until somebody reads
+  it.
+
+### A rule that could not fire, found by planting rather than by reading it
+
+`no-hono-cors-middleware` was written, looked correct, and matched nothing. The planted
+`import { cors } from 'hono/cors'` was caught by `not-to-unresolvable` instead, and that is the tell:
+dependency-cruiser was not honouring package EXPORTS MAPS, so a subpath import resolved to no module
+at all, and every rule in that config matches on paths. A module with no path cannot violate a path
+rule.
+
+It would have sat in the config as the mechanical control over an accepted security advisory while
+matching nothing, which is the fourth entry in the list below and the reason that list exists.
+
+The same run also showed a real import failing the gate, `@hono/node-server/conninfo` in
+`apps/api/src/main.ts`, which was going to ship. One resolver fix, `exportsFields` plus
+`conditionNames`, closed both directions: the rule now fires by its own name, and correct code stops
+being reported as a violation. Watching a rule fire is not enough. Watch it fire BY NAME.
 
 ## Found by proving, not by reading
 

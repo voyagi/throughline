@@ -315,18 +315,27 @@ describe('a recall that FAILS cannot leave the turn looking covered', () => {
     expect(result.text).toBe('The second search failed, so I cannot tell you.');
   });
 
-  it('tells the model the failure is not a result', async () => {
+  // This test used to assert the OPPOSITE of its second half: that the thrown message reached the
+  // model, so a failing recall put "statement timeout" in the transcript. That was deliberate and it
+  // was wrong, for a reason nothing in this file could see. The HTTP surface returns the whole
+  // transcript on a 200, so a tool_result is a response body, and a review proved a role ARN
+  // reaching a caller through exactly this line by rejecting a recall with an AccessDeniedException.
+  //
+  // The trade is stated rather than assumed: the model loses detail it could not act on anyway,
+  // because "the search could not run" is the entire operable content of a provider failure. The
+  // detail goes to the operator's log instead, which is the reader who can do something with it.
+  it('tells the model the failure is not a result, without quoting what threw', async () => {
     const repository = fakeRepository({
-      recall: () => Promise.reject(new Error('statement timeout')),
+      recall: () => Promise.reject(new Error('statement timeout at arn:aws:sts::123456789012:role/x')),
     });
     const model = createScriptedChatModel([recallCall(), answer('I could not search.')]);
     const result = await run(model, repository);
 
     const toolResult = result.transcript.find((turn) => turn.role === 'tool_result');
-    expect(toolResult?.role === 'tool_result' && toolResult.content).toContain('statement timeout');
-    expect(toolResult?.role === 'tool_result' && toolResult.content).toContain(
-      'Do not treat this as a result',
-    );
+    const content = toolResult?.role === 'tool_result' ? toolResult.content : '';
+    expect(content).toContain('Do not treat this as a result');
+    expect(content).not.toContain('statement timeout');
+    expect(content).not.toContain('arn:aws');
     expect(result.coverage).toBe('UNKNOWN');
   });
 

@@ -3,6 +3,7 @@ import type { Coverage } from '@throughline/memory';
 import { MEMORY_KINDS } from '@throughline/memory';
 import {
   ABSENCE_PHRASES,
+  buildAbsenceClaim,
   claimsAbsence,
   findTool,
   mayAssertAbsence,
@@ -365,33 +366,56 @@ describe('claimsAbsence', () => {
     expect(claimsAbsence(text)).toBe(false);
   });
 
-  // STRUCTURAL, and derived from `ABSENCE_PHRASES` rather than from anyone's model of it.
+  // THE BOUNDARY, tested as BEHAVIOUR of the matcher instead of as the shape of the phrase strings.
   //
-  // This is the check that four rounds of sampled sentences kept failing to be. Every previous
-  // negative block was written from what its author believed the pattern contained, so each one
-  // could only catch the PREVIOUS round's bug: round four's block still listed `report` and `entr`,
-  // which round three had already deleted, while the live defect was an unclosed trailing boundary
-  // that no sentence in the block happened to probe. A property read off the phrase list itself
-  // cannot drift from the phrase list.
+  // This control is on its fourth version and the three before it were all syntactic: each read the
+  // TAIL of each phrase string, so each could see only the last alternative of the last group. A
+  // review escaped every one of them, most cheaply by taking the previous fix's own repro and
+  // swapping the two alternatives of its final group, because the hazard can sit in any alternative
+  // at any nesting depth and a suffix test cannot reach it. Three rounds of that is enough: the
+  // question is not what the strings look like, it is what the matcher DOES.
   //
-  // The property: no phrase may END on a separator or a quantifier, because the single trailing
-  // `\b` is appended after the whole alternation and only closes a token that ends in a word
-  // character. A branch ending in `\s+` inverts it: the boundary then demands a word character
-  // AFTER the whitespace, so the phrase matches text it was never meant to.
+  // THE PROPERTY: a verdict must not change when the sentence ends immediately after the phrase.
+  // That is precisely what an inverted trailing boundary breaks. `\b` is an assertion about the two
+  // characters either side of a position, so after whitespace it means "a word character MUST
+  // follow", and a branch whose match ends on a separator is then caught mid-sentence and missed at
+  // a full stop. Silently losing every sentence-final absence claim is the exact answer this guard
+  // exists to catch.
   //
-  // The first version of this test asserted `/(?:\w|\))$/`, which exempted every phrase ending in a
-  // closing parenthesis, and four of the seven do. A review planted
-  // `no\s+(?:known|logged)\s+(?:incidents|trace\s+of\s+)` and the whole suite stayed green. So the
-  // check that was written to break the cycle of controls-that-cannot-fail was itself one, on its
-  // first outing. It now looks THROUGH a trailing group at the character before it, which is where
-  // the separator actually sits.
-  it('never ends a phrase on a separator or quantifier, which the trailing boundary relies on', () => {
-    for (const phrase of ABSENCE_PHRASES) {
-      expect(
-        phrase,
-        `a phrase may not end on a separator or quantifier, inside a final group or otherwise: ${phrase}`,
-      ).not.toMatch(/(?:\\s\+|[+*?}])\)?$/);
-    }
+  // Each row is a shape that escaped the previous control, planted rather than described. Under
+  // `\b(?:...)\b` every one matches the followed sentence and misses the final one; under the
+  // lookarounds in `buildAbsenceClaim` they agree, because a branch ending on a separator is inert
+  // rather than inverting. Reverting that boundary turns this red, which was confirmed by doing it.
+  it('has phrases to check, so the checks below cannot pass by iterating nothing', () => {
+    expect(ABSENCE_PHRASES.length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['a bare \\s', String.raw`no\s+known\s+incidents\s`, 'There are no known incidents'],
+    ['a literal trailing space', String.raw`no\s+known\s+incidents `, 'There are no known incidents'],
+    ['a character class', String.raw`no\s+known\s+incidents[\s,]`, 'There are no known incidents'],
+    ['an empty final alternative', String.raw`no\s+known\s+incidents\s+(?:for|)`, 'There are no known incidents'],
+    // The two that reach the separator through an INTERIOR alternative, which is where every
+    // syntactic version of this test was blind. The first is the previous fix's own repro with its
+    // final group's two alternatives reordered.
+    ['a reordered final group', String.raw`no\s+known\s+(?:trace\s+of\s+|incidents)`, 'There is no known trace of'],
+    ['a doubly nested group', String.raw`no\s+known\s+(?:incidents|(?:trace\s+of\s+))`, 'There is no known trace of'],
+  ])('does not let %s decide the verdict by what follows the phrase', (_label, planted, stem) => {
+    const matcher = buildAbsenceClaim([...ABSENCE_PHRASES, planted]);
+    expect(matcher.test(`${stem}.`), `sentence-final: ${stem}.`).toBe(
+      matcher.test(`${stem} affecting checkout.`),
+    );
+  });
+
+  // The mirror of the above, and it is the half the previous version got backwards. That assertion
+  // REJECTED any phrase ending in a quantifier, while `incidents?` and `outages?` are already used
+  // inside the first phrase's own group one level deeper. A quantifier over a word-character token
+  // is safe: what matters is whether the match can end on a separator, never what operator sits
+  // last in the source. So this shape must be accepted AND must actually match.
+  it('accepts a branch ending in a quantifier over a word character', () => {
+    const matcher = buildAbsenceClaim([...ABSENCE_PHRASES, String.raw`no\s+known\s+incidents?`]);
+    expect(matcher.test('There are no known incidents.')).toBe(true);
+    expect(matcher.test('There are no known incidents affecting checkout.')).toBe(true);
   });
 
   // The boundary itself, probed from BOTH ends on every alternative. Round four found "no other

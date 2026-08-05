@@ -129,11 +129,14 @@ export class McpError extends Error {
    * The server's own words, with identifiers masked. For a log, never for a page: masking is a
    * best effort blocklist, while `message` above is written from scratch and cannot leak.
    *
-   * NOTHING IN PRODUCTION READS THIS YET, because the HTTP surface that would log it does not
-   * exist. Today the masking protects a value only the suite and the live proof ever observe,
-   * which makes it a promise rather than a control. It closes when `/status` logs this field; if
-   * that surface ships without logging it, this field and its masking should go rather than stay
-   * as decoration that reads like a safeguard.
+   * READ IN PRODUCTION as of the HTTP surface: `apps/api/src/server.ts` logs it from `app.onError`,
+   * masked, on any `McpError` that reaches a request handler. This docblock previously said nothing
+   * read it and that the field should be deleted if the HTTP surface shipped without logging it.
+   * That surface shipped and logs it, so the field stays and the condition is discharged rather
+   * than quietly dropped.
+   *
+   * The log and never the response. The masking is a best effort blocklist, while `message` above
+   * is written from scratch and cannot leak, which is why only the second one is served.
    */
   readonly serverMessage: string | undefined;
 

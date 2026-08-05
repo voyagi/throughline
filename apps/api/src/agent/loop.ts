@@ -293,9 +293,6 @@ interface ToolContext {
   readonly workspaceId: string;
 }
 
-function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 async function runTool(call: ChatToolCall, context: ToolContext): Promise<ToolOutcome> {
   const parsed = parseToolCall(call.name, call.args);
@@ -315,11 +312,26 @@ async function runTool(call: ChatToolCall, context: ToolContext): Promise<ToolOu
     // documented signal for exactly this situation ("an agent tool can be forced to surface it"),
     // and because `MemoryRepository` is a port: a decorated or replacement implementation may
     // throw it. It refines the MESSAGE only. It is not what sets coverage.
+    // NO THROWN MESSAGE GOES IN HERE, and that is a boundary rather than tidiness.
+    //
+    // A `tool_result` is not an internal detail. The HTTP surface returns the whole transcript on a
+    // 200, so anything written here is a response body, and it is written by whatever threw. That
+    // is a second exit from the process that the error mapper in `http/failures.ts` never sees: a
+    // review proved it by rejecting a recall with an AccessDeniedException and reading a role ARN
+    // back out of a 200. The mapper was clean and the claim built on it was still false, because it
+    // only ever guarded the FAILURE path and this is the success path.
+    //
+    // The model loses nothing it could act on. "The search could not run" is the entire operable
+    // content of a provider failure; an account id and a role name are not things a model reasons
+    // about. The detail is not lost either, it goes to the operator's log at the boundary that
+    // caught it.
     const content =
       error instanceof CoverageUnknownError
-        ? `That could not be answered from memory: ${error.message}`
-        : `${call.name} failed: ${describeError(error)}. Do not treat this as a result. If it was ` +
-          'a recall, you have learned nothing about whether the thing exists.';
+        ? 'That could not be answered from memory: the search could not establish what it covered, ' +
+          'so nothing about absence follows from it.'
+        : `${call.name} failed. The reason is in the operator's log rather than here. Do not treat ` +
+          'this as a result. If it was a recall, you have learned nothing about whether the thing ' +
+          'exists.';
 
     // ONE rule, and it is the fix for a real fail-open hole rather than a hypothetical. A recall
     // that THREW used to return no coverage at all, so a turn that recalled once COVERED and then

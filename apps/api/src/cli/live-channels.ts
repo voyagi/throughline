@@ -36,6 +36,19 @@ export interface LiveChannels {
   readonly client: McpClient;
 }
 
+/**
+ * The database NAME, out of the connection string the application already has.
+ *
+ * A function rather than an expression inside `openLiveChannels`, because the HTTP surface needs
+ * the same value and cannot use `openLiveChannels` itself: that one calls `loadMcpConfig` eagerly
+ * and `loadMcpConfig` THROWS when the channel is unconfigured, which is the normal state of an
+ * offline demo. Copying the one line instead would recreate exactly the drift this module was
+ * extracted to prevent, one caller at a time.
+ */
+export function databaseNameOf(connectionString: string): string {
+  return new URL(connectionString).pathname.replace(/^\//, '') || 'defaultdb';
+}
+
 export function openLiveChannels(env: Record<string, string | undefined>): LiveChannels {
   const dbConfig = loadDatabaseConfig(env);
   const embeddingConfig = loadEmbeddingConfig(env);
@@ -45,7 +58,7 @@ export function openLiveChannels(env: Record<string, string | undefined>): LiveC
     dbConfig,
     embeddingConfig,
     mcpConfig,
-    database: new URL(dbConfig.connectionString).pathname.replace(/^\//, '') || 'defaultdb',
+    database: databaseNameOf(dbConfig.connectionString),
     db: createDatabase(dbConfig),
     embedder: createLocalEmbedder(embeddingConfig.dimensions),
     client: createMcpClient({ config: mcpConfig }),
