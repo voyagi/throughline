@@ -327,15 +327,6 @@ function classifiedError(message: string, apiKey?: string, cause?: unknown): Mcp
   });
 }
 
-/**
- * Pull the JSON-RPC payload out of the HTTP body.
- *
- * This endpoint answers `tools/call` as `text/event-stream` even for a single response, so the
- * plain JSON path exists for the protocol rather than for this server. Consecutive `data:` lines
- * belonging to one event are joined with newlines, which is what the SSE specification says and is
- * not the same as taking the last line: a payload split across lines parses under one reading and
- * fails under the other.
- */
 const emptyBody = (): McpError =>
   new McpError(
     'unrecognised_envelope',
@@ -494,6 +485,16 @@ function extractFromEventStream(rawBody: string, expectedId?: number | string): 
   throw noAnswer('the stream carried messages, but none of them was a result or an error.');
 }
 
+/**
+ * Pull the JSON-RPC payload out of the HTTP body, or say why there is none.
+ *
+ * This endpoint answers `tools/call` as `text/event-stream` even for a single response, so the
+ * plain JSON path exists for the protocol rather than for this server. Both paths obey the same
+ * two rules, and they are the reason this is not a one-line `JSON.parse`: only a message answering
+ * `expectedId` is our answer, and the sole exception is a failure the server could not attribute.
+ * Passing no `expectedId` disables the first rule, which is the right default for a caller that
+ * has nothing to disambiguate.
+ */
 export function extractRpcPayload(
   rawBody: string,
   contentType: string | null,

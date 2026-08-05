@@ -464,6 +464,31 @@ describe('extractRpcPayload', () => {
     expect(() => extractRpcPayload(rowsWithNullId, 'text/event-stream', 2)).toThrow(
       /did not receive an answer/,
     );
+
+    // The PLAIN BODY path, positively. Only its negative case was asserted, so the allowance there
+    // could be deleted with the whole suite green while its SSE twin stayed pinned: the two paths
+    // could drift apart again in exactly the direction that already cost this branch a round.
+    const plain = JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: 0, message: LIVE_MESSAGES.tooLarge } });
+    let fromPlain: unknown;
+    try {
+      readRows(extractRpcPayload(plain, 'application/json', 2));
+    } catch (error) {
+      fromPlain = error;
+    }
+    expect(fromPlain).toBeInstanceOf(McpError);
+    expect((fromPlain as McpError).kind).toBe('result_too_large');
+  });
+
+  it('reports a stream it could not read as unread, not as somebody else\'s failure', () => {
+    // The precedence between an unparseable event and an unattributable failure was argued in a
+    // comment and enforced nowhere: swapping the two lines left all 136 tests green. An event that
+    // did not parse might have BEEN our answer, so "the stream did not read" is the honest reason,
+    // and reporting another request's error as the outcome of ours is a guess wearing a cause.
+    const unreadable = 'event: message\ndata: {"jsonrpc":"2.0", not json\n\n';
+    const failure = `event: message\ndata: ${JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: 0, message: LIVE_MESSAGES.tooLarge } })}\n\n`;
+    expect(() => extractRpcPayload(unreadable + failure, 'text/event-stream', 2)).toThrow(
+      /no knowledge at all/,
+    );
   });
 
   it('does not treat a null error VALUE as an error, which would smuggle a foreign result in', () => {
