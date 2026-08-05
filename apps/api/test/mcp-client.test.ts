@@ -466,6 +466,70 @@ describe('extractRpcPayload', () => {
     );
   });
 
+  it('does not treat a null error VALUE as an error, which would smuggle a foreign result in', () => {
+    // Two functions disagreeing about one word was enough to reach the forbidden output. This
+    // parser asked "is there an error" by KEY PRESENCE; assertNoServerError asks by VALUE. A
+    // payload carrying `error: null` beside a result satisfied the first, took the id-null
+    // latitude meant for genuine failures, and was handed back as our answer. The second then saw
+    // no error and read the foreign `result` as ROWS, with nothing left to re-check the id.
+    // Measured end to end at the time: DIVERGES with failure null.
+    const smuggled = {
+      jsonrpc: '2.0',
+      id: null,
+      error: null,
+      result: { content: [{ type: 'text', text: '{"rows":[{"id":"SOMEONE-ELSES-ROW"}]}' }] },
+    };
+    const raw = `event: message\ndata: ${JSON.stringify(smuggled)}\n\n`;
+    expect(() => extractRpcPayload(raw, 'text/event-stream', 2)).toThrow(/did not receive an answer/);
+    // And the plain body path is held to the same rule, because they drifted apart once already.
+    expect(() => extractRpcPayload(JSON.stringify(smuggled), 'application/json', 2)).toThrow(
+      /did not receive an answer/,
+    );
+  });
+
+  it('does not let an unattributable failure pre-empt our own answer, in either order', () => {
+    // The same two messages in the other order used to give two different results: an id-null
+    // error arriving first short-circuited the answer that was further down the stream.
+    const failure = { jsonrpc: '2.0', id: null, error: { code: 0, message: LIVE_MESSAGES.tooLarge } };
+    const ours = { jsonrpc: '2.0', id: 2, result: { ok: true } };
+    const event = (payload: unknown): string => `event: message\ndata: ${JSON.stringify(payload)}\n\n`;
+
+    expect(extractRpcPayload(event(failure) + event(ours), 'text/event-stream', 2)).toEqual(ours);
+    expect(extractRpcPayload(event(ours) + event(failure), 'text/event-stream', 2)).toEqual(ours);
+    // With no answer of ours on the stream at all, the failure is still what gets reported.
+    expect(extractRpcPayload(event(failure), 'text/event-stream', 2)).toEqual(failure);
+  });
+
+  it('says WHICH way no answer arrived, and keeps the offending message as a cause', () => {
+    // One sentence covering four situations names the wrong one three times out of four, and this
+    // is the text an operator reads when a verification could not be performed. Asserting only the
+    // shared prefix let every `detail` be swapped for any other with the suite still green.
+    const event = (payload: unknown): string => `event: message\ndata: ${JSON.stringify(payload)}\n\n`;
+
+    const plain = new Error('unset') as unknown;
+    let thrown: unknown = plain;
+    try {
+      extractRpcPayload('{"jsonrpc":"2.0","id":999,"result":{}}', 'application/json', 2);
+    } catch (error) {
+      thrown = error;
+    }
+    expect((thrown as McpError).message).toMatch(/the body carried a message that does not answer it/);
+    expect((thrown as McpError).cause).toBeDefined();
+
+    thrown = plain;
+    try {
+      extractRpcPayload(event({ jsonrpc: '2.0', id: 999, result: {} }), 'text/event-stream', 2);
+    } catch (error) {
+      thrown = error;
+    }
+    expect((thrown as McpError).message).toMatch(/stream ended after messages answering other requests/);
+    expect((thrown as McpError).cause).toBeDefined();
+
+    expect(() =>
+      extractRpcPayload(event({ jsonrpc: '2.0', method: 'notifications/progress' }), 'text/event-stream', 2),
+    ).toThrow(/none of them was a result or an error/);
+  });
+
   it('numbers its requests, so the id check is checking something', async () => {
     // The invariant the whole id check rests on, and nothing pinned it: replacing
     // `id: (requestId += 1)` with `id: requestId` left every test green, which would make the

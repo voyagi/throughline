@@ -336,103 +336,138 @@ function classifiedError(message: string, apiKey?: string, cause?: unknown): Mcp
  * not the same as taking the last line: a payload split across lines parses under one reading and
  * fails under the other.
  */
-export function extractRpcPayload(
-  rawBody: string,
-  contentType: string | null,
-  expectedId?: number | string,
-): unknown {
-  const emptyBody = (): McpError =>
-    new McpError(
-      'unrecognised_envelope',
-      'The verification channel received an empty response body. An empty body is not an empty ' +
-        'result: nothing was read, so nothing is known.',
-    );
-  const unparseable = (cause?: unknown): McpError =>
-    new McpError(
-      'unrecognised_envelope',
-      'The verification channel could not parse the response as JSON, so this read produced no ' +
-        'knowledge at all rather than an empty result.',
-      cause === undefined ? undefined : { cause },
-    );
-  /**
-   * No answer arrived. `detail` says WHICH of the ways that happened, because one sentence covering
-   * four situations names the wrong one three times out of four, and this text is what an operator
-   * reads when a verification could not be performed.
-   */
-  const noAnswer = (detail: string, cause?: unknown): McpError =>
-    new McpError(
-      'unrecognised_envelope',
-      `The verification channel did not receive an answer to the request it sent: ${detail} ` +
-        'Nothing was read, so nothing is known. Treating another message as the answer would put ' +
-        "a different query's rows in front of this memory and report the mismatch as a divergence.",
-      cause === undefined ? undefined : { cause },
-    );
+const emptyBody = (): McpError =>
+  new McpError(
+    'unrecognised_envelope',
+    'The verification channel received an empty response body. An empty body is not an empty ' +
+      'result: nothing was read, so nothing is known.',
+  );
 
-  /**
-   * Does this message answer the request we sent, as opposed to merely being an answer?
-   *
-   * Shape alone is not enough and the difference is not academic. Returning the first response on
-   * the stream regardless of which request it answers hands the caller ANOTHER request's rows, and
-   * those rows are then compared against this memory and reported as a divergence: a claim about
-   * the database assembled from someone else's answer, with `failure: null` on it. When no id is
-   * stated the shape check stands alone, which is the protocol's own position for a plain body.
-   */
-  const answersUs = (parsed: unknown): boolean => {
-    if (!parsed || typeof parsed !== 'object') return false;
-    const hasError = 'error' in parsed;
-    if (!('result' in parsed) && !hasError) return false;
-    if (expectedId === undefined) return true;
+const unparseable = (cause?: unknown): McpError =>
+  new McpError(
+    'unrecognised_envelope',
+    'The verification channel could not parse the response as JSON, so this read produced no ' +
+      'knowledge at all rather than an empty result.',
+    cause === undefined ? undefined : { cause },
+  );
 
-    const id = (parsed as { id?: unknown }).id;
-    if (id === expectedId) return true;
+/**
+ * No answer arrived. `detail` says WHICH of the ways that happened, because one sentence covering
+ * four situations names the wrong one three times out of four, and this text is what an operator
+ * reads when a verification could not be performed.
+ */
+const noAnswer = (detail: string, cause?: unknown): McpError =>
+  new McpError(
+    'unrecognised_envelope',
+    `The verification channel did not receive an answer to the request it sent: ${detail} ` +
+      'Nothing was read, so nothing is known. Treating another message as the answer would put ' +
+      "a different query's rows in front of this memory and report the mismatch as a divergence.",
+    cause === undefined ? undefined : { cause },
+  );
 
-    // `id: null` on an ERROR is what JSON-RPC requires when the server could not attribute the
-    // failure to a request, and it is still our error: this exchange is one request on one
-    // connection. Dropping it would replace a named cause ("the answer was too large for this
-    // channel to carry") with "no answer arrived", discarding the classification, the server's own
-    // words and the cause together, on the one code path whose entire job is to say WHY a read did
-    // not happen. A RESULT gets no such latitude: rows that cannot be attributed to this request
-    // are precisely the foreign-data hazard this check exists to stop.
-    return hasError && id === null;
-  };
+/**
+ * Does this message carry a server FAILURE? Decided on the error's VALUE, never on the key.
+ *
+ * `assertNoServerError` decides this same question by value (`!== undefined && !== null`), and the
+ * two definitions must not drift apart, because a payload carrying `error: null` beside a `result`
+ * is a SUCCESS to that function. When this one decided it by key presence, such a message
+ * qualified for the id-null latitude meant for genuine failures, was handed back as our answer,
+ * and the `result` inside it was then read as ROWS with nothing left to re-check the id. The
+ * forbidden output was reachable purely through two functions disagreeing about one word, so there
+ * is one definition of it and this is the one.
+ */
+function carriesError(parsed: object): boolean {
+  const error = (parsed as { error?: unknown }).error;
+  return error !== undefined && error !== null;
+}
 
-  if (!(contentType ?? '').includes('text/event-stream')) {
-    if (!rawBody.trim()) throw emptyBody();
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(rawBody) as unknown;
-    } catch (cause) {
-      throw unparseable(cause);
-    }
-    if (expectedId !== undefined && !answersUs(parsed)) {
-      throw noAnswer('the body carried a message that does not answer it.', parsed);
-    }
-    return parsed;
+function isResponseShaped(parsed: unknown): parsed is object {
+  return !!parsed && typeof parsed === 'object' && ('result' in parsed || carriesError(parsed));
+}
+
+/**
+ * A failure the server could not attribute to a request: `id: null` on a real error, which is what
+ * JSON-RPC requires when it cannot tell which request failed.
+ *
+ * It is still OUR failure, because this exchange is one request on one connection. Discarding it
+ * would replace a named cause ("the answer was too large for this channel to carry") with "no
+ * answer arrived", losing the classification, the server's own words and the cause together, on
+ * the one code path whose entire job is to say WHY a read did not happen. Note what this does NOT
+ * extend to: a RESULT is never accepted on these terms, because rows that cannot be attributed to
+ * this request are the whole hazard.
+ */
+function isUnattributableFailure(parsed: unknown): boolean {
+  return (
+    !!parsed &&
+    typeof parsed === 'object' &&
+    (parsed as { id?: unknown }).id === null &&
+    carriesError(parsed)
+  );
+}
+
+/**
+ * Does this message answer the request we sent, as opposed to merely being an answer?
+ *
+ * Shape alone is not enough and the difference is not academic. Returning the first response on the
+ * stream regardless of which request it answers hands the caller ANOTHER request's rows, and those
+ * rows are then compared against this memory and reported as a divergence: a claim about the
+ * database assembled from someone else's answer, with `failure: null` on it. When no id is stated
+ * the shape check stands alone, which is the protocol's own position for a plain body.
+ */
+function answersRequest(parsed: unknown, expectedId?: number | string): boolean {
+  if (!isResponseShaped(parsed)) return false;
+  if (expectedId === undefined) return true;
+  return (parsed as { id?: unknown }).id === expectedId;
+}
+
+/**
+ * The `data:` payload of each SSE event, in order, with empty events dropped.
+ *
+ * Per EVENT, not per body. This transport is explicitly allowed to deliver other messages before
+ * the answer to our request, and joining `data:` lines across event boundaries splices two JSON
+ * documents into one unparseable string: the channel would break against a server doing nothing
+ * wrong, and break as "unrecognised envelope", which reads like a defect in the database rather
+ * than in this client. Within a single event the lines ARE joined with newlines, which is what the
+ * SSE specification says and is not the same as taking the last line.
+ */
+function sseEventPayloads(rawBody: string): string[] {
+  return rawBody
+    .split(/\r?\n[ \t]*\r?\n/)
+    .map((event) =>
+      event
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => line.slice(5).replace(/^ /, ''))
+        .join('\n'),
+    )
+    .filter((data) => data.trim() !== '');
+}
+
+function extractFromPlainBody(rawBody: string, expectedId?: number | string): unknown {
+  if (!rawBody.trim()) throw emptyBody();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawBody) as unknown;
+  } catch (cause) {
+    throw unparseable(cause);
   }
+  if (expectedId === undefined || answersRequest(parsed, expectedId)) return parsed;
+  if (isUnattributableFailure(parsed)) return parsed;
+  throw noAnswer('the body carried a message that does not answer it.', parsed);
+}
 
-  // Per EVENT, not per body. This transport is explicitly allowed to deliver other messages before
-  // the answer to our request, and joining `data:` lines across event boundaries splices two JSON
-  // documents into one unparseable string: the channel would break against a server doing nothing
-  // wrong, and break as "unrecognised envelope", which reads like a defect in the database rather
-  // than in this client. Within a single event the lines ARE joined with newlines, which is what
-  // the SSE specification says and is not the same as taking the last line.
-  const events = rawBody.split(/\r?\n[ \t]*\r?\n/);
-  let sawData = false;
+function extractFromEventStream(rawBody: string, expectedId?: number | string): unknown {
+  const payloads = sseEventPayloads(rawBody);
+  if (payloads.length === 0) throw emptyBody();
+
   let parseFailure: unknown;
   // Kept so the throw below can say whether the stream held OTHER requests' answers or no answer
   // at all, and can carry one along as a cause for the log. Those are different operational
   // situations and the distinction is free to preserve.
   let foreignResponse: unknown;
+  let unattributableFailure: unknown;
 
-  for (const event of events) {
-    const data = event
-      .split(/\r?\n/)
-      .filter((line) => line.startsWith('data:'))
-      .map((line) => line.slice(5).replace(/^ /, ''))
-      .join('\n');
-    if (!data.trim()) continue;
-    sawData = true;
-
+  for (const data of payloads) {
     let parsed: unknown;
     try {
       parsed = JSON.parse(data) as unknown;
@@ -440,18 +475,33 @@ export function extractRpcPayload(
       parseFailure = cause;
       continue;
     }
-    if (answersUs(parsed)) return parsed;
-    if (parsed && typeof parsed === 'object' && ('result' in parsed || 'error' in parsed)) {
-      foreignResponse = parsed;
-    }
+    if (answersRequest(parsed, expectedId)) return parsed;
+    // Held back rather than returned on sight. Our own answer may still be further down the
+    // stream, and an unattributable failure arriving first must not pre-empt it: the same two
+    // messages in the other order would otherwise give two different results.
+    if (isUnattributableFailure(parsed)) unattributableFailure ??= parsed;
+    else if (isResponseShaped(parsed)) foreignResponse ??= parsed;
   }
 
-  if (!sawData) throw emptyBody();
+  // Before the unattributable failure: an event we could not parse might have BEEN our answer, so
+  // "the stream did not read" is the honest reason, rather than pinning our outcome on somebody
+  // else's error.
   if (parseFailure !== undefined) throw unparseable(parseFailure);
+  if (unattributableFailure !== undefined) return unattributableFailure;
   if (foreignResponse !== undefined) {
     throw noAnswer('the stream ended after messages answering other requests.', foreignResponse);
   }
   throw noAnswer('the stream carried messages, but none of them was a result or an error.');
+}
+
+export function extractRpcPayload(
+  rawBody: string,
+  contentType: string | null,
+  expectedId?: number | string,
+): unknown {
+  return (contentType ?? '').includes('text/event-stream')
+    ? extractFromEventStream(rawBody, expectedId)
+    : extractFromPlainBody(rawBody, expectedId);
 }
 
 /**
