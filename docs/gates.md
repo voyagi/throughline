@@ -133,9 +133,11 @@ each by the review round that followed it: the first pass ran at 605 and publish
 described the wrong mutation, the second ran at 627 and was overtaken before anyone read it, and
 this one was overtaken the same way. A mutation count is a statement about ONE tree. The rule for
 reading it: a commit that touches only documentation leaves these standing, and a commit that
-changes any file the suite loads, which is everything under `packages/*/src`, `apps/api/src` and
-either package's tests, makes them unverified until re-run. The earlier version of this rule named
-only `apps/api/src/agent/**`, which is narrower than the suite that produces the 652.
+changes any file the suite loads makes them unverified until re-run. Read that set off
+`vitest.config.ts` rather than from memory, because it has now been written down too narrowly
+twice: first as `apps/api/src/agent/**`, then as `packages/*/src` plus `apps/api/src` plus their
+tests, which still omitted `scripts/test/**/*.test.mjs` and the `scripts/lib` modules it imports.
+Those account for 146 of the 652.
 
 Thirteen bullets follow, one per mutation, counted from the list itself.
 

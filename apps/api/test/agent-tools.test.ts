@@ -374,15 +374,23 @@ describe('claimsAbsence', () => {
   // that no sentence in the block happened to probe. A property read off the phrase list itself
   // cannot drift from the phrase list.
   //
-  // The property: every alternative ends in a word character, which is the precondition that makes
-  // one trailing `\b` enough to close all of them. If someone adds an alternative ending in `\s+`
-  // or a group, the single boundary stops covering it and this goes red.
-  it('ends every phrase in a word character, which is what the trailing boundary relies on', () => {
+  // The property: no phrase may END on a separator or a quantifier, because the single trailing
+  // `\b` is appended after the whole alternation and only closes a token that ends in a word
+  // character. A branch ending in `\s+` inverts it: the boundary then demands a word character
+  // AFTER the whitespace, so the phrase matches text it was never meant to.
+  //
+  // The first version of this test asserted `/(?:\w|\))$/`, which exempted every phrase ending in a
+  // closing parenthesis, and four of the seven do. A review planted
+  // `no\s+(?:known|logged)\s+(?:incidents|trace\s+of\s+)` and the whole suite stayed green. So the
+  // check that was written to break the cycle of controls-that-cannot-fail was itself one, on its
+  // first outing. It now looks THROUGH a trailing group at the character before it, which is where
+  // the separator actually sits.
+  it('never ends a phrase on a separator or quantifier, which the trailing boundary relies on', () => {
     for (const phrase of ABSENCE_PHRASES) {
-      expect(phrase, `phrase must not end in a quantifier or separator: ${phrase}`).toMatch(
-        /(?:\w|\))$/,
-      );
-      expect(phrase, `phrase must not end in a bare separator: ${phrase}`).not.toMatch(/\\s\+$/);
+      expect(
+        phrase,
+        `a phrase may not end on a separator or quantifier, inside a final group or otherwise: ${phrase}`,
+      ).not.toMatch(/(?:\\s\+|[+*?}])\)?$/);
     }
   });
 

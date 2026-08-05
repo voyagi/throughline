@@ -427,8 +427,15 @@ export const ABSENCE_PHRASES = [
 
 // BOTH boundaries. The leading `\b` was there from the start and the trailing one was not, so every
 // alternative's final token stayed a prefix and "no other incident" matched inside "no other
-// incidental costs". Every alternative ends in a word character, which is what makes one trailing
-// `\b` sufficient, and a test asserts that rather than leaving it to be true by luck.
+// incidental costs".
+//
+// One trailing `\b` closes the whole alternation only while no branch ENDS on a separator or a
+// quantifier: a branch ending in `\s+` inverts the boundary into a demand for a word character
+// after the whitespace. That is a precondition on the list above, not a fact about it, so a test
+// asserts it by reading `ABSENCE_PHRASES` directly. Stated that way because the first version of
+// this sentence claimed every alternative "ends in a word character", which is false: four of the
+// seven end in a closing parenthesis, and the test written to prove the claim exempted exactly
+// that case, so a planted branch ending in `\s+)` passed the whole suite.
 const ABSENCE_CLAIM = new RegExp(String.raw`\b(?:${ABSENCE_PHRASES.join('|')})\b`, 'i');
 
 export function claimsAbsence(text: string): boolean {
