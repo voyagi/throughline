@@ -12,7 +12,16 @@ import { probeCapabilities } from '../src/capability.ts';
 import { createLocalEmbedder } from '../src/embeddings.ts';
 import { createFakeDatabase, mentions, type Responder } from './fake-database.ts';
 
-const PASSWORD = 'NotARealPassword-rotated-2026';
+/**
+ * Not a password. See the same constant in config.test.ts and the reasoning in docs/gates.md.
+ *
+ * The value must be findable inside the connection string below so the redaction assertions can
+ * prove it was removed; nothing else about it matters. The previous spelling ended in
+ * `-rotated-2026`, which quietly implies a real credential once existed and was rotated. It did
+ * not. This is the sibling the first sweep missed, which is its own small lesson: fixing one of two
+ * identical constructs in the same directory is not fixing the class.
+ */
+const PASSWORD = 'example-value-that-is-not-a-secret';
 const URL_WITH_SECRET = `postgresql://throughline:${PASSWORD}@cluster.example.cloud:26257/defaultdb`;
 
 describe('quoteIdentifier', () => {
