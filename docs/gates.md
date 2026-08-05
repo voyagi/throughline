@@ -112,43 +112,61 @@ tests where the baseline is 495 and nothing in the output said so. Mutation runs
 against the baseline COUNT, never against the absence of failures, which is the same rule this
 repository applies to every other check that can return zero results for two different reasons.
 
-### The agent loop: seven mutations against the absence controls
+### The agent loop: eleven mutations against the absence controls
 
 The agent must be structurally unable to report an absence it did not establish, and three
-independent controls are claimed for that. Each was removed on its own, the whole suite was run,
-the failures were recorded, and the tree was restored and confirmed clean before the next one. The
-baseline is 605 tests across 19 files, and every one of the seven runs also collected 605, which is
-the only reason the red counts below mean anything.
+independent controls are claimed for that. Each protection was removed on its own, the whole suite
+was run, the failures were recorded, and the tree was restored and confirmed clean before the next
+one. The baseline is 627 tests across 19 files, and every one of the eleven runs also collected
+627, which is the only reason the red counts below mean anything.
 
-Seven bullets follow, one per mutation, counted from the list itself.
+These numbers were measured twice. The first pass ran against a 605 test baseline and was published
+with a count that described the wrong mutation, which a review caught; the whole set was re-measured
+against the tree as it now stands rather than patched. Eleven bullets follow, one per mutation,
+counted from the list itself.
 
-- Control 1, ordering: the coverage verdict pushed second instead of first (4 red). Three are the
-  tests that read line one under each verdict. The fourth is the offline end-to-end run, because
-  the local model reads the verdict off that first line too, which is real coupling and is left
-  visible here rather than hidden behind a tidier mutation.
+- Control 1, ordering: the coverage verdict pushed second instead of first (5 red). Most are the
+  tests that read line one under each verdict. One is the offline end-to-end run, because the local
+  model reads the verdict off that first line too, which is real coupling and is left visible here
+  rather than hidden behind a tidier mutation.
 - Control 1, withholding: the early return deleted, so a failed recall renders its memories anyway
   (2 red, exactly the two tests written for it).
-- Control 2: `worseOf` replaced by last-verdict-wins (1 red, exactly its own test). The pair that
-  runs COVERED then UNKNOWN still passes under this mutation, which is the point of testing both
-  orderings: only UNKNOWN then COVERED can tell the two rules apart.
-- Control 3: `judgeAnswer` permitting every answer (11 red). The widest blast radius here, and the
+- Control 2, at the CALL SITE: `worseOf(worstCoverage, ...)` in `runAgentTurn` replaced by
+  last-verdict-wins (1 red). Naming the call site matters, and the first version of this bullet did
+  not. Mutating `worseOf` ITSELF to last-wins is a different mutation with a different blast radius,
+  because `worseOf` has unit tests of its own that this one leaves green. The single red is the loop
+  test that recalls UNKNOWN and then COVERED; the reverse ordering still passes under the mutation,
+  which is exactly why both orderings are tested.
+- Control 3: `judgeAnswer` permitting every answer (12 red). The widest blast radius here, and the
   honest reading is that control 3 is load bearing across the whole suite rather than that this
   mutation is a sharper proof than the others.
-- A failed recall no longer degrading the turn to UNKNOWN (2 red). This is the fail-open hole that
-  reading the loop against the real repository turned up: a turn that recalled once COVERED and
-  then threw kept COVERED, and the absence claim was permitted on a search that had broken.
+- A failed recall no longer degrading the turn to UNKNOWN (2 red). The fail-open hole that reading
+  the loop against the real repository turned up: a turn that recalled once COVERED and then threw
+  kept COVERED, and the absence claim was permitted on a search that had broken.
 - `worseOf` losing its allowlist, so an unrecognised verdict scores -1 through `indexOf` and is
   silently dropped (3 red).
-- The refusal pushed back as a `tool_result` carrying an id no `tool_call` announced (4 red). One
-  is the structural test that no tool result answers an unannounced id; the others follow because
-  the local model keys its correction on seeing a refusal turn.
+- The refusal pushed back as a `tool_result` carrying an id no `tool_call` announced (5 red).
+- An empty PARTIAL recall described as "a real absence" again (2 red). A cut-short search that
+  returned nothing has established nothing, and saying otherwise invited the exact claim control 3
+  then refuses.
+- The record-format flattening removed, so a memory's stored content can forge an `id` or
+  `asserted by` line of its own (3 red).
+- The budget branch announcing its `tool_call` AFTER the budget check rather than before, which is
+  how it came to emit results for ids nothing had announced (1 red).
+- The operator shown `verdict.refusal`, the second-person text written for the model, instead of
+  `refusalForTheUser` (2 red).
 
 Not proven by mutation, and said plainly rather than counted in: the `CoverageUnknownError` arm in
 `runTool`. `createRepository` does not throw it, because `runRecall` catches an embedder failure, a
 failed count query, a failed candidate query and an unscoreable row and returns an UNKNOWN receipt
-for each. The arm is exercised by a throwing double and refines the message only. What sets
-coverage on that path is the recall-failed rule above, which is the fifth bullet and is mutation
-proven.
+for each. The arm is exercised by a throwing double and refines the message only. What sets coverage
+on that path is the recall-failed rule above, which is the fifth bullet and is mutation proven.
+
+Two behaviours in this area are pinned as LIMITS rather than protections, and no mutation is claimed
+for either, because tightening them is a design change rather than a regression. An absence claim is
+bound to the TURN, not to the question: a turn that searched one subject may assert absence about
+another. And a recall refused by its own schema never reached the repository, so it leaves the
+verdict alone.
 
 ## Found by proving, not by reading
 
