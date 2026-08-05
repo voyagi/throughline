@@ -128,6 +128,12 @@ export class McpError extends Error {
   /**
    * The server's own words, with identifiers masked. For a log, never for a page: masking is a
    * best effort blocklist, while `message` above is written from scratch and cannot leak.
+   *
+   * NOTHING IN PRODUCTION READS THIS YET, because the HTTP surface that would log it does not
+   * exist. Today the masking protects a value only the suite and the live proof ever observe,
+   * which makes it a promise rather than a control. It closes when `/status` logs this field; if
+   * that surface ships without logging it, this field and its masking should go rather than stay
+   * as decoration that reads like a safeguard.
    */
   readonly serverMessage: string | undefined;
 
@@ -346,14 +352,24 @@ const unparseable = (cause?: unknown): McpError =>
  * No answer arrived. `detail` says WHICH of the ways that happened, because one sentence covering
  * four situations names the wrong one three times out of four, and this text is what an operator
  * reads when a verification could not be performed.
+ *
+ * The hazard sentence is attached only where a message that was not ours actually arrived. On a
+ * stream that carried no other response at all there was nothing to be tempted by, and explaining
+ * the temptation anyway sends the reader hunting for a foreign message that does not exist.
  */
-const noAnswer = (detail: string, cause?: unknown): McpError =>
+const noAnswer = (
+  detail: string,
+  options: { cause?: unknown; anotherMessageArrived?: boolean } = {},
+): McpError =>
   new McpError(
     'unrecognised_envelope',
     `The verification channel did not receive an answer to the request it sent: ${detail} ` +
-      'Nothing was read, so nothing is known. Treating another message as the answer would put ' +
-      "a different query's rows in front of this memory and report the mismatch as a divergence.",
-    cause === undefined ? undefined : { cause },
+      'Nothing was read, so nothing is known.' +
+      (options.anotherMessageArrived
+        ? ' Treating another message as the answer would put a different query\'s rows in front ' +
+          'of this memory and report the mismatch as a divergence.'
+        : ''),
+    options.cause === undefined ? undefined : { cause: options.cause },
   );
 
 /**
@@ -420,6 +436,25 @@ function answersRequest(parsed: unknown, expectedId?: number | string): boolean 
  * wrong, and break as "unrecognised envelope", which reads like a defect in the database rather
  * than in this client. Within a single event the lines ARE joined with newlines, which is what the
  * SSE specification says and is not the same as taking the last line.
+ *
+ * The boundary below is one character wider than the specification, which dispatches on an EMPTY
+ * line: a line holding only spaces or tabs is a field, not a boundary. That latitude is kept, and
+ * the reason it was first written down here was WRONG, so the correct version is worth stating.
+ *
+ * The claim was that both readings fail closed. They do not. A review measured the shape that
+ * separates them: one event carrying a complete JSON-RPC document on its first `data:` line, then
+ * a whitespace-only line, then a `data:` line of garbage. This reader splits there and returns the
+ * complete document; a specification-conformant reader joins the two halves, fails to parse, and
+ * reports the read as unread. So against a server that puts whitespace on its blank lines, this is
+ * the more permissive of the two, not the safer one.
+ *
+ * It stays because the permissiveness is bounded by something other than this function. Whatever
+ * comes back still has to carry the id we sent, so the worst case is answering with a complete,
+ * correctly addressed response that arrived in a malformed frame. It cannot deliver another
+ * query's rows, which is the failure this module exists to prevent. Narrowing to the specification
+ * would trade that for a channel that reports UNKNOWN against a server doing something no server
+ * has been measured doing, and changing this transport is how two fail-open defects were
+ * introduced here before. The behaviour is pinned by tests in both shapes.
  */
 function sseEventPayloads(rawBody: string): string[] {
   return rawBody
@@ -444,7 +479,10 @@ function extractFromPlainBody(rawBody: string, expectedId?: number | string): un
   }
   if (expectedId === undefined || answersRequest(parsed, expectedId)) return parsed;
   if (isUnattributableFailure(parsed)) return parsed;
-  throw noAnswer('the body carried a message that does not answer it.', parsed);
+  throw noAnswer('the body carried a message that does not answer it.', {
+    cause: parsed,
+    anotherMessageArrived: true,
+  });
 }
 
 function extractFromEventStream(rawBody: string, expectedId?: number | string): unknown {
@@ -480,7 +518,10 @@ function extractFromEventStream(rawBody: string, expectedId?: number | string): 
   if (parseFailure !== undefined) throw unparseable(parseFailure);
   if (unattributableFailure !== undefined) return unattributableFailure;
   if (foreignResponse !== undefined) {
-    throw noAnswer('the stream ended after messages answering other requests.', foreignResponse);
+    throw noAnswer('the stream ended after messages answering other requests.', {
+      cause: foreignResponse,
+      anotherMessageArrived: true,
+    });
   }
   throw noAnswer('the stream carried messages, but none of them was a result or an error.');
 }
@@ -492,8 +533,13 @@ function extractFromEventStream(rawBody: string, expectedId?: number | string): 
  * plain JSON path exists for the protocol rather than for this server. Both paths obey the same
  * two rules, and they are the reason this is not a one-line `JSON.parse`: only a message answering
  * `expectedId` is our answer, and the sole exception is a failure the server could not attribute.
- * Passing no `expectedId` disables the first rule, which is the right default for a caller that
- * has nothing to disambiguate.
+ *
+ * Passing no `expectedId` turns the first rule off, and the two paths differ in what survives it,
+ * so this says which rather than rounding it to "the id check". On the SSE path the shape check
+ * still stands and a payload must be a result or an error to be returned. On the plain path both
+ * checks are short circuited and a body of `42` comes back as `42`. Nothing in this client reaches
+ * that: `exchange` sends an id with every request that expects an answer, and one without an id is
+ * a notification, which is never parsed at all.
  */
 export function extractRpcPayload(
   rawBody: string,
@@ -695,7 +741,14 @@ export interface McpClient {
   select(request: { database: string; sql: string; limit: number }): Promise<McpSelectResult>;
   /** Call any READ tool. Refuses every write tool by name. */
   callReadTool(name: string, args: Record<string, unknown>): Promise<unknown>;
-  /** Forget the cached session, so the next call re-handshakes. */
+  /**
+   * Forget the cached session, so the next call re-handshakes.
+   *
+   * No production caller yet, and saying so is the point: the lost-session path re-handshakes on
+   * its own, so this exists for a caller with an outside reason to distrust the cached session and
+   * is exercised only by the suite. If the HTTP surface never finds that reason, this should go
+   * rather than sit here looking like part of the protocol.
+   */
   reset(): void;
   /** Which side of the cluster id exclusive-or this instance is using. */
   readonly clusterScope: ClusterScopeMode;
@@ -726,6 +779,28 @@ export interface McpClientOptions {
 
 const PROTOCOL_VERSION = '2025-06-18';
 
+/**
+ * A request carries an id and is owed an answer. A notification carries none and is owed nothing.
+ *
+ * These are two types rather than one optional field because `exchange` decides whether to parse a
+ * response by asking which of them it was handed, and that decision used to be a separate boolean
+ * flag. A flag can disagree with the body it describes: a request sent with `expectPayload: true`
+ * and no id would have had its id check silently turned off, in the one module whose header argues
+ * that the shape of a message is not the identity of a message. Here the state cannot be built.
+ */
+type RpcRequest = {
+  readonly jsonrpc: '2.0';
+  readonly id: number;
+  readonly method: string;
+  readonly params?: Record<string, unknown>;
+};
+
+type RpcNotification = {
+  readonly jsonrpc: '2.0';
+  readonly method: string;
+  readonly params?: Record<string, unknown>;
+};
+
 export function createMcpClient(options: McpClientOptions): McpClient {
   const { config } = options;
   const clusterScope = options.clusterScope ?? 'argument';
@@ -749,12 +824,9 @@ export function createMcpClient(options: McpClientOptions): McpClient {
    * so a deadline that only wrapped the first await would be a budget the caller cannot rely on.
    */
   async function exchange(
-    body: unknown,
+    body: RpcRequest | RpcNotification,
     extraHeaders: Record<string, string>,
     deadlineAt: number,
-    // Not named `options`: that would shadow this factory's own options object, and a reader
-    // checking which one a line refers to is a reader who has stopped reading the logic.
-    expect: { expectPayload: boolean } = { expectPayload: true },
   ): Promise<{ status: number; sessionHeader: string | null; payload: unknown }> {
     const remaining = deadlineAt - now();
     if (remaining <= 0) throw timeoutError(config.timeoutMs);
@@ -826,21 +898,18 @@ export function createMcpClient(options: McpClientOptions): McpClient {
       // part of the handshake, so a client that insists on parsing it cannot complete a handshake
       // at all, and unit tests will not notice if their double answers more helpfully than the
       // server does.
-      if (!expect.expectPayload) {
+      //
+      // Read off the body rather than from a flag beside it, so "expects an answer" and "has an id
+      // to recognise the answer by" are the same fact and cannot come apart.
+      if (!('id' in body)) {
         return { status: response.status, sessionHeader, payload: null };
       }
-      // The id we sent, so the parser can tell an answer to THIS request from any other message
-      // sharing the stream. A notification has no id and never reaches here, because it is sent
-      // with `expectPayload: false`.
-      const sentId = (body as { id?: unknown }).id;
       return {
         status: response.status,
         sessionHeader,
-        payload: extractRpcPayload(
-          raw,
-          response.headers.get('content-type'),
-          typeof sentId === 'number' || typeof sentId === 'string' ? sentId : undefined,
-        ),
+        // The id we sent, so the parser can tell an answer to THIS request from any other message
+        // sharing the stream.
+        payload: extractRpcPayload(raw, response.headers.get('content-type'), body.id),
       };
     } catch (error) {
       if (error instanceof McpError) throw error;
@@ -862,6 +931,10 @@ export function createMcpClient(options: McpClientOptions): McpClient {
     const { payload, sessionHeader } = await exchange(
       {
         jsonrpc: '2.0',
+        // Incremented, not reused, and it matters beyond tidiness. The retry path re-handshakes
+        // after a tool call has already failed, so an id that did not move would send an
+        // `initialize` carrying the id of the call that just failed, and any late answer to that
+        // call would then satisfy the id check on the handshake.
         id: (requestId += 1),
         method: 'initialize',
         params: {
@@ -874,16 +947,22 @@ export function createMcpClient(options: McpClientOptions): McpClient {
       deadlineAt,
     );
 
-    const result = (payload as { result?: { protocolVersion?: unknown } } | null)?.result;
-    if (typeof result?.protocolVersion === 'string') negotiatedProtocol = result.protocolVersion;
+    // The handshake is held to the same rule as every other call, and it was not. This server
+    // reports EVERY failure as a JSON-RPC error at HTTP 200, so an `initialize` that was refused
+    // arrived here as an ordinary payload: the error was never classified, its kind and the
+    // server's own words were dropped, `handshakeComplete` was set anyway, and the first anyone
+    // heard of it was whatever the next call happened to say. A `result: null` completed a
+    // handshake outright. The one exchange that establishes the session is the worst place in this
+    // client to lose a reason.
+    const result = assertHandshakeAccepted(payload, config.apiKey);
+    if (typeof result.protocolVersion === 'string') negotiatedProtocol = result.protocolVersion;
     sessionId = sessionHeader;
 
     if (sessionId) {
       // A notification. Skipping it leaves the server holding a half-open session, and expecting a
       // body back from it breaks the handshake: measured, this endpoint answers 202 with no body.
-      await exchange({ jsonrpc: '2.0', method: 'notifications/initialized' }, {}, deadlineAt, {
-        expectPayload: false,
-      });
+      // It carries no id, which is what tells `exchange` not to wait for one.
+      await exchange({ jsonrpc: '2.0', method: 'notifications/initialized' }, {}, deadlineAt);
     }
     handshakeComplete = true;
   }
@@ -960,16 +1039,61 @@ export function createMcpClient(options: McpClientOptions): McpClient {
   };
 }
 
+/**
+ * The handshake held to the same failure rules as every other call, in its own words.
+ *
+ * The rules are `assertNoServerError`'s and are not restated. What is restated is the SENTENCE,
+ * and only for a failure the server reported: every sentence `classifyServerMessage` writes was
+ * measured on a `tools/call` and describes one, so handed a refused `initialize` it will say "the
+ * server could not find the table this query names" about an exchange containing no table and no
+ * query. A true sentence about the wrong situation is most of what this module spends its length
+ * avoiding, and it reaches an operator.
+ *
+ * The KIND is kept, because it is the machine-readable half and it is drawn from the server's own
+ * words rather than from the situation. So is `serverMessage`, masked, and the original on the
+ * cause.
+ *
+ * The sentence says "nothing was read" and deliberately does not say "no read was attempted",
+ * which an earlier version did and which is false by one `tools/call`. There are two routes into a
+ * handshake: before anything, and the re-handshake that a lost session triggers AFTER a read has
+ * already gone out and come back 404. This text lands verbatim on a verification report, so a
+ * sentence true on only one of the two routes is the defect this module spends its length on.
+ *
+ * The discriminator is exact rather than convenient: `classifyServerMessage` cannot return
+ * `unrecognised_envelope`, so that kind is always one of this function's own structural
+ * complaints, and those are already written for any exchange. "A response carrying neither a
+ * result nor an error" is as true of a handshake as of a read, and stays.
+ */
+function assertHandshakeAccepted(payload: unknown, apiKey: string): { protocolVersion?: unknown } {
+  try {
+    return assertNoServerError(payload, apiKey) as { protocolVersion?: unknown };
+  } catch (error) {
+    if (error instanceof McpError && error.kind !== 'unrecognised_envelope') {
+      throw new McpError(
+        error.kind,
+        'The verification channel could not open a session with the CockroachDB Cloud MCP ' +
+          'server, because the handshake itself was refused. Nothing was read, so nothing is ' +
+          "known about any data. The server's own words are kept on the cause rather than " +
+          'repeated here, and the failure is named above.',
+        { serverMessage: error.serverMessage, cause: error },
+      );
+    }
+    throw error;
+  }
+}
+
 /** Refuse a tool that is not on the read list, and name a write tool as a write tool. */
 export function assertReadOnly(name: string): void {
   if (READ_TOOL_SET.has(name)) return;
   if (WRITE_TOOL_SET.has(name)) {
     throw new McpError(
       'read_only_violation',
-      `"${name}" writes to the cluster and this channel is read only. The service account behind ` +
-        'it holds Cluster Admin because the managed MCP server requires it, so this refusal is ' +
-        'the first of the two controls that keep a verification read from becoming a write; the ' +
-        'second is the server refusing a write smuggled into a CTE, which is measured, not assumed.',
+      `"${name}" writes to the cluster and this channel is read only. Refusing the tool by name ` +
+        'is the control that stopped this call, and it is needed because the service account ' +
+        'behind the channel holds Cluster Admin: the managed MCP server requires it. The other ' +
+        'route to a write is arbitrary SQL through select_query, which this call is not, and that ' +
+        'route is closed by the server itself refusing a write smuggled into a CTE, measured ' +
+        'rather than assumed.',
     );
   }
   throw new McpError(

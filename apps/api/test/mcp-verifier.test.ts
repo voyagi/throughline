@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { MemoryRecord } from '@throughline/memory';
+import { loadDatabaseConfig, type MemoryRecord } from '@throughline/memory';
 import { buildBoundedQuery, McpError, type McpClient, type McpSelectResult } from '../src/mcp-client.ts';
 import {
   buildVerificationQuery,
@@ -174,6 +174,47 @@ describe('buildVerificationQuery', () => {
       expect(() => buildVerificationQuery('throughline', workspace, MEMORY_ID)).not.toThrow();
     }
   });
+
+  it('accepts exactly the schema names the database config accepts, in both directions', () => {
+    // One rule, two consumers, and it used to be a byte-for-byte copy in each with a comment
+    // asserting they matched and nothing holding them to it. They now import the same regex, and
+    // this is what would notice if either grew its own again. The direction people expect, this
+    // module accepting something dangerous, is not the one that bites: relax the CONFIG
+    // rule and every verification of a legitimately named schema turns into UNKNOWN, which is the
+    // component built to say "the channel could not look" becoming the reason it could not.
+    const accepts = (action: () => unknown): boolean => {
+      try {
+        action();
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    for (const schema of [
+      'throughline',
+      'public',
+      '_private',
+      'a1',
+      'Throughline',
+      'public;drop',
+      '1schema',
+      'throughline"',
+      'with space',
+      'sch-ema',
+      '',
+    ]) {
+      const byConfig = accepts(() =>
+        loadDatabaseConfig({
+          DATABASE_URL: 'postgres://user@127.0.0.1:26257/defaultdb',
+          THROUGHLINE_SCHEMA: schema,
+        }),
+      );
+      const byQueryBuilder = accepts(() => buildVerificationQuery(schema, WORKSPACE, MEMORY_ID));
+      // Compared as objects so a failure names the schema that caused it.
+      expect({ schema, accepted: byConfig }).toEqual({ schema, accepted: byQueryBuilder });
+    }
+  });
 });
 
 describe('contentDigest', () => {
@@ -270,6 +311,22 @@ describe('compareMemoryToRow', () => {
     expect(differences[0]?.channel).toContain('tampered');
   });
 
+  it('describes a content disagreement even when the length and the prefix did not arrive', () => {
+    // Both arms of the content message were uncovered: reachable only by calling this function
+    // directly, because through `verifyMemory` the presence check catches the absent columns first
+    // and reports UNKNOWN. The fallback is what stops the sentence reading "undefined characters"
+    // at whoever is holding the incident.
+    const row = channelRow({ content_md5: contentDigest('tampered') });
+    delete row['content_length'];
+    delete row['content_prefix'];
+
+    const differences = compareMemoryToRow(MEMORY, row);
+    expect(differences.map((difference) => difference.field)).toEqual(['content (md5)']);
+    expect(differences[0]?.channel).toContain('unknown characters');
+    expect(differences[0]?.channel).not.toContain('beginning');
+    expect(differences[0]?.channel).not.toContain('undefined');
+  });
+
   it('compares nulls on both sides without inventing a difference', () => {
     const nulled: MemoryRecord = { ...MEMORY, validUntil: null, evictedAt: null, evictionReason: null };
     expect(compareMemoryToRow(nulled, channelRow())).toEqual([]);
@@ -309,6 +366,33 @@ describe('observationsFrom', () => {
     const observations = observationsFrom(channelRow());
     expect(observations.find((observation) => observation.label.includes('model'))?.value).toBe('none');
   });
+
+  it('reports an unreadable embedding flag rather than dropping the observation', () => {
+    // `(embedding IS NULL)` is a boolean expression, so a channel returning the string "true" is
+    // one this code cannot read a boolean out of. Dropping the observation on that ground took the
+    // only line about the embedding off the report with nothing at all to say it had gone: the
+    // silent drop this codebase refuses everywhere else, committed in the report itself.
+    for (const value of ['true', 'false', 1, 0, {}, null]) {
+      const observations = observationsFrom(channelRow({ embedding_is_null: value }));
+      const embedding = observations.find(
+        (observation) => observation.label === 'embedding present in the database',
+      );
+      expect(embedding?.value).toMatch(/unreadable/);
+      // And it must not resolve the ambiguity in either direction while it is at it.
+      expect(embedding?.value).not.toMatch(/^(yes|no)$/);
+    }
+  });
+
+  it('leaves out an embedding column that never arrived, which missingColumns has already named', () => {
+    // Absent is not unreadable. A row missing the column is already UNKNOWN with the column named
+    // in the reason, so an observation here would be a second voice on a settled point.
+    const row = channelRow();
+    delete row['embedding_is_null'];
+    const labels = observationsFrom(row).map((observation) => observation.label);
+    expect(labels).not.toContain('embedding present in the database');
+    // The rest of the observations still arrive.
+    expect(labels).toContain('embedding model recorded on the row');
+  });
 });
 
 describe('verifyMemory', () => {
@@ -342,9 +426,20 @@ describe('verifyMemory', () => {
     const report = await verifyMemory(clientReturning([]), REQUEST);
     expect(report.verdict).toBe('DIVERGES');
     expect(report.differences[0]?.channel).toBe('not found');
-    // Settled by measurement rather than assumed: a row written over pg was visible over this
-    // channel 436 ms later, and the channel's transaction timestamp tracks the present rather than
-    // sitting ~4.8 seconds behind it. So an absent row is a finding, not a replication artifact.
+    // Measured rather than assumed, and the wording is held to the measurement: over 50 trials in
+    // two runs (`npm run measure:freshness`, 2026-08-05) every row written over pg was found by
+    // the FIRST read this channel attempted, the fastest of those reads 330 ms after the write
+    // returned.
+    //
+    // The sentence states those two facts and stops, which is deliberate and is the second
+    // correction this claim has needed. It does NOT say the invisible window is under 330 ms:
+    // each trial bounds the window by its own read time, so that figure rests on one observation
+    // rather than fifty, and treating it as a bound on the next write assumes the window does not
+    // vary. `mcp-verifier.ts` says the same thing at length, and the two must not drift.
+    expect(report.reason).toMatch(/50 trials/);
+    expect(report.reason).toMatch(/first read/i);
+    expect(report.reason).not.toMatch(/shorter than|window/i);
+    expect(report.reason).not.toMatch(/no replication delay|never a delay|reads the present/);
   });
 
   it('diverges when the channel finds a row the application says is not there', async () => {
@@ -471,10 +566,36 @@ describe('verifyMemory', () => {
     ).rejects.toThrow(/handed a record for/);
   });
 
-  it('stamps the report from the clock it was given', async () => {
+  it('stamps the report from the clock it was given, elapsed time included', async () => {
+    // A clock that does not move gives an elapsed time of zero. It used to give whatever
+    // `Date.now()` felt like, so the only assertion available was `>= 0`, which every possible
+    // implementation satisfies.
     const when = new Date('2026-08-04T12:00:00.000Z');
     const report = await verifyMemory(clientReturning([channelRow()]), REQUEST, () => when);
     expect(report.checkedAt).toBe(when);
-    expect(report.elapsedMs).toBeGreaterThanOrEqual(0);
+    expect(report.elapsedMs).toBe(0);
+  });
+
+  it('measures the interval on that same clock, on the answer path and on the failure path', async () => {
+    // Two clocks in one report is a lie about an interval: `checkedAt` came from the injected
+    // clock and `elapsedMs` from `Date.now()`, so the two numbers did not come off the same
+    // timeline and no caller could assert the second one at all.
+    const ticking = (): (() => Date) => {
+      let tick = 0;
+      return () => new Date(Date.UTC(2026, 7, 4, 12, 0, 0) + (tick += 1) * 250);
+    };
+
+    const answered = await verifyMemory(clientReturning([channelRow()]), REQUEST, ticking());
+    expect(answered.verdict).toBe('AGREES');
+    expect(answered.elapsedMs).toBe(250);
+    expect(answered.checkedAt.toISOString()).toBe('2026-08-04T12:00:00.500Z');
+
+    const failed = await verifyMemory(
+      clientThrowing(new McpError('timeout', 'timed out')),
+      REQUEST,
+      ticking(),
+    );
+    expect(failed.verdict).toBe('UNKNOWN');
+    expect(failed.elapsedMs).toBe(250);
   });
 });

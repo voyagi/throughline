@@ -1,11 +1,9 @@
 import {
-  createDatabase,
-  createLocalEmbedder,
   createRepository,
-  loadDatabaseConfig,
-  loadEmbeddingConfig,
+  deleteWorkspaceRows,
   probeCapabilities,
   quoteIdentifier,
+  secretsOf,
 } from '@throughline/memory';
 import {
   createMcpClient,
@@ -15,6 +13,7 @@ import {
   type McpClient,
 } from '../mcp-client.ts';
 import { COMPARED_FIELDS, verifyMemory } from '../mcp-verifier.ts';
+import { openLiveChannels } from './live-channels.ts';
 
 /**
  * Prove the verification channel against the LIVE managed MCP server.
@@ -163,14 +162,9 @@ async function proveTheClusterExclusion(database: string, mcpConfig: ReturnType<
 }
 
 async function main(): Promise<void> {
-  const dbConfig = loadDatabaseConfig(process.env);
-  const embeddingConfig = loadEmbeddingConfig(process.env);
-  const mcpConfig = loadMcpConfig(process.env);
-  const database = new URL(dbConfig.connectionString).pathname.replace(/^\//, '') || 'defaultdb';
-
-  const db = createDatabase(dbConfig);
-  const embedder = createLocalEmbedder(embeddingConfig.dimensions);
-  const client = createMcpClient({ config: mcpConfig });
+  const { dbConfig, embeddingConfig, mcpConfig, database, db, embedder, client } = openLiveChannels(
+    process.env,
+  );
 
   try {
     console.log(`\n  application channel: ${db.describe()}`);
@@ -320,18 +314,14 @@ async function main(): Promise<void> {
     console.log(`\n  ${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}\n`);
     if (failures > 0) process.exitCode = 1;
   } finally {
-    await db
-      .query(
-        `DELETE FROM ${quoteIdentifier(dbConfig.schema)}.${quoteIdentifier('memory_audit')} WHERE workspace_id = $1`,
-        [WORKSPACE],
-      )
-      .catch(() => undefined);
-    await db
-      .query(
-        `DELETE FROM ${quoteIdentifier(dbConfig.schema)}.${quoteIdentifier('memory')} WHERE workspace_id = $1`,
-        [WORKSPACE],
-      )
-      .catch(() => undefined);
+    // Runs even when a check threw. A cleanup failure never fails the run, and it is never
+    // silent either, because rows left in a live cluster under ALL CHECKS PASSED is the kind of
+    // thing that is only ever discovered by the next run reading them.
+    await deleteWorkspaceRows(db, {
+      schema: dbConfig.schema,
+      workspaceId: WORKSPACE,
+      secrets: secretsOf(dbConfig),
+    });
     await db.close();
   }
 }
