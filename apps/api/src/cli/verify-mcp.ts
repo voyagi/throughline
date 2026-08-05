@@ -69,6 +69,26 @@ async function proveTheTransport(client: McpClient, database: string): Promise<v
     (await kindOf(() => client.callReadTool('drop_everything', {}))) === 'read_only_violation',
   );
 
+  // The other half of "read only", and the half this client does not own. The guard above is a
+  // tool-name allowlist, but `select_query` carries arbitrary SQL and CockroachDB documents a
+  // data-modifying CTE as a SELECT, so the allowlist alone does not establish that this channel
+  // cannot write. The server's own CTE check is what does, and only a live call can show it still
+  // holds. Safe by construction: the write targets a table that does not exist, so the two possible
+  // outcomes are "refused as a non-SELECT" and "refused as a missing relation", and the second one
+  // would be the finding, because reaching the planner means the write passed the SELECT check.
+  const smuggledWrite = await kindOf(() =>
+    client.select({
+      database,
+      sql: `WITH w AS (INSERT INTO throughline.no_such_table_${process.pid} (id) VALUES ('x') RETURNING id) SELECT id FROM w`,
+      limit: 2,
+    }),
+  );
+  check(
+    'a write smuggled into a CTE is refused by the server, not just by our tool list',
+    smuggledWrite === 'statement_not_select',
+    `(${smuggledWrite})`,
+  );
+
   // The silent bound. Called raw, so the server's own behaviour shows rather than this client's.
   // Parsed with the shipped parser rather than a second hand-rolled one: two readers of the same
   // envelope is how a diagnostic ends up disagreeing with the thing it is meant to be diagnosing.

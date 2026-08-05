@@ -58,6 +58,15 @@ import { z } from 'zod';
  * which is what the managed MCP server requires, so the credential can create databases, create
  * tables and insert rows. The three write tools are named below and this client refuses them by
  * name. A verification channel that could write is not a verification channel.
+ *
+ * The allowlist is not the whole control, and saying so matters: `select_query` carries arbitrary
+ * SQL, and CockroachDB documents a data-modifying CTE (`WITH w AS (INSERT ... RETURNING id)
+ * SELECT ...`) as a SELECT, which is the obvious way past a guard that only reads tool names.
+ * MEASURED 2026-08-05 against the live endpoint: the server inspects the CTE and refuses INSERT,
+ * UPDATE and DELETE inside one, with "CTE contains a non-SELECT statement". So the read-only claim
+ * rests on two independent controls, one of them the vendor's, and the vendor's is the one that
+ * would have to fail silently for this channel to write. The wording is a test fixture, so a
+ * vendor change is a red test rather than a discovery.
  */
 export const READ_TOOLS = [
   'list_clusters',
@@ -323,32 +332,70 @@ function classifiedError(message: string, apiKey?: string, cause?: unknown): Mcp
  * fails under the other.
  */
 export function extractRpcPayload(rawBody: string, contentType: string | null): unknown {
-  const isEventStream = (contentType ?? '').includes('text/event-stream');
-  const text = isEventStream
-    ? rawBody
-        .split(/\r?\n/)
-        .filter((line) => line.startsWith('data:'))
-        .map((line) => line.slice(5).replace(/^ /, ''))
-        .join('\n')
-    : rawBody;
-
-  if (!text.trim()) {
-    throw new McpError(
+  const emptyBody = (): McpError =>
+    new McpError(
       'unrecognised_envelope',
       'The verification channel received an empty response body. An empty body is not an empty ' +
         'result: nothing was read, so nothing is known.',
     );
-  }
-  try {
-    return JSON.parse(text) as unknown;
-  } catch (cause) {
-    throw new McpError(
+  const unparseable = (cause?: unknown): McpError =>
+    new McpError(
       'unrecognised_envelope',
       'The verification channel could not parse the response as JSON, so this read produced no ' +
         'knowledge at all rather than an empty result.',
-      { cause },
+      cause === undefined ? undefined : { cause },
     );
+
+  if (!(contentType ?? '').includes('text/event-stream')) {
+    if (!rawBody.trim()) throw emptyBody();
+    try {
+      return JSON.parse(rawBody) as unknown;
+    } catch (cause) {
+      throw unparseable(cause);
+    }
   }
+
+  // Per EVENT, not per body. This transport is explicitly allowed to deliver other messages before
+  // the answer to our request, and joining `data:` lines across event boundaries splices two JSON
+  // documents into one unparseable string: the channel would break against a server doing nothing
+  // wrong, and break as "unrecognised envelope", which reads like a defect in the database rather
+  // than in this client. Within a single event the lines ARE joined with newlines, which is what
+  // the SSE specification says and is not the same as taking the last line.
+  const events = rawBody.split(/\r?\n[ \t]*\r?\n/);
+  let sawData = false;
+  let parseFailure: unknown;
+
+  for (const event of events) {
+    const data = event
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith('data:'))
+      .map((line) => line.slice(5).replace(/^ /, ''))
+      .join('\n');
+    if (!data.trim()) continue;
+    sawData = true;
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(data) as unknown;
+    } catch (cause) {
+      parseFailure = cause;
+      continue;
+    }
+    // A JSON-RPC response carries exactly one of `result` or `error`, so this is what distinguishes
+    // the answer to our request from a notification that happened to arrive on the same stream.
+    if (parsed && typeof parsed === 'object' && ('result' in parsed || 'error' in parsed)) {
+      return parsed;
+    }
+  }
+
+  if (!sawData) throw emptyBody();
+  if (parseFailure !== undefined) throw unparseable(parseFailure);
+  throw new McpError(
+    'unrecognised_envelope',
+    'The verification channel read the response stream to the end without finding an answer to ' +
+      'its request. Messages arrived, but none of them was a result or an error, so nothing was ' +
+      'read and nothing is known.',
+  );
 }
 
 /**
@@ -428,9 +475,34 @@ export function readRows(payload: unknown, apiKey?: string): Record<string, unkn
     );
   }
 
+  // `JSON.parse` returns null, a number or a string just as happily as an object, and reading
+  // `.rows` off one of those throws a bare TypeError that would leave this module unnamed and
+  // unclassified. Everything below needs an object.
+  if (!parsed || typeof parsed !== 'object') {
+    throw new McpError(
+      'unrecognised_envelope',
+      'The verification channel received result text that is not a JSON object, so no rows could ' +
+        'be read. This is not the same as reading zero rows.',
+    );
+  }
+
   const envelope = parsed as { rows?: unknown; message?: unknown };
   if (Array.isArray(envelope.rows)) {
-    return envelope.rows as Record<string, unknown>[];
+    // Every ELEMENT is checked, not just the array. A row that is null, a number or a string is not
+    // a row this channel can read, and handing it on would let the SHAPE of a response become a
+    // claim about the database: downstream a falsy row reads as "no row came back", which renders
+    // as the application holding a memory the cluster does not have. That is the single output this
+    // whole module exists to prevent, so an unreadable row is named here instead.
+    return envelope.rows.map((row, index) => {
+      if (!row || typeof row !== 'object' || Array.isArray(row)) {
+        throw new McpError(
+          'unrecognised_envelope',
+          `The verification channel returned a row set whose entry at position ${index} is not a ` +
+            'row object, so it cannot be compared. An unreadable row is not an absent row.',
+        );
+      }
+      return row as Record<string, unknown>;
+    });
   }
   // The tool-level error shape, kept for the same reason as `isError` above: it is what a JSON
   // object with a `message` and no `rows` means, and treating it as zero rows would be the one

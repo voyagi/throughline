@@ -28,6 +28,13 @@ const LIVE_MESSAGES = {
   bothClusterIds: 'cluster_id is set in your MCP config; omit the cluster_id argument',
   noClusterId: 'cluster_id not provided: pass it as a tool argument or configure it in your MCP config',
   notSelect: 'only SELECT statements are allowed, got UPDATE',
+  // Measured 2026-08-05. The read-only guard in this client is a tool-name allowlist, and
+  // `select_query` takes arbitrary SQL, so the obvious way past it is a data-modifying CTE
+  // (`WITH w AS (INSERT ... RETURNING id) SELECT ...`), which CockroachDB documents as a SELECT.
+  // The server inspects the CTE and refuses INSERT, UPDATE and DELETE inside one, each with this
+  // wording. That is what makes "this channel cannot write" a measured claim rather than a hope,
+  // and if the vendor ever stops checking, this fixture is what notices.
+  notSelectInCte: 'CTE contains a non-SELECT statement: only SELECT statements are allowed, got INSERT',
   notSingle: 'must contain exactly one statement',
   restricted:
     'query references a restricted schema: access to "information_schema" is blocked for security reasons',
@@ -345,6 +352,41 @@ describe('extractRpcPayload', () => {
       /no knowledge at all/,
     );
   });
+
+  it('finds the response even when a notification arrives on the stream first', () => {
+    // This protocol revision permits the server to send other messages before the answer. Gathering
+    // `data:` lines across the WHOLE body splices two JSON documents into one unparseable string,
+    // so a server doing nothing wrong would break the channel, and break it as an unrecognised
+    // envelope, which reads as a fault in the database rather than in this client.
+    const raw =
+      'event: message\ndata: {"jsonrpc":"2.0","method":"notifications/progress"}\n\n' +
+      'event: message\ndata: {"jsonrpc":"2.0","id":1,"result":{"ok":true}}\n\n';
+    expect(extractRpcPayload(raw, 'text/event-stream')).toEqual({
+      jsonrpc: '2.0',
+      id: 1,
+      result: { ok: true },
+    });
+  });
+
+  it('still joins data lines WITHIN one event after learning to split between them', () => {
+    // The pair that pins the split: the same two payloads, once across events (joined = broken) and
+    // once inside one event (joined = correct). A fix that split on every newline would pass the
+    // test above and fail this one.
+    const raw = 'event: message\ndata: {"jsonrpc":"2.0","id":1,\ndata: "result":{"ok":true}}\n\n';
+    expect(extractRpcPayload(raw, 'text/event-stream')).toEqual({
+      jsonrpc: '2.0',
+      id: 1,
+      result: { ok: true },
+    });
+  });
+
+  it('refuses a stream that carried messages but no answer', () => {
+    const raw = 'event: message\ndata: {"jsonrpc":"2.0","method":"notifications/progress"}\n\n';
+    expect(() => extractRpcPayload(raw, 'text/event-stream')).toThrow(
+      /none of them was a result or an error/,
+    );
+    expect(() => extractRpcPayload(raw, 'text/event-stream')).toThrow(McpError);
+  });
 });
 
 describe('classifyServerMessage', () => {
@@ -356,6 +398,15 @@ describe('classifyServerMessage', () => {
     expect(classifyServerMessage(LIVE_MESSAGES.restricted).kind).toBe('restricted_schema');
     expect(classifyServerMessage(LIVE_MESSAGES.tooLarge).kind).toBe('result_too_large');
     expect(classifyServerMessage(LIVE_MESSAGES.noRelation).kind).toBe('unknown_relation');
+  });
+
+  it('names a write smuggled into a CTE as a refused non-SELECT', () => {
+    // The read-only guard in this client is a tool-name allowlist, but `select_query` carries
+    // arbitrary SQL, so the allowlist alone does not establish that the channel cannot write. The
+    // server's own CTE check is the control that does, and this pins the classification of it.
+    const classified = classifyServerMessage(LIVE_MESSAGES.notSelectInCte);
+    expect(classified.kind).toBe('statement_not_select');
+    expect(classified.sentence).toMatch(/read only by design/);
   });
 
   it('never repeats the server text back, for any message', () => {
@@ -518,6 +569,33 @@ describe('readRows', () => {
     // JSON-RPC allows `error: null` alongside a real result, and reading that as a failure would
     // turn every successful call from such a server into an outage.
     expect(readRows({ jsonrpc: '2.0', id: 1, error: null, result: { content: [{ type: 'text', text: '{"rows":[]}' }] } })).toEqual([]);
+  });
+
+  it('refuses a row that is not a row object, and says which position it was', () => {
+    // THE defect this whole module argues against, reached by a route no error message takes.
+    // `rows: [null]` is an array of length one, so downstream `rows[0]` is falsy, every "is there a
+    // row" branch is skipped, and the verifier reports DIVERGES with failure null: "the application
+    // holds this memory and an independent read of the cluster does not find it". A claim about the
+    // DATABASE, manufactured from the SHAPE of a response, and indistinguishable from a real one.
+    for (const bad of [null, 0, false, '', 'some text', 42, []]) {
+      expect(() => readRows(rowsPayload([bad]))).toThrow(/entry at position 0 is not a row object/);
+      expect(() => readRows(rowsPayload([bad]))).toThrow(McpError);
+    }
+    // The position is named, so a long result set does not have to be searched by hand.
+    expect(() => readRows(rowsPayload([{ id: 1 }, null]))).toThrow(/position 1/);
+    // And a genuine row set is still read.
+    expect(readRows(rowsPayload([{ id: 1 }, { id: 2 }]))).toEqual([{ id: 1 }, { id: 2 }]);
+  });
+
+  it('refuses result text that parses to something other than an object', () => {
+    // `JSON.parse` returns null, a number or a string just as happily as an object, and reading
+    // `.rows` off one of those threw a bare TypeError with no kind on it, escaping every caller
+    // that branches on McpError.
+    for (const text of ['null', '42', '"a string"', 'true']) {
+      const payload = { jsonrpc: '2.0', id: 1, result: { content: [{ type: 'text', text }] } };
+      expect(() => readRows(payload)).toThrow(/not a JSON object/);
+      expect(() => readRows(payload)).toThrow(McpError);
+    }
   });
 
   it('never returns an array for anything that is not a row set', () => {
@@ -857,6 +935,114 @@ describe('createMcpClient, on the wire', () => {
       client.select({ database: 'defaultdb', sql: 'SELECT n FROM t', limit: 2 }),
     ).rejects.toThrow(/too large/);
     expect(toolCalls(recorded)).toHaveLength(1);
+  });
+
+  it('re-handshakes a lost session and returns the answer the SECOND call gives', async () => {
+    // The successful half of the retry. Only the always-404 case was covered, so every statement
+    // after the re-handshake was unreachable in test: the feature was claimed, never demonstrated.
+    const recorded: Recorded[] = [];
+    let toolCallCount = 0;
+    const client = createMcpClient({
+      config: CONFIG,
+      fetchImpl: (_url, init) => {
+        const body = JSON.parse(init.body) as Recorded['body'];
+        recorded.push({ headers: init.headers, body });
+        if (body.method === 'initialize') {
+          return Promise.resolve(sse({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2025-06-18' } }));
+        }
+        if (body.method === 'notifications/initialized') return Promise.resolve(accepted());
+        toolCallCount += 1;
+        if (toolCallCount === 1) {
+          return Promise.resolve({
+            status: 404,
+            headers: { get: (): string | null => null },
+            text: (): Promise<string> => Promise.resolve(''),
+          });
+        }
+        return Promise.resolve(sse(rowsPayload([{ one: 1 }])));
+      },
+    });
+
+    const result = await client.select({ database: 'defaultdb', sql: 'SELECT 1 AS one', limit: 2 });
+    expect(result.rows).toEqual([{ one: 1 }]);
+    expect(toolCallCount).toBe(2);
+    expect(recorded.filter((entry) => entry.body.method === 'initialize')).toHaveLength(2);
+  });
+
+  it('surfaces a server error that arrives on the RETRY, not just on the first call', async () => {
+    // Pins the second `assertNoServerError`. Without it `callReadTool` hands the caller a refusal
+    // shaped exactly like a success, which is the defect this file records as having shipped once
+    // and been caught only by a live call. `callReadTool` rather than `select` on purpose: `select`
+    // runs `readRows`, which would throw anyway and let the deletion pass unnoticed.
+    let toolCallCount = 0;
+    const client = createMcpClient({
+      config: CONFIG,
+      fetchImpl: (_url, init) => {
+        const body = JSON.parse(init.body) as Recorded['body'];
+        if (body.method === 'initialize') {
+          return Promise.resolve(sse({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2025-06-18' } }));
+        }
+        if (body.method === 'notifications/initialized') return Promise.resolve(accepted());
+        toolCallCount += 1;
+        if (toolCallCount === 1) {
+          return Promise.resolve({
+            status: 404,
+            headers: { get: (): string | null => null },
+            text: (): Promise<string> => Promise.resolve(''),
+          });
+        }
+        return Promise.resolve(sse(errorPayload(LIVE_MESSAGES.tooLarge)));
+      },
+    });
+
+    await expect(client.callReadTool('select_query', { database: 'defaultdb', query: 'SELECT 1' })).rejects.toThrow(
+      /too large for this channel to carry/,
+    );
+    expect(toolCallCount).toBe(2);
+  });
+
+  it('calls an abort caused by its own deadline a timeout, with the transport error kept as cause', async () => {
+    // The real production abort path, which is NOT the same branch as the deadline promise winning
+    // the race: `controller.abort()` runs before the deadline rejects, so the fetch rejects first
+    // with a plain Error and only the `timedOut` flag distinguishes it from a dead network. The
+    // `cause` is what proves which of the two arms ran.
+    const client = createMcpClient({
+      config: { ...CONFIG, timeoutMs: 30 },
+      fetchImpl: (_url, init) =>
+        new Promise((_resolve, reject) => {
+          init.signal.addEventListener('abort', () => {
+            reject(new Error('The operation was aborted'));
+          });
+        }),
+    });
+
+    const error: unknown = await client.callReadTool('list_databases', {}).catch((thrown: unknown) => thrown);
+    expect(error).toBeInstanceOf(McpError);
+    expect((error as McpError).kind).toBe('timeout');
+    expect((error as McpError).message).toMatch(/did not answer within 30 ms/);
+    expect((error as McpError).cause).toBeInstanceOf(Error);
+  });
+
+  it('gives up before opening a connection when the deadline has already passed', async () => {
+    // The `remaining <= 0` guard. Asserting the message alone cannot tell this apart from a normal
+    // timeout, so the assertion that carries the test is that the network was never touched.
+    let fetchCount = 0;
+    let nowValue = 0;
+    const client = createMcpClient({
+      config: { ...CONFIG, timeoutMs: 2_000 },
+      now: () => {
+        const current = nowValue;
+        nowValue = 10_000;
+        return current;
+      },
+      fetchImpl: () => {
+        fetchCount += 1;
+        return Promise.reject(new Error('the deadline guard should have run before this'));
+      },
+    });
+
+    await expect(client.callReadTool('list_databases', {})).rejects.toThrow(/did not answer within 2000 ms/);
+    expect(fetchCount).toBe(0);
   });
 
   it('reuses the session across calls rather than handshaking every time', async () => {

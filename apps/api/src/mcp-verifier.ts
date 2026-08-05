@@ -419,7 +419,33 @@ export async function verifyMemory(
     };
   }
 
-  const row = rows[0];
+  // SHAPE, never truthiness. `rows[0]` being null, 0, false or "" would skip every row branch below
+  // and fall through to "the application holds this memory and an independent read does not find
+  // it" with `failure: null`, indistinguishable from a real divergence. That is a claim about the
+  // DATABASE manufactured from the SHAPE of a response, and it is the one output this file exists
+  // to prevent. `readRows` refuses such a row at the wire boundary; this is the second control,
+  // because `McpClient` is an interface and the wire is not the only way a row can arrive.
+  const first: unknown = rows.length > 0 ? rows[0] : undefined;
+  const row =
+    first !== null && typeof first === 'object' && !Array.isArray(first)
+      ? (first as Record<string, unknown>)
+      : undefined;
+
+  if (rows.length > 0 && row === undefined) {
+    return {
+      ...base,
+      verdict: 'UNKNOWN',
+      checkedAt,
+      elapsedMs,
+      reason:
+        'The verification channel returned something in the row position that is not a row object, ' +
+        'so there is nothing to compare. Nothing is claimed about this memory in either direction: ' +
+        'an unreadable answer is not an absent row.',
+      differences: [],
+      observations: [],
+      failure: 'unrecognised_envelope',
+    };
+  }
 
   // The four presence cases, with both-present FIRST so the narrowing falls out of the control
   // flow. Ordering them the other way round needs an unreachable guard at the end to convince the

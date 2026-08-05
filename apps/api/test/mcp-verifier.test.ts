@@ -400,6 +400,40 @@ describe('verifyMemory', () => {
     }
   });
 
+  it('reports UNKNOWN, never DIVERGES, when the row position holds something that is not a row', async () => {
+    // The worst reachable output of this component, and it arrives by a route no error message
+    // takes. A falsy element (null, 0, false, "") makes `rows[0]` falsy while `rows.length` is 1,
+    // so every "is there a row" branch is skipped and control falls through to "the application
+    // holds this memory and an independent read of the cluster does not find it", with
+    // `failure: null` so nothing downstream can tell it from a real finding. A claim about the
+    // DATABASE, manufactured from the SHAPE of a response.
+    //
+    // The cast is the test: `McpClient` promises rows, and this asserts what happens when an
+    // implementation of that interface does not keep the promise. `readRows` is the first control
+    // and refuses these at the wire; this pins the second, which is the one that still holds when
+    // the rows did not come off the wire at all.
+    for (const bad of [null, 0, false, '', 'some text', 42]) {
+      const rows = [bad] as unknown as readonly Record<string, unknown>[];
+      const report = await verifyMemory(clientReturning(rows), REQUEST);
+      expect(report.verdict).toBe('UNKNOWN');
+      expect(report.failure).toBe('unrecognised_envelope');
+      expect(report.differences).toEqual([]);
+      // Not "must not contain the word absent": the sentence DENIES absence in as many words, and
+      // a pattern that cannot tell a denial from a claim would forbid the correct wording. What is
+      // forbidden is the DIVERGES sentence itself, which is what this path used to produce.
+      expect(report.reason).not.toMatch(/does not find it/);
+      expect(report.reason).toMatch(/not a row object/);
+    }
+  });
+
+  it('does not mistake a genuinely empty result for an unreadable one', async () => {
+    // The other side of the guard above: zero rows is a real answer and must stay a real answer,
+    // or "the application holds a memory the cluster does not have" becomes unreportable.
+    const report = await verifyMemory(clientReturning([]), REQUEST);
+    expect(report.verdict).toBe('DIVERGES');
+    expect(report.failure).toBeNull();
+  });
+
   it('reports UNKNOWN when a primary key lookup somehow returns two rows', async () => {
     const report = await verifyMemory(clientReturning([channelRow(), channelRow()]), REQUEST);
     expect(report.verdict).toBe('UNKNOWN');
