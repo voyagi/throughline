@@ -1053,6 +1053,12 @@ export function createMcpClient(options: McpClientOptions): McpClient {
  * words rather than from the situation. So is `serverMessage`, masked, and the original on the
  * cause.
  *
+ * The sentence says "nothing was read" and deliberately does not say "no read was attempted",
+ * which an earlier version did and which is false by one `tools/call`. There are two routes into a
+ * handshake: before anything, and the re-handshake that a lost session triggers AFTER a read has
+ * already gone out and come back 404. This text lands verbatim on a verification report, so a
+ * sentence true on only one of the two routes is the defect this module spends its length on.
+ *
  * The discriminator is exact rather than convenient: `classifyServerMessage` cannot return
  * `unrecognised_envelope`, so that kind is always one of this function's own structural
  * complaints, and those are already written for any exchange. "A response carrying neither a
@@ -1066,8 +1072,8 @@ function assertHandshakeAccepted(payload: unknown, apiKey: string): { protocolVe
       throw new McpError(
         error.kind,
         'The verification channel could not open a session with the CockroachDB Cloud MCP ' +
-          'server, because the handshake itself was refused. No read was attempted, so nothing ' +
-          "is known about any data. The server's own words are kept on the cause rather than " +
+          'server, because the handshake itself was refused. Nothing was read, so nothing is ' +
+          "known about any data. The server's own words are kept on the cause rather than " +
           'repeated here, and the failure is named above.',
         { serverMessage: error.serverMessage, cause: error },
       );

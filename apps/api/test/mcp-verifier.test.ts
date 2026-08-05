@@ -428,11 +428,17 @@ describe('verifyMemory', () => {
     expect(report.differences[0]?.channel).toBe('not found');
     // Measured rather than assumed, and the wording is held to the measurement: over 50 trials in
     // two runs (`npm run measure:freshness`, 2026-08-05) every row written over pg was found by
-    // the FIRST read this channel attempted, the fastest 330 ms after the write returned. That
-    // bounds any invisible window below 330 ms rather than showing there is none. An instrument
-    // reading through this channel cannot observe faster than the channel, which is why the
-    // sentence claims the bound and not the absence of a window.
+    // the FIRST read this channel attempted, the fastest of those reads 330 ms after the write
+    // returned.
+    //
+    // The sentence states those two facts and stops, which is deliberate and is the second
+    // correction this claim has needed. It does NOT say the invisible window is under 330 ms:
+    // each trial bounds the window by its own read time, so that figure rests on one observation
+    // rather than fifty, and treating it as a bound on the next write assumes the window does not
+    // vary. `mcp-verifier.ts` says the same thing at length, and the two must not drift.
     expect(report.reason).toMatch(/50 trials/);
+    expect(report.reason).toMatch(/first read/i);
+    expect(report.reason).not.toMatch(/shorter than|window/i);
     expect(report.reason).not.toMatch(/no replication delay|never a delay|reads the present/);
   });
 

@@ -44,12 +44,15 @@ the suite was re-run. All nine went red.
 - The cosine remap in `cosineSimilarity`.
 - `describeCoverage` refusing to say "found nothing" under UNKNOWN coverage.
 
-### The verification channel, fourteen more
+### The verification channel: fourteen mutations, fifteen protections
 
 Same method, run against the sweep that closed the review findings PR #7 left open. Each defect was
 put BACK into the source, the whole suite was run, and the failures were recorded before restoring.
-Eleven killed exactly the one test written for them. Three killed their own test and siblings that
-share the same guard, which is noted rather than tidied away, because a mutation with a wider blast
+
+The two counts differ on purpose and the difference is not a rounding error: fourteen defects were
+put back, and one of them is named by two separate tests, so fifteen protections are listed below.
+Eleven of the fourteen killed exactly one test. The other three killed their own test and siblings
+that share the same guard, noted rather than tidied away, because a mutation with a wider blast
 radius than the finding it stands for is a weaker proof of that finding, not a stronger one.
 
 - The handshake classifying a server failure instead of carrying on (2 red).

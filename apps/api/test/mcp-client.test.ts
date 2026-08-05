@@ -1420,6 +1420,50 @@ describe('createMcpClient, on the wire', () => {
     expect(initializeCount).toBe(2);
   });
 
+  it('describes a refused RE-handshake truthfully, on the path where a read already went out', async () => {
+    // The second route into `handshake`, and the one no test covered. A tool call goes out, comes
+    // back 404, and the re-handshake it triggers is itself refused. The first wording of that
+    // failure said "no read was attempted", which is false here by one `tools/call`, and this
+    // sentence lands verbatim on a verification report that an operator reads.
+    let initializeCount = 0;
+    let toolCallCount = 0;
+    const client = createMcpClient({
+      config: CONFIG,
+      fetchImpl: (_url, init) => {
+        const body = JSON.parse(init.body) as Recorded['body'];
+        if (body.method === 'initialize') {
+          initializeCount += 1;
+          if (initializeCount === 1) {
+            return Promise.resolve(
+              sse(echoId({ jsonrpc: '2.0', result: { protocolVersion: '2025-06-18' } }, body.id)),
+            );
+          }
+          return Promise.resolve(sse(echoId(errorPayload(LIVE_MESSAGES.restricted), body.id)));
+        }
+        if (body.method === 'notifications/initialized') return Promise.resolve(accepted());
+        toolCallCount += 1;
+        return Promise.resolve({
+          status: 404,
+          headers: { get: (): string | null => null },
+          text: (): Promise<string> => Promise.resolve(''),
+        });
+      },
+    });
+
+    const error: unknown = await client
+      .callReadTool('list_databases', {})
+      .catch((thrown: unknown) => thrown);
+
+    expect((error as McpError).kind).toBe('restricted_schema');
+    expect((error as McpError).message).toMatch(/handshake itself was refused/);
+    // A read DID go out before this failure, so the sentence must not deny that one happened. What
+    // stays true on both routes is that nothing came back to be read.
+    expect(toolCallCount).toBe(1);
+    expect(initializeCount).toBe(2);
+    expect((error as McpError).message).not.toMatch(/no read was attempted/i);
+    expect((error as McpError).message).toMatch(/Nothing was read/);
+  });
+
   it('refuses a handshake answered with neither a result nor an error', async () => {
     // `result: null` carries the KEY, so the parser's shape check passes it through as our answer.
     // The handshake then read `?.protocolVersion` off nothing, shrugged, cached the session and
