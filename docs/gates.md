@@ -112,6 +112,92 @@ tests where the baseline is 495 and nothing in the output said so. Mutation runs
 against the baseline COUNT, never against the absence of failures, which is the same rule this
 repository applies to every other check that can return zero results for two different reasons.
 
+### The agent loop: thirteen mutations against the absence controls
+
+The agent must be structurally unable to report an absence it did not establish, and three
+independent controls are claimed for that. Each protection was removed on its own, the whole suite
+was run, the failures were recorded, and the tree was restored and confirmed clean before the next
+one.
+
+**Measured at commit `01bfe35`, baseline 652 tests across 19 files.** Every one of the thirteen runs
+also collected 652, which is the only reason the red counts below mean anything.
+
+**AND HEAD HAS SINCE MOVED PAST THAT COMMIT.** A fourth review round changed `claimsAbsence` and its
+tests again, which took the baseline to 659, so the counts below describe `01bfe35` and are PENDING
+RE-MEASUREMENT against the branch tip. They are published with that label rather than quietly
+carried forward, and re-measuring them is a named item in the handoff. Do not read them as
+describing the code at the tip.
+
+The commit is named because this set has now been measured three times and invalidated three times,
+each by the review round that followed it: the first pass ran at 605 and published a count that
+described the wrong mutation, the second ran at 627 and was overtaken before anyone read it, and
+this one was overtaken the same way. A mutation count is a statement about ONE tree. The rule for
+reading it: a commit that touches only documentation leaves these standing, and a commit that
+changes any file the suite loads makes them unverified until re-run. Read that set off
+`vitest.config.ts` rather than from memory, because it has now been written down too narrowly
+twice: first as `apps/api/src/agent/**`, then as `packages/*/src` plus `apps/api/src` plus their
+tests, which still omitted `scripts/test/**/*.test.mjs` and the `scripts/lib` modules it imports.
+Those account for 146 of the 652.
+
+Thirteen bullets follow, one per mutation, counted from the list itself.
+
+- Control 1, ordering: the coverage verdict pushed second instead of first (5 red). Most are the
+  tests that read line one under each verdict. One is the offline end-to-end run, because the local
+  model reads the verdict off that first line too, which is real coupling and is left visible here
+  rather than hidden behind a tidier mutation.
+- Control 1, withholding: the early return deleted, so a failed recall renders its memories anyway
+  (2 red, exactly the two tests written for it).
+- Control 2, at the CALL SITE: `worseOf(worstCoverage, ...)` in `runAgentTurn` replaced by
+  last-verdict-wins (1 red). Naming the call site matters, and the first version of this bullet did
+  not. Mutating `worseOf` ITSELF to last-wins is a different mutation with a different blast radius,
+  because `worseOf` has unit tests of its own that this one leaves green. The single red is the loop
+  test that recalls UNKNOWN and then COVERED; the reverse ordering still passes under the mutation,
+  which is exactly why both orderings are tested.
+- Control 3: `judgeAnswer` permitting every answer (13 red). The widest blast radius here, and the
+  honest reading is that control 3 is load bearing across the whole suite rather than that this
+  mutation is a sharper proof than the others.
+- A failed recall no longer degrading the turn to UNKNOWN (2 red). The fail-open hole that reading
+  the loop against the real repository turned up: a turn that recalled once COVERED and then threw
+  kept COVERED, and the absence claim was permitted on a search that had broken.
+- `worseOf` losing its allowlist, so an unrecognised verdict scores -1 through `indexOf` and is
+  silently dropped (3 red).
+- The refusal pushed back as a `tool_result` carrying an id no `tool_call` announced (6 red).
+- An empty PARTIAL recall described as "a real absence" again (2 red). A cut-short search that
+  returned nothing has established nothing, and saying otherwise invited the exact claim control 3
+  then refuses.
+- The record-format flattening removed, so a memory's stored content can forge an `id` or
+  `asserted by` line of its own (3 red).
+- The budget branch's `tool_call` announcement DELETED, so an over-budget call is answered by a
+  result no call announced (5 red). The prose here said "announced AFTER the budget check rather
+  than before" and that is a different mutation, worth 1 red, which a review measured. The wording
+  was left over from when the announcement existed in two places; deleting the single remaining one
+  is what was actually run. Naming the mutation you ran rather than the one you meant to run is the
+  second time this section has needed that correction.
+- The operator shown `verdict.refusal`, the second-person text written for the model, instead of
+  `refusalForTheUser` (3 red).
+- The round-cap notice pushed as an `assistant` turn rather than in the loop's own role (1 red).
+  This one is worth more than its count. It is the THIRD instance of a single defect, loop-authored
+  text under the model's role, and the first two were each fixed on one path while the sibling kept
+  doing it. The test that kills it drives five scenarios across all three exits from `runAgentTurn`
+  (two pairs share a return) instead of
+  asserting "on any path" from one of them, which is precisely what hid the first two.
+- A whole-word archive noun turned back into a prefix stem, `memories` to `memor` (2 red). The
+  prefix form is how "The container has no memory limit set" became a withheld answer. The negative
+  controls that kill this are one per RETAINED stem; the block that preceded them tested only
+  alternatives that had been deleted, which is why it could not see the same bug twice.
+
+Not proven by mutation, and said plainly rather than counted in: the `CoverageUnknownError` arm in
+`runTool`. `createRepository` does not throw it, because `runRecall` catches an embedder failure, a
+failed count query, a failed candidate query and an unscoreable row and returns an UNKNOWN receipt
+for each. The arm is exercised by a throwing double and refines the message only. What sets coverage
+on that path is the recall-failed rule above, which is the fifth bullet and is mutation proven.
+
+Two behaviours in this area are pinned as LIMITS rather than protections, and no mutation is claimed
+for either, because tightening them is a design change rather than a regression. An absence claim is
+bound to the TURN, not to the question: a turn that searched one subject may assert absence about
+another. And a recall refused by its own schema never reached the repository, so it leaves the
+verdict alone.
+
 ## Found by proving, not by reading
 
 Three rules were configured, green, and useless. None would have been noticed without planting a
