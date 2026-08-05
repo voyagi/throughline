@@ -21,6 +21,17 @@
  *
  * Control 3 is a blocklist of phrasings and would be weak alone. It is not alone, and it is the
  * only one of the three that looks at what the model actually SAID rather than what it was told.
+ *
+ * WHAT THIS DOES NOT DO, stated here because the sentence above is easy to read as more than it is.
+ * The guarantee is per TURN and per PHRASING, not per QUESTION. `worstCoverage` records that SOME
+ * recall this turn came back COVERED; nothing binds an absence claim to the SUBJECT that was
+ * searched. A turn that recalls "checkout latency", gets a COVERED empty result, and then asserts
+ * that nothing is on record about the payments database is permitted, and that is a real hole, not
+ * a quibble. Closing it needs the claim's subject matched against the queries actually run, which
+ * is a semantic judgement this loop deliberately does not make, because a model deciding whether
+ * its own sentence is about the thing it searched is the same theatre as a model deciding when to
+ * audit itself. Until a narrower binding exists, treat the guarantee as: an absence claim cannot
+ * survive a turn in which no search completed. It can survive a turn that searched something else.
  */
 
 import {
@@ -109,7 +120,6 @@ export interface AgentOptions {
    * for in a prompt.
    */
   readonly maxToolCalls?: number;
-  readonly clock?: () => Date;
 }
 
 export interface AgentAnswer {
@@ -156,7 +166,6 @@ export const SYSTEM_PROMPT = SYSTEM;
 export async function runAgentTurn(options: AgentOptions, message: string): Promise<AgentAnswer> {
   const { model, repository, workspaceId } = options;
   const maxToolCalls = options.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS;
-  const clock = options.clock ?? ((): Date => new Date());
 
   const transcript: Turn[] = [{ role: 'user', content: message }];
   let worstCoverage: Coverage | null = null;
@@ -193,7 +202,12 @@ export async function runAgentTurn(options: AgentOptions, message: string): Prom
       if (verdict.permitted || refusedAnAbsenceClaim) {
         // Already refused once. Ending the turn with the refusal rather than with the answer is the
         // safe direction: a second attempt at the same claim is not a misunderstanding.
-        const text = verdict.permitted ? reply.text : verdict.refusal;
+        //
+        // What the USER is shown is not `verdict.refusal`. That sentence is written in the second
+        // person to the model ("Rewrite it to say what you actually know"), and returning it as the
+        // answer put instructions for the model on the screen meant for the operator. The model
+        // keeps its version in the transcript; the person reading gets told what happened.
+        const text = verdict.permitted ? reply.text : refusalForTheUser(worstCoverage);
         transcript.push({ role: 'assistant', content: text });
         return {
           text,
@@ -211,6 +225,14 @@ export async function runAgentTurn(options: AgentOptions, message: string): Prom
     }
 
     for (const call of reply.calls) {
+      // Announced BEFORE the budget check, and that order is the fix for a defect this file
+      // introduced while fixing the same defect elsewhere. The over-budget branch used to push a
+      // `tool_result` and skip this line, so it emitted a result for an id no `tool_call` had
+      // announced: the exact shape the `refusal` role was added to remove, left standing on the
+      // one path the invariant test did not drive. The model really did ask for the tool, so
+      // recording the request and answering it with a refusal is also the honest transcript.
+      transcript.push({ role: 'tool_call', id: call.id, name: call.name, args: call.args });
+
       if (toolCallCount >= maxToolCalls) {
         transcript.push({
           role: 'tool_result',
@@ -223,9 +245,8 @@ export async function runAgentTurn(options: AgentOptions, message: string): Prom
         continue;
       }
       toolCallCount += 1;
-      transcript.push({ role: 'tool_call', id: call.id, name: call.name, args: call.args });
 
-      const outcome = await runTool(call, { repository, workspaceId, clock });
+      const outcome = await runTool(call, { repository, workspaceId });
       if (outcome.coverage !== undefined) worstCoverage = worseOf(worstCoverage, outcome.coverage);
       transcript.push({ role: 'tool_result', id: call.id, name: call.name, content: outcome.content });
     }
@@ -241,7 +262,6 @@ interface ToolOutcome {
 interface ToolContext {
   readonly repository: MemoryRepository;
   readonly workspaceId: string;
-  readonly clock: () => Date;
 }
 
 function describeError(error: unknown): string {
@@ -279,9 +299,17 @@ async function runTool(call: ChatToolCall, context: ToolContext): Promise<ToolOu
     // written against the `MemoryRepository` PORT, whose contract nowhere promises that recall does
     // not throw, and `runRecall`'s own comments record that it has shipped a throw straight past
     // its coverage decision TWICE ("it used to throw straight past every coverage decision in this
-    // function", "One bad row used to take the entire recall down"). A recall that failed for any
-    // reason leaves the turn unable to support a claim about absence, which is exactly what an
-    // UNKNOWN verdict means.
+    // function", "One bad row used to take the entire recall down").
+    //
+    // The rule is ATTEMPTED-AND-FAILED, not "failed for any reason", and the difference is a
+    // decision rather than an oversight. A recall whose arguments the schema refused never reached
+    // the repository and returns above this catch with no verdict, so it leaves the turn's coverage
+    // alone. Degrading there would be permanent: `worseOf` only ever moves downwards, so one
+    // malformed argument list would pin the whole turn at UNKNOWN even after the model retried and
+    // got a clean COVERED search, and the demo would refuse answers it had genuinely established.
+    // The cost of that choice is real and is pinned by a test: a COVERED recall followed by a
+    // malformed one still permits an absence claim. That is the same per-turn limit described at
+    // the top of this file, not a separate hole.
     return parsed.tool.name === 'recall' ? { content, coverage: 'UNKNOWN' } : { content };
   }
 }
@@ -391,6 +419,26 @@ export function worseOf(left: Coverage | null, right: Coverage): Coverage {
   return COVERAGE_ORDER.indexOf(leftVerdict) >= COVERAGE_ORDER.indexOf(rightVerdict)
     ? leftVerdict
     : rightVerdict;
+}
+
+/**
+ * What the OPERATOR is told when an answer is withheld.
+ *
+ * Separate from `AnswerVerdict.refusal`, which is addressed to the model in the second person and
+ * tells it how to rewrite. Returning that text as the answer put the model's instructions on the
+ * operator's screen. Both exist because they have different readers, and the transcript keeps the
+ * model-facing one so the exchange stays auditable.
+ */
+export function refusalForTheUser(coverage: Coverage | null): string {
+  const searched =
+    coverage === null
+      ? 'no search of the incident memory ran during this turn'
+      : `the search of the incident memory came back ${coverage}`;
+  return (
+    `This answer was withheld. It asserted that something does not exist, and ${searched}, so that ` +
+    'was never established. Treat it as an unanswered question rather than as an absence, and read ' +
+    'the receipt above for what the search actually did.'
+  );
 }
 
 export interface AnswerVerdict {

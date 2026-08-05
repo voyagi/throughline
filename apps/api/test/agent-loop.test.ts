@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Coverage, MemoryRepository, RememberInput } from '@throughline/memory';
 import {
   judgeAnswer,
+  refusalForTheUser,
   runAgentTurn,
   SYSTEM_PROMPT,
   worseOf,
@@ -9,6 +10,7 @@ import {
   type ChatReply,
   type Turn,
 } from '../src/agent/loop.ts';
+import { claimsAbsence } from '../src/agent/tools.ts';
 import { createScriptedChatModel } from '../src/agent/local-model.ts';
 import {
   fakeRepository,
@@ -133,9 +135,33 @@ describe('CONTROL 3: an absence claim is checked against what the recalls establ
     const model = createScriptedChatModel([recallCall(), answer(ABSENCE), answer(ABSENCE)]);
     const result = await run(model, repositoryReturning(recallResult({ coverage: 'UNKNOWN' })));
 
-    expect(result.text).toContain('That answer says something does not exist');
+    expect(result.text).toContain('This answer was withheld');
+    expect(result.text).toContain('came back UNKNOWN');
     expect(result.text).not.toContain('no prior incidents like this');
     expect(result.refusedAnAbsenceClaim).toBe(true);
+  });
+
+  // What the operator reads is not what the model reads. `verdict.refusal` is written in the second
+  // person and tells the model how to rewrite; returning it as the answer put the model's
+  // instructions on the screen built for the person handling the incident.
+  it('shows the operator an explanation, not the instructions written for the model', async () => {
+    const model = createScriptedChatModel([recallCall(), answer(ABSENCE), answer(ABSENCE)]);
+    const result = await run(model, repositoryReturning(recallResult({ coverage: 'UNKNOWN' })));
+
+    expect(result.text).not.toContain('Rewrite it');
+    expect(result.text).not.toContain('Do not restate the absence');
+    expect(result.text).toBe(refusalForTheUser('UNKNOWN'));
+    // The model-facing wording is still on the record, so the exchange stays auditable.
+    const refusal = result.transcript.find((turn) => turn.role === 'refusal');
+    expect(refusal?.role === 'refusal' && refusal.content).toContain('Rewrite it');
+  });
+
+  it('says which verdict withheld the answer, including when nothing was recalled', () => {
+    expect(refusalForTheUser(null)).toContain('no search of the incident memory ran');
+    expect(refusalForTheUser('PARTIAL')).toContain('came back PARTIAL');
+    // It must not trip the very check that produced it, or a later reader of the transcript that
+    // re-judges the text would refuse the explanation for the refusal.
+    expect(claimsAbsence(refusalForTheUser('UNKNOWN'))).toBe(false);
   });
 
   it('permits the same sentence when a COVERED recall actually established it', async () => {
@@ -270,6 +296,40 @@ describe('the tool budget and the round budget are different limits', () => {
     expect(result.toolCallCount).toBe(2);
     expect(result.text).toContain('ran out of room');
     expect(result.text).toContain('nothing here says that anything is absent from memory');
+  });
+
+  // The budget path used to push a `tool_result` and skip the `tool_call` push entirely, so it
+  // emitted results for ids nothing had announced: the same defect the `refusal` role was added to
+  // remove, left standing on the one path the invariant test above did not drive. Fixing the first
+  // instance and asserting the property from a test that could not see the second is exactly how a
+  // fix ends up worse than the bug.
+  it('announces every tool call it answers, including the ones it refuses for budget', async () => {
+    const threeAtOnce: ChatModel = {
+      id: 'greedy',
+      reply: () =>
+        Promise.resolve({
+          kind: 'tools',
+          calls: [
+            { id: 'a', name: 'recall', args: { query: 'one' } },
+            { id: 'b', name: 'recall', args: { query: 'two' } },
+            { id: 'c', name: 'recall', args: { query: 'three' } },
+          ],
+        }),
+    };
+    const result = await run(threeAtOnce, repositoryReturning(recallResult()), 2);
+
+    const announced = new Set(
+      result.transcript
+        .filter((turn): turn is Extract<Turn, { role: 'tool_call' }> => turn.role === 'tool_call')
+        .map((turn) => turn.id),
+    );
+    for (const turn of result.transcript) {
+      if (turn.role === 'tool_result') {
+        expect(announced.has(turn.id), `tool_result ${turn.id} was never announced`).toBe(true);
+      }
+    }
+    expect(announced.has('c')).toBe(true);
+    expect(result.toolCallCount).toBe(2);
   });
 
   it('tells the model its budget is spent rather than silently dropping the call', async () => {
@@ -467,6 +527,48 @@ describe('dispatch', () => {
     const outcome = result.transcript.find((turn) => turn.role === 'tool_result');
     expect(outcome?.role === 'tool_result' && outcome.content).toContain('forget is not wired up yet');
     expect(outcome?.role === 'tool_result' && outcome.content).toContain(MEMORY_ID_A);
+  });
+});
+
+// These two pin LIMITS, not protections. Both are cases where an absence claim is permitted that a
+// stricter reading would refuse, both are consequences of decisions taken deliberately, and both
+// are written down here so that the next person meets them as a documented boundary rather than as
+// a surprise in production. If either behaviour is ever tightened, these tests are where the change
+// announces itself.
+describe('what the controls deliberately do NOT bind', () => {
+  it('permits an absence claim about a subject the turn never searched for', async () => {
+    const model = createScriptedChatModel([
+      recallCall('checkout latency'),
+      answer('There are no prior incidents involving the payments database.'),
+    ]);
+    const result = await run(
+      model,
+      repositoryReturning(recallResult({ coverage: 'COVERED', memories: [] })),
+    );
+
+    // The guarantee is per TURN: some recall completed, so the claim stands. Binding it to the
+    // SUBJECT would need the sentence matched against the queries actually run, which is a
+    // semantic judgement this loop refuses to make.
+    expect(result.refusedAnAbsenceClaim).toBe(false);
+    expect(result.text).toContain('payments database');
+  });
+
+  it('leaves the verdict alone when a recall is refused by the schema rather than attempted', async () => {
+    const model = createScriptedChatModel([
+      recallCall('checkout latency', 'call-1'),
+      { kind: 'tools', calls: [{ id: 'call-2', name: 'recall', args: { query: '' } }] },
+      answer(ABSENCE),
+    ]);
+    const result = await run(
+      model,
+      repositoryReturning(recallResult({ coverage: 'COVERED', memories: [] })),
+    );
+
+    // A malformed argument list never reached the repository, so nothing about the store changed.
+    // Degrading here would be permanent, because `worseOf` only moves downwards: one bad argument
+    // would pin the turn at UNKNOWN even after a clean retry.
+    expect(result.coverage).toBe('COVERED');
+    expect(result.refusedAnAbsenceClaim).toBe(false);
   });
 });
 

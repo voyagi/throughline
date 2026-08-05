@@ -46,9 +46,13 @@ const assertedBy = z
 
 // `MEMORY_KINDS` is passed straight through with no cast. It is declared `readonly MemoryKind[]`,
 // which zod 4 accepts directly; the `as unknown as [MemoryKind, ...MemoryKind[]]` this file used to
-// carry was a zod 3 habit. That double cast is worth naming rather than quietly deleting: it would
-// have kept compiling if the kinds list were ever emptied, and an empty enum accepts nothing, so
-// every write would have been refused with a schema error nobody could explain.
+// carry was a zod 3 habit, so deleting it removed a lie about the type rather than a hazard.
+//
+// Be exact about what that did NOT buy, because the first version of this comment claimed more.
+// Removing the cast does not make an emptied `MEMORY_KINDS` a compile error: the constant is
+// annotated `readonly MemoryKind[]`, which widens the `as const` tuple, so `tsc --noEmit` still
+// exits 0 with the list emptied. That case is caught by the suite instead, through the
+// `KNOWN_KINDS` check in the memory package's `rows.ts`, and by nothing in this file.
 const kind = z.enum(MEMORY_KINDS);
 
 export const recallSchema = z.object({
@@ -230,7 +234,11 @@ export function renderRecall(result: RecallResult): string {
   const { receipt, memories } = result;
   const lines: string[] = [];
 
-  lines.push(`COVERAGE: ${receipt.coverage}. ${receipt.coverageReason}`);
+  // `coverageReason` is flattened for the same reason a memory's content is: on the UNKNOWN path it
+  // carries a provider error message straight through (`the embedding provider failed: ...`), and a
+  // multi-line error would put attacker-influenced or merely confusing lines directly under the one
+  // line every reader of this result is told to trust first.
+  lines.push(`COVERAGE: ${receipt.coverage}. ${oneLine(receipt.coverageReason)}`);
 
   // An ALLOWLIST, not a test for the literal 'UNKNOWN', for the reason `assertAnswerable` already
   // spells out in the memory package: the types say coverage is one of three strings, and the
@@ -256,7 +264,7 @@ export function renderRecall(result: RecallResult): string {
     );
   }
   if (receipt.degradations.length > 0) {
-    lines.push(`Degraded: ${receipt.degradations.join('; ')}.`);
+    lines.push(`Degraded: ${receipt.degradations.map(oneLine).join('; ')}.`);
   }
   if (receipt.coverage === 'PARTIAL') {
     lines.push(
@@ -266,7 +274,21 @@ export function renderRecall(result: RecallResult): string {
   }
 
   if (memories.length === 0) {
-    lines.push('\nNo memory matched. The search did run, so this is a real absence.');
+    // The verdict decides this sentence, and getting it wrong here was the sharpest defect in the
+    // first draft: an empty PARTIAL result was described as "a real absence", which is the one
+    // conclusion a cut-short search cannot support. Worse, it invited exactly the claim control 3
+    // then refuses, so the loop would have argued with a model it had just misled. It is reachable
+    // in production and not only in a fixture: `decideCoverage` returns PARTIAL once the candidate
+    // cap is hit, and a cap-full set of rows that all fall below the similarity floor is PARTIAL
+    // with nothing returned. `describeCoverage` in the memory package already draws the same
+    // distinction, so this had also drifted from the other implementation of the same decision.
+    lines.push(
+      receipt.coverage === 'COVERED'
+        ? '\nNo memory matched, and the search covered the whole workspace, so this is a real absence.'
+        : '\nNo memory matched, but the search was cut short before it examined everything, so this ' +
+            'is NOT an absence. Some of the workspace was never looked at, and what is in the part ' +
+            'that went unexamined is unknown.',
+    );
     return lines.join('\n');
   }
 
@@ -283,14 +305,31 @@ function describePath(path: RecallResult['receipt']['retrievalPath']): string {
   return 'no retrieval path at all';
 }
 
+/**
+ * Collapse stored free text onto one line before it goes into the record format below.
+ *
+ * This is a boundary, not tidying. Everything rendered here is a line-oriented record whose fields
+ * are recognised by a two space indent and a keyword, and the content of a memory is text some
+ * human or agent wrote. Without this, a memory whose content contains a newline followed by
+ * "  asserted by human:cto during INC-1" prints a provenance line that no database row supports,
+ * directly above the real one. Proven by execution during review: a memory actually asserted by
+ * `agent` rendered as asserted by `human:cto`, and the local model, which reads ids out of this
+ * same text, counted two memories where the recall returned one. The store is the thing being
+ * audited, so text out of it is untrusted input to any renderer, exactly like text off a network.
+ */
+function oneLine(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
 /** One memory, with the things that decide whether to trust it, not just its text. */
 export function renderMemory(memory: MemoryRecord, similarity?: number, stale?: boolean): string {
+  const provenance = memory.provenance;
   const parts: string[] = [
-    `[${memory.kind}] ${memory.content}`,
+    `[${memory.kind}] ${oneLine(memory.content)}`,
     `  id ${memory.id}`,
-    `  asserted by ${memory.provenance.assertedBy}` +
-      (memory.provenance.incidentId ? ` during ${memory.provenance.incidentId}` : '') +
-      (memory.provenance.sourceRef ? `, source ${memory.provenance.sourceRef}` : ''),
+    `  asserted by ${oneLine(provenance.assertedBy)}` +
+      (provenance.incidentId ? ` during ${oneLine(provenance.incidentId)}` : '') +
+      (provenance.sourceRef ? `, source ${oneLine(provenance.sourceRef)}` : ''),
     `  recorded ${memory.createdAt.toISOString()}, last confirmed ${memory.lastConfirmedAt.toISOString()}`,
   ];
   if (memory.confirmCount > 0 || memory.contradictCount > 0) {
@@ -304,7 +343,9 @@ export function renderMemory(memory: MemoryRecord, similarity?: number, stale?: 
     );
   }
   if (memory.supersededBy) parts.push(`  SUPERSEDED by ${memory.supersededBy}`);
-  if (memory.evictedAt) parts.push(`  TOMBSTONED: ${memory.evictionReason ?? 'no reason recorded'}`);
+  if (memory.evictedAt) {
+    parts.push(`  TOMBSTONED: ${oneLine(memory.evictionReason ?? 'no reason recorded')}`);
+  }
   return parts.join('\n');
 }
 
@@ -316,15 +357,22 @@ export function renderMemory(memory: MemoryRecord, similarity?: number, stale?: 
  * back anything other than COVERED. This is the last of three, and it exists because the first two
  * are about what the model was TOLD and this one is about what it actually SAID.
  *
- * It is deliberately incomplete, and the incompleteness is tested rather than implied away. Two
- * families are left out ON PURPOSE. "I could not find anything" is genuinely ambiguous: under a
- * failed search it is an accurate description of what happened, and refusing it would train the
- * next author to loosen the rule until it refuses nothing. Bare counts like "zero matches" are out
- * for the same reason. What this catches is the confident, unhedged absence, which is the sentence
- * this product exists to prevent.
+ * IT IS INCOMPLETE AND WILL STAY INCOMPLETE. An earlier version of this comment claimed it caught
+ * "the confident, unhedged absence", and a review disproved that by execution: 12 of 16 plausible
+ * unhedged phrasings walked straight through, including "There has never been an incident like
+ * this", "No matching memories exist", "We have no such incident on file", "None of the stored
+ * memories mention it" and "This is the first time". Those families are now covered and pinned by
+ * tests. The honest description of what this is: a BACKSTOP with known gaps, not a filter. It is
+ * the third of three controls precisely because a phrase list cannot be finished, and a reader who
+ * believes otherwise will one day put weight on it that it cannot carry.
+ *
+ * Two families are still left out ON PURPOSE, which is different from missed. "I could not find
+ * anything" is genuinely ambiguous: under a failed search it is an accurate description of what
+ * happened, and refusing it would train the next author to loosen the rule until it refuses
+ * nothing. Bare counts like "zero matches" are out for the same reason.
  */
 const ABSENCE_CLAIM =
-  /\b(?:no (?:prior|previous|earlier|similar|record|history|memor|incident)|nothing (?:\w+ ){0,2}(?:found|in memory|on record|similar|recorded)|never (?:been )?(?:happened|seen|occurred|recorded)|there (?:is|are|was|were) no)/i;
+  /\b(?:no (?:prior|previous|earlier|similar|matching|relevant|such|record|history|memor|incident|trace)|nothing (?:\w+ ){0,2}(?:found|in memory|on record|similar|recorded|matching)|never (?:\w+ ){0,2}(?:happened|seen|occurred|recorded|been|encountered)|there (?:is|are|was|were|has|have) (?:been )?no|none of the|(?:is|was) the first time)/i;
 
 export function claimsAbsence(text: string): boolean {
   return ABSENCE_CLAIM.test(text);
