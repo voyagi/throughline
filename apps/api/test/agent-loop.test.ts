@@ -156,6 +156,61 @@ describe('CONTROL 3: an absence claim is checked against what the recalls establ
     expect(refusal?.role === 'refusal' && refusal.content).toContain('Rewrite it');
   });
 
+  // EVERY exit from `runAgentTurn`, not one of them. Three separate rounds of review found this
+  // same defect on three different paths, and each time the test that asserted the property drove
+  // only the path that had just been fixed, so the next instance was invisible. A test claiming
+  // "on any path" has to enumerate the paths.
+  it('never puts its own words under the assistant role, on any exit', async () => {
+    const insatiable: ChatModel = {
+      id: 'insatiable',
+      reply: () =>
+        Promise.resolve({ kind: 'tools', calls: [{ id: 'c', name: 'recall', args: { query: 'x' } }] }),
+    };
+    const empty: ChatModel = {
+      id: 'empty',
+      reply: () => Promise.resolve({ kind: 'tools', calls: [] }),
+    };
+    const covered = recallResult({ coverage: 'COVERED', memories: [] });
+
+    const runs = await Promise.all([
+      // permitted answer
+      run(createScriptedChatModel([recallCall(), answer('All clear.')]), repositoryReturning(covered)),
+      // one refusal then a correction
+      run(
+        createScriptedChatModel([recallCall(), answer(ABSENCE), answer('I cannot say.')]),
+        repositoryReturning(recallResult({ coverage: 'UNKNOWN' })),
+      ),
+      // two refusals, turn ends on the refusal
+      run(
+        createScriptedChatModel([recallCall(), answer(ABSENCE), answer(ABSENCE)]),
+        repositoryReturning(recallResult({ coverage: 'UNKNOWN' })),
+      ),
+      // round cap reached while asking for tools
+      run(insatiable, repositoryReturning(covered), 2),
+      // round cap reached while asking for nothing
+      run(empty, repositoryReturning(covered), 2),
+    ]);
+
+    // Sentences only this file writes. If one turns up under `assistant`, the loop is speaking as
+    // the model.
+    const loopAuthored = [
+      'This answer was withheld',
+      'ran out of room before reaching an answer',
+      'That answer says something does not exist',
+      'has already used its',
+    ];
+    for (const result of runs) {
+      for (const turn of result.transcript) {
+        if (turn.role !== 'assistant') continue;
+        for (const phrase of loopAuthored) {
+          expect(turn.content, `assistant turn carried loop text: ${turn.content}`).not.toContain(
+            phrase,
+          );
+        }
+      }
+    }
+  });
+
   // The transcript must never put the loop's words under the model's role, on ANY path. The first
   // version of this fix got the single-refusal path right and left the double-refusal path pushing
   // `refusalForTheUser` as an `assistant` turn, which both misattributed the loop and DROPPED what

@@ -293,7 +293,6 @@ describe('claimsAbsence', () => {
     'There are no prior incidents like this.',
     'I found no similar incident in the archive.',
     'Nothing found in the incident memory.',
-    'Nothing was found matching that.',
     'Nothing has been found on record.',
     'This has never happened before.',
     'That failure was never seen on this cluster.',
@@ -313,7 +312,6 @@ describe('claimsAbsence', () => {
     'We have no such incident on file.',
     'None of the stored memories mention checkout latency.',
     'There have been no similar outages.',
-    'There has been no prior report of this.',
     'I found no relevant memories.',
     'That error has never been encountered here.',
     'Nothing matching that is recorded.',
@@ -343,11 +341,19 @@ describe('claimsAbsence', () => {
     expect(claimsAbsence(text)).toBe(false);
   });
 
-  // The gaps that remain, asserted rather than left to be discovered. The first two are the price
-  // of scoping the rule to the archive: the subject sits too far from the negation, or there is no
-  // archive noun at all. The last two are out for the older reason, that under a failed search they
-  // are accurate descriptions of what happened.
+  // THE GAPS, one sentence at a time rather than summarised, because a gap that is only described
+  // in prose is a gap nobody can check. Every line here is a real absence claim that this
+  // deliberately does not catch, and the list got LONGER when the rule was made precise. That is
+  // the trade being made on purpose: two structural controls stand behind a phrase this misses,
+  // and nothing stands behind an answer it wrongly withholds.
+  //
+  // The first group is the price of demanding a whole-word archive noun plus a qualifier. The
+  // second is out for the older reason, that under a failed search they are accurate descriptions
+  // of what happened.
   it.each([
+    'There has been no prior report of this.',
+    'Nothing was found matching that.',
+    'Nothing similar has come up before.',
     'There is no trace of that incident.',
     'This is the first time this has come up.',
     'I could not find anything relevant.',
@@ -355,6 +361,27 @@ describe('claimsAbsence', () => {
     'The archive is empty for that query.',
     'I am not able to say whether this happened before.',
   ])('deliberately does not catch %j', (text) => {
+    expect(claimsAbsence(text)).toBe(false);
+  });
+
+  // One negative control per RETAINED stem, which is the check the previous version was missing:
+  // its negative block only exercised alternatives that had been deleted, so it could not have
+  // caught `memor` eating memory-the-RAM or `report` eating "reported". Each line below contains a
+  // word this pattern still looks for, used in its ordinary on-call sense.
+  it.each([
+    ['memories/memory', 'The container has no memory limit set, so the OOM killer took it.'],
+    ['memories/memory', 'We saw no memory pressure on the node.'],
+    ['record', 'The session recording of the outage call is in the shared drive.'],
+    ['records', 'There is no recording of that deploy.'],
+    ['report', 'No customers reported errors during the window.'],
+    ['report', 'The service emitted no report for the nightly job.'],
+    ['outage', 'The dashboard shows no outage on the provider status page.'],
+    ['incident', 'There was no incident bridge open at the time.'],
+    ['entries', 'There is no entropy left in the pool.'],
+    ['history', 'The shell has no history file for that user.'],
+    ['seen/encountered', 'The TLS certificate had never been rotated.'],
+    ['seen/encountered', 'This job has never been run in staging.'],
+  ])('leaves the ordinary sense of %s alone: %j', (_stem, text) => {
     expect(claimsAbsence(text)).toBe(false);
   });
 

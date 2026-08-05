@@ -368,34 +368,48 @@ export function renderMemory(memory: MemoryRecord, similarity?: number, stale?: 
  * than letting an unhedged sentence through, because the other two controls still stand behind it
  * and there is nothing standing behind a refusal.
  *
- * So the rule is: a negation ONLY counts when its subject is the archive. Every alternative below
- * requires a memory-domain noun (incident, outage, memory, record, history, archive, report, entry)
- * within a couple of words of the negation, or a verb that can only be about the past record
- * (happened, occurred, seen, encountered). "no such file" has no such noun and is not matched;
- * "no such incident" has one and is.
+ * Round three then measured the SCOPED version and found it wrong in a third direction. Scoping it
+ * to a memory-domain noun was right; implementing that noun as an unanchored PREFIX was not.
+ * `memor` ate memory-the-RAM, `report` ate "reported", `entr` ate "entropy", and four sentences an
+ * on-call engineer writes were newly refused that the version before it had let through: "The
+ * container has no memory limit set", "No customers reported errors during the window", "There is
+ * no entropy left in the pool", "The dashboard shows no outage on the provider status page".
  *
- * What that leaves uncovered is real and is listed in the tests rather than implied away: an
- * absence claim whose subject sits more than two words from the negation ("no trace of that
- * incident"), "this is the first time", "I could not find anything", and bare counts like "zero
- * matches". The last two are out on purpose for the older reason: under a failed search they are
- * accurate descriptions of what happened. The honest description of this whole function is a
- * BACKSTOP with known gaps, never a filter. It is the third of three controls precisely because a
- * phrase list cannot be finished.
+ * Three versions, wrong three ways, in both directions. That is the finding, and the design below
+ * takes it seriously rather than trying a fourth tuning. THIS PREDICATE IS OPTIMISED FOR PRECISION
+ * AND ITS RECALL IS POOR ON PURPOSE. Every alternative is an explicit whole-word phrase; there are
+ * no prefix stems, so no word can be eaten by a longer one. "memories" appears and "memory" does
+ * not, because a memory is RAM at least as often as it is the archive, and the plural never is. A
+ * bare archive noun is not enough either: a negation needs a QUALIFIER as well ("no similar
+ * incident"), which is what leaves "no outage on the status page" alone.
+ *
+ * The gaps that buys are large, real, and listed in the tests one sentence at a time: "no prior
+ * report of this", "Nothing similar has come up before", "Nothing was found matching that", "no
+ * trace of that incident", "this is the first time", "I could not find anything", "zero matches".
+ * Every one of those is an absence claim this will not catch. That is the deliberate trade: two
+ * structural controls stand behind a phrase this misses, and NOTHING stands behind an answer it
+ * wrongly withholds. Read this as a BACKSTOP with known holes, never as a filter.
+ *
+ * Word separators are `\s+` rather than a literal space, because a model's answer is wrapped text
+ * and round three showed "no matching\nincidents in memory" walking through a single-space pattern.
  */
-const MEMORY_SUBJECT = String.raw`incident|outage|memor|record|history|archive|report|entr`;
+const ABSENCE_PHRASES = [
+  // A negation, a qualifier, and an archive noun, all three required. Dropping the qualifier is
+  // what made "no outage on the provider status page" a refusal.
+  String.raw`no\s+(?:prior|previous|earlier|similar|matching|relevant|such|other)\s+(?:incidents?|outages?|memories|records)`,
+  // "memories" is only ever the archive, so it needs no qualifier. "memory" is deliberately absent.
+  String.raw`no\s+memories`,
+  // `record\s+of` cannot match "recording of": there is no whitespace after "record" there.
+  String.raw`no\s+(?:record|history)\s+of`,
+  String.raw`none\s+of\s+the(?:\s+\w+){0,2}\s+memories`,
+  // Verbs that can only be about the past record. "never been rotated" and "never been run" are
+  // untouched because neither verb is in this list.
+  String.raw`never(?:\s+\w+){0,2}\s+(?:seen|encountered|happened|occurred)`,
+  String.raw`never\s+been\s+an?(?:\s+\w+)?\s+(?:incident|outage)`,
+  String.raw`nothing(?:\s+\w+){0,3}\s+(?:in\s+(?:the\s+)?(?:incident\s+)?memory|on\s+record|recorded)`,
+];
 
-const ABSENCE_CLAIM = new RegExp(
-  String.raw`\b(?:` +
-    String.raw`no (?:\w+ ){0,2}(?:${MEMORY_SUBJECT})` +
-    String.raw`|none of the (?:\w+ ){0,2}(?:${MEMORY_SUBJECT})` +
-    String.raw`|never (?:\w+ ){0,2}(?:${MEMORY_SUBJECT})` +
-    String.raw`|never (?:\w+ ){0,2}(?:happened|occurred)` +
-    String.raw`|never (?:been )?(?:seen|encountered)` +
-    String.raw`|nothing (?:\w+ ){0,2}(?:found|matching|recorded)` +
-    String.raw`|nothing (?:\w+ ){0,2}(?:in memory|on record)` +
-    String.raw`)`,
-  'i',
-);
+const ABSENCE_CLAIM = new RegExp(String.raw`\b(?:${ABSENCE_PHRASES.join('|')})`, 'i');
 
 export function claimsAbsence(text: string): boolean {
   return ABSENCE_CLAIM.test(text);

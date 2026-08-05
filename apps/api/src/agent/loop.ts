@@ -62,7 +62,14 @@ export type Turn =
   | { readonly role: 'tool_call'; readonly id: string; readonly name: string; readonly args: unknown }
   | { readonly role: 'tool_result'; readonly id: string; readonly name: string; readonly content: string }
   /**
-   * The loop's own words: what it told the model when it refused an answer.
+   * The loop's own words. Any sentence this file authored rather than the model: a refusal, and
+   * also the notice that a turn ran out of rounds.
+   *
+   * The wider definition is the third fix of one defect. Twice the loop put its own text under the
+   * `assistant` role, and both times the test asserting otherwise drove only the path that had just
+   * been fixed. The round cap was the last one standing, and it was never a refusal, which is
+   * exactly how it kept slipping past a role named for refusals. What matters is not what the
+   * sentence is FOR, it is who WROTE it, so that is what this role means now.
    *
    * Its own role rather than a `tool_result`, and that distinction is load bearing in two places.
    * A provider adapter has to render it as model input, and a `tool_result` carrying an id that no
@@ -184,7 +191,9 @@ export async function runAgentTurn(options: AgentOptions, message: string): Prom
       const text =
         'This turn ran out of room before reaching an answer. Nothing here is a finding, and in ' +
         'particular nothing here says that anything is absent from memory.';
-      transcript.push({ role: 'assistant', content: text });
+      // The loop wrote this sentence, so it goes in the loop's role. It used to be pushed as an
+      // `assistant` turn, which is the same misattribution fixed twice already on other paths.
+      transcript.push({ role: 'refusal', content: text });
       return {
         text,
         transcript,
