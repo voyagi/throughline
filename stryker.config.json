@@ -8,7 +8,9 @@
     "packages/memory/src/scoring.ts",
     "packages/memory/src/coverage.ts",
     "packages/memory/src/eviction.ts",
-    "packages/memory/src/policy.ts"
+    "packages/memory/src/policy.ts",
+    "apps/api/src/mcp-client.ts",
+    "apps/api/src/mcp-verifier.ts"
   ],
   "incremental": true,
   "concurrency": 4,
