@@ -73,10 +73,10 @@ radius than the finding it stands for is a weaker proof of that finding, not a s
 - The non-object guard in `answersRequest`.
 - The SSE boundary staying one character wider than the specification.
 
-A fifteenth is structural rather than tested: `exchange` derives "expects an answer" from whether
-the body carries an id, so a request that waits for an answer with no id to recognise it by cannot
-be constructed. Breaking the derivation turns 17 tests red, which shows it is load bearing; no test
-can show the unrepresentable state, because it is unrepresentable.
+A sixteenth protection is structural rather than tested: `exchange` derives "expects an answer"
+from whether the body carries an id, so a request that waits for an answer with no id to recognise
+it by cannot be constructed. Breaking the derivation turns 17 tests red, which shows it is load
+bearing; no test can show the unrepresentable state, because it is unrepresentable.
 
 ### And five more, from the review of that sweep
 

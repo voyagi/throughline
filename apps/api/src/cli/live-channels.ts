@@ -15,8 +15,8 @@ import { createMcpClient, loadMcpConfig, type McpClient, type McpConfig } from '
  *
  * The point of these scripts is that two independent paths to the same rows agree. That argument
  * is worth exactly as much as the claim that the two scripts are talking to the same place, and
- * the wiring that establishes it was copied between them: the same seven statements over the nine
- * lines the duplication gate measured, no shared definition,
+ * the wiring that establishes it was copied between them: the same seven statements, which the
+ * duplication gate reported as a nine line clone, no shared definition,
  * free to drift into two scripts reading two different databases and still printing agreement.
  *
  * The duplication gate is what noticed. It was right to.

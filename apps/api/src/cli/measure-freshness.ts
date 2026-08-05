@@ -116,9 +116,14 @@ async function main(): Promise<void> {
 
     if (missedOnFirstRead.length === 0 && neverVisible === 0) {
       console.log(
-        '\n  Every trial found the row on the FIRST read attempted after the write. That bounds the\n' +
-          '  invisible window BELOW the fastest read this channel can perform; it does not measure the\n' +
-          '  window, and no run of this instrument can. Word the claim accordingly.\n',
+        '\n  Every trial found the row on the FIRST read attempted after the write, and THAT is the\n' +
+          '  result to quote: no read arriving after a completed write failed to find the row.\n' +
+          '\n' +
+          '  Do not turn it into "the invisible window is under X ms". Each trial bounds the window\n' +
+          '  by its own read time, so the fastest read is a bound resting on ONE observation rather\n' +
+          '  than on all of them, and reading it as a bound on the NEXT write assumes the window\n' +
+          '  does not vary. An instrument that looks through this channel cannot observe faster than\n' +
+          '  the channel either, so no run of this can measure the window at all.\n',
       );
     } else {
       console.log(
