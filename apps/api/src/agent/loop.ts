@@ -199,18 +199,18 @@ export async function runAgentTurn(options: AgentOptions, message: string): Prom
 
     if (reply.kind === 'answer') {
       const verdict = judgeAnswer(reply.text, worstCoverage);
-      if (verdict.permitted || refusedAnAbsenceClaim) {
-        // Already refused once. Ending the turn with the refusal rather than with the answer is the
-        // safe direction: a second attempt at the same claim is not a misunderstanding.
-        //
-        // What the USER is shown is not `verdict.refusal`. That sentence is written in the second
-        // person to the model ("Rewrite it to say what you actually know"), and returning it as the
-        // answer put instructions for the model on the screen meant for the operator. The model
-        // keeps its version in the transcript; the person reading gets told what happened.
-        const text = verdict.permitted ? reply.text : refusalForTheUser(worstCoverage);
-        transcript.push({ role: 'assistant', content: text });
+
+      // The model's words go in the transcript FIRST, always, whether they are permitted or not.
+      // The refused branch used to skip this and push the loop's own sentence under the assistant
+      // role instead, which both attributed the loop's words to the model and dropped what the
+      // model actually said. That is the same defect the `refusal` role exists to prevent, on the
+      // sibling of the path where it was first fixed, and no test could see it because every one
+      // of them looked at the FIRST refusal turn. Two rounds, two instances, one shape.
+      transcript.push({ role: 'assistant', content: reply.text });
+
+      if (verdict.permitted) {
         return {
-          text,
+          text: reply.text,
           transcript,
           coverage: worstCoverage,
           refusedAnAbsenceClaim,
@@ -218,9 +218,29 @@ export async function runAgentTurn(options: AgentOptions, message: string): Prom
           modelId: model.id,
         };
       }
-      refusedAnAbsenceClaim = true;
-      transcript.push({ role: 'assistant', content: reply.text });
+
       transcript.push({ role: 'refusal', content: verdict.refusal });
+
+      if (refusedAnAbsenceClaim) {
+        // Already refused once. Ending the turn on the refusal rather than on the answer is the
+        // safe direction: a second attempt at the same claim is not a misunderstanding.
+        //
+        // What the OPERATOR is shown is not `verdict.refusal`. That sentence is written in the
+        // second person to the model ("Rewrite it to say what you actually know"), and returning it
+        // as the answer put instructions for the model on the screen meant for the person handling
+        // the incident. So the returned text is deliberately NOT the last transcript turn here:
+        // the transcript records the exchange, and `text` is what the operator reads.
+        return {
+          text: refusalForTheUser(worstCoverage),
+          transcript,
+          coverage: worstCoverage,
+          refusedAnAbsenceClaim,
+          toolCallCount,
+          modelId: model.id,
+        };
+      }
+
+      refusedAnAbsenceClaim = true;
       continue;
     }
 

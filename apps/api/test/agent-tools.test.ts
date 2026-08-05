@@ -304,38 +304,80 @@ describe('claimsAbsence', () => {
     expect(claimsAbsence(text)).toBe(true);
   });
 
-  // Every one of these walked straight through the first version of this regex while its docblock
-  // claimed to catch "the confident, unhedged absence". A review found 12 of 16 such phrasings
-  // missed. They are listed individually rather than summarised so that a future narrowing has to
-  // delete a named sentence rather than quietly shrink a set.
+  // Unhedged absence claims whose subject IS the archive. Listed individually rather than
+  // summarised so that a future narrowing has to delete a named sentence rather than quietly
+  // shrink a set.
   it.each([
     'There has never been an incident like this.',
     'No matching memories exist.',
     'We have no such incident on file.',
     'None of the stored memories mention checkout latency.',
-    'This is the first time this has come up.',
-    'It was the first time anyone saw that error.',
     'There have been no similar outages.',
     'There has been no prior report of this.',
     'I found no relevant memories.',
-    'There is no trace of that incident.',
     'That error has never been encountered here.',
     'Nothing matching that is recorded.',
   ])('catches the unhedged phrasing %j', (text) => {
     expect(claimsAbsence(text)).toBe(true);
   });
 
-  // The deliberate gaps, asserted rather than left to be discovered. Two families are out ON
-  // PURPOSE: "I could not find anything" is an accurate description of a failed search, and
-  // refusing it would train the next author to loosen the rule until it refuses nothing. Recording
-  // them here means a future widening is a decision someone makes, not a surprise.
+  // THE NEGATIVE CONTROL, and it is the more important of the two lists.
+  //
+  // A widened version of this rule refused every one of these, which are ordinary things an on-call
+  // engineer writes. Withholding a true answer during an incident is a worse failure than letting
+  // an unhedged sentence through: two other controls stand behind a missed phrase, and nothing at
+  // all stands behind a wrongly withheld answer. If a future widening breaks this block, that is
+  // the widening being wrong, not the test.
   it.each([
+    'The container exited with "no such file or directory".',
+    'The resolver returned no such host for the internal endpoint.',
+    'The migration failed with no such table: checkout_sessions.',
+    'None of the three replicas recovered after the restart.',
+    'There has been no change in error rate since the deploy.',
+    'The TLS certificate had never been rotated.',
+    'This job has never been run in staging.',
+    'There was no impact on the checkout path.',
+    'We saw no errors in the last hour.',
+    'The queue had no consumers attached.',
+  ])('does not refuse ordinary incident English: %j', (text) => {
+    expect(claimsAbsence(text)).toBe(false);
+  });
+
+  // The gaps that remain, asserted rather than left to be discovered. The first two are the price
+  // of scoping the rule to the archive: the subject sits too far from the negation, or there is no
+  // archive noun at all. The last two are out for the older reason, that under a failed search they
+  // are accurate descriptions of what happened.
+  it.each([
+    'There is no trace of that incident.',
+    'This is the first time this has come up.',
     'I could not find anything relevant.',
     'Zero matches came back.',
     'The archive is empty for that query.',
     'I am not able to say whether this happened before.',
   ])('deliberately does not catch %j', (text) => {
     expect(claimsAbsence(text)).toBe(false);
+  });
+
+  // A measurement of the PREVIOUS pattern says nothing about this one. This pattern is reachable
+  // from model-authored text of up to a provider's whole output, and every alternative in it
+  // contains a bounded `\w+` repetition, which is the shape that goes exponential when it is not
+  // bounded. The margin is enormous on purpose: the safe case is around a millisecond, so a second
+  // is a thousandfold headroom and cannot flake on a loaded machine, while a catastrophic pattern
+  // would take minutes.
+  it('stays linear on adversarial input, so a widening cannot smuggle in a ReDoS', () => {
+    const shapes = [
+      `no ${'a '.repeat(100_000)}`,
+      `never ${'been '.repeat(50_000)}`,
+      `nothing ${'x '.repeat(100_000)}`,
+      `none of the ${'word '.repeat(50_000)}`,
+      'no '.repeat(100_000),
+    ];
+
+    for (const input of shapes) {
+      const startedAt = performance.now();
+      claimsAbsence(input);
+      expect(performance.now() - startedAt).toBeLessThan(1_000);
+    }
   });
 
   it('does not fire on an ordinary answer that merely mentions memory', () => {

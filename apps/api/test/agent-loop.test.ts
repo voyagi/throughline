@@ -156,6 +156,30 @@ describe('CONTROL 3: an absence claim is checked against what the recalls establ
     expect(refusal?.role === 'refusal' && refusal.content).toContain('Rewrite it');
   });
 
+  // The transcript must never put the loop's words under the model's role, on ANY path. The first
+  // version of this fix got the single-refusal path right and left the double-refusal path pushing
+  // `refusalForTheUser` as an `assistant` turn, which both misattributed the loop and DROPPED what
+  // the model actually said. Every existing test looked at the first refusal turn, so none could
+  // see it.
+  it('records what the model really said on the second refusal, and claims none of it', async () => {
+    const secondAnswer = 'Still: there are no prior incidents like this. MARKER-42';
+    const model = createScriptedChatModel([recallCall(), answer(ABSENCE), answer(secondAnswer)]);
+    const result = await run(model, repositoryReturning(recallResult({ coverage: 'UNKNOWN' })));
+
+    const assistantTurns = result.transcript
+      .filter((turn) => turn.role === 'assistant')
+      .map((turn) => (turn.role === 'assistant' ? turn.content : ''));
+
+    expect(assistantTurns).toStrictEqual([ABSENCE, secondAnswer]);
+    for (const said of assistantTurns) {
+      expect(said).not.toContain('This answer was withheld');
+    }
+    // Both refusals are on the record, each in the loop's own role.
+    expect(result.transcript.filter((turn) => turn.role === 'refusal')).toHaveLength(2);
+    // And the operator still gets the explanation rather than either model answer.
+    expect(result.text).toBe(refusalForTheUser('UNKNOWN'));
+  });
+
   it('says which verdict withheld the answer, including when nothing was recalled', () => {
     expect(refusalForTheUser(null)).toContain('no search of the incident memory ran');
     expect(refusalForTheUser('PARTIAL')).toContain('came back PARTIAL');

@@ -357,22 +357,45 @@ export function renderMemory(memory: MemoryRecord, similarity?: number, stale?: 
  * back anything other than COVERED. This is the last of three, and it exists because the first two
  * are about what the model was TOLD and this one is about what it actually SAID.
  *
- * IT IS INCOMPLETE AND WILL STAY INCOMPLETE. An earlier version of this comment claimed it caught
- * "the confident, unhedged absence", and a review disproved that by execution: 12 of 16 plausible
- * unhedged phrasings walked straight through, including "There has never been an incident like
- * this", "No matching memories exist", "We have no such incident on file", "None of the stored
- * memories mention it" and "This is the first time". Those families are now covered and pinned by
- * tests. The honest description of what this is: a BACKSTOP with known gaps, not a filter. It is
- * the third of three controls precisely because a phrase list cannot be finished, and a reader who
- * believes otherwise will one day put weight on it that it cannot carry.
+ * IT IS INCOMPLETE AND WILL STAY INCOMPLETE, and the incompleteness is the safer error. Two review
+ * rounds pushed this in opposite directions and the second one is why the rule below is SCOPED
+ * rather than broad. Round one found the pattern too narrow and it was widened. Round two then
+ * measured the widened version against ordinary incident-response English and found it refusing
+ * sentences an on-call engineer writes constantly: "no such file or directory", "no such host",
+ * "There has been no change in error rate since the deploy", "None of the three replicas
+ * recovered", "The TLS certificate had never been rotated". Those are not absence claims about the
+ * memory. They are the answer, and withholding a true answer during an incident is a worse failure
+ * than letting an unhedged sentence through, because the other two controls still stand behind it
+ * and there is nothing standing behind a refusal.
  *
- * Two families are still left out ON PURPOSE, which is different from missed. "I could not find
- * anything" is genuinely ambiguous: under a failed search it is an accurate description of what
- * happened, and refusing it would train the next author to loosen the rule until it refuses
- * nothing. Bare counts like "zero matches" are out for the same reason.
+ * So the rule is: a negation ONLY counts when its subject is the archive. Every alternative below
+ * requires a memory-domain noun (incident, outage, memory, record, history, archive, report, entry)
+ * within a couple of words of the negation, or a verb that can only be about the past record
+ * (happened, occurred, seen, encountered). "no such file" has no such noun and is not matched;
+ * "no such incident" has one and is.
+ *
+ * What that leaves uncovered is real and is listed in the tests rather than implied away: an
+ * absence claim whose subject sits more than two words from the negation ("no trace of that
+ * incident"), "this is the first time", "I could not find anything", and bare counts like "zero
+ * matches". The last two are out on purpose for the older reason: under a failed search they are
+ * accurate descriptions of what happened. The honest description of this whole function is a
+ * BACKSTOP with known gaps, never a filter. It is the third of three controls precisely because a
+ * phrase list cannot be finished.
  */
-const ABSENCE_CLAIM =
-  /\b(?:no (?:prior|previous|earlier|similar|matching|relevant|such|record|history|memor|incident|trace)|nothing (?:\w+ ){0,2}(?:found|in memory|on record|similar|recorded|matching)|never (?:\w+ ){0,2}(?:happened|seen|occurred|recorded|been|encountered)|there (?:is|are|was|were|has|have) (?:been )?no|none of the|(?:is|was) the first time)/i;
+const MEMORY_SUBJECT = String.raw`incident|outage|memor|record|history|archive|report|entr`;
+
+const ABSENCE_CLAIM = new RegExp(
+  String.raw`\b(?:` +
+    String.raw`no (?:\w+ ){0,2}(?:${MEMORY_SUBJECT})` +
+    String.raw`|none of the (?:\w+ ){0,2}(?:${MEMORY_SUBJECT})` +
+    String.raw`|never (?:\w+ ){0,2}(?:${MEMORY_SUBJECT})` +
+    String.raw`|never (?:\w+ ){0,2}(?:happened|occurred)` +
+    String.raw`|never (?:been )?(?:seen|encountered)` +
+    String.raw`|nothing (?:\w+ ){0,2}(?:found|matching|recorded)` +
+    String.raw`|nothing (?:\w+ ){0,2}(?:in memory|on record)` +
+    String.raw`)`,
+  'i',
+);
 
 export function claimsAbsence(text: string): boolean {
   return ABSENCE_CLAIM.test(text);
