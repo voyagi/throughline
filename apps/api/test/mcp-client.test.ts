@@ -52,7 +52,25 @@ const CONFIG: McpConfig = {
 
 interface Recorded {
   readonly headers: Record<string, string>;
-  readonly body: { method?: string; params?: { name?: string; arguments?: Record<string, unknown> } };
+  readonly body: {
+    id?: number;
+    method?: string;
+    params?: { name?: string; arguments?: Record<string, unknown> };
+  };
+}
+
+/**
+ * Echo the request's id onto a canned answer, the way a JSON-RPC server does.
+ *
+ * These doubles used to answer every request with a hardcoded `id: 1` while the client numbers its
+ * requests from one upward, so every answer to a `tools/call` carried the id of the handshake. The
+ * client accepted them because it never checked, and a stream carrying a response to somebody
+ * else's request was therefore indistinguishable from an answer to ours. Same rule as the 202
+ * notification above, which is the second time this file has earned it: a double that is kinder
+ * than the server hides exactly the defect it is standing in for.
+ */
+function echoId(payload: unknown, id: number | undefined): unknown {
+  return payload && typeof payload === 'object' ? { ...(payload as object), id } : payload;
 }
 
 /** A response that looks like the live one: SSE framed, HTTP 200, one `message` event. */
@@ -117,7 +135,7 @@ function fakeFetch(
     recorded.push({ headers: init.headers, body });
     if (body.method === 'initialize') {
       return Promise.resolve(
-        sse({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2025-06-18', serverInfo: {} } }),
+        sse(echoId({ jsonrpc: '2.0', result: { protocolVersion: '2025-06-18', serverInfo: {} } }, body.id)),
       );
     }
     if (body.method === 'notifications/initialized') {
@@ -126,7 +144,7 @@ function fakeFetch(
     options.onCall?.();
     const answer = answers[Math.min(callIndex, answers.length - 1)];
     callIndex += 1;
-    return Promise.resolve(sse(answer));
+    return Promise.resolve(sse(echoId(answer, body.id)));
   };
 }
 
@@ -382,10 +400,66 @@ describe('extractRpcPayload', () => {
 
   it('refuses a stream that carried messages but no answer', () => {
     const raw = 'event: message\ndata: {"jsonrpc":"2.0","method":"notifications/progress"}\n\n';
-    expect(() => extractRpcPayload(raw, 'text/event-stream')).toThrow(
-      /none of them was a result or an error/,
-    );
+    expect(() => extractRpcPayload(raw, 'text/event-stream')).toThrow(/without finding an answer/);
     expect(() => extractRpcPayload(raw, 'text/event-stream')).toThrow(McpError);
+  });
+
+  it('names an unparseable SSE payload rather than letting a SyntaxError escape', () => {
+    // The per-event rewrite gave the SSE path its own try/catch, and nothing reached it: the old
+    // shared one was covered only by the `text/html` case, so both `parseFailure = cause` and a
+    // `throw cause` that leaks a raw SyntaxError survived as mutants. A raw SyntaxError out of here
+    // is classified `transport_unreachable`, which blames the network for a malformed body.
+    const raw = 'event: message\ndata: {"jsonrpc":"2.0", this is not json\n\n';
+    expect(() => extractRpcPayload(raw, 'text/event-stream')).toThrow(/no knowledge at all/);
+    expect(() => extractRpcPayload(raw, 'text/event-stream')).toThrow(McpError);
+  });
+
+  it('refuses a response that answers a DIFFERENT request', () => {
+    // Splitting the stream per event bought the ability to skip a notification, and paid for it by
+    // returning the FIRST message shaped like a response, whoever it belonged to. That is worse
+    // than the bug it replaced: the old whole-body join spliced two documents and failed CLOSED,
+    // while this hands another query's rows to the verifier, which compares them against this
+    // memory and reports DIVERGES with failure null. Shape is not identity.
+    const foreign =
+      'event: message\ndata: {"jsonrpc":"2.0","id":999,"result":{"content":[]}}\n\n';
+    expect(() => extractRpcPayload(foreign, 'text/event-stream', 2)).toThrow(/without finding an answer/);
+    expect(() => extractRpcPayload(foreign, 'text/event-stream', 2)).toThrow(McpError);
+    // Ours is still found when it is on the stream, whatever else is sharing it.
+    const mixed =
+      'event: message\ndata: {"jsonrpc":"2.0","method":"notifications/progress"}\n\n' +
+      'event: message\ndata: {"jsonrpc":"2.0","id":999,"result":{"content":[]}}\n\n' +
+      'event: message\ndata: {"jsonrpc":"2.0","id":2,"result":{"ok":true}}\n\n';
+    expect(extractRpcPayload(mixed, 'text/event-stream', 2)).toEqual({
+      jsonrpc: '2.0',
+      id: 2,
+      result: { ok: true },
+    });
+    // A plain JSON body is held to the same rule.
+    expect(() => extractRpcPayload('{"jsonrpc":"2.0","id":999,"result":{}}', 'application/json', 2)).toThrow(
+      /without finding an answer/,
+    );
+  });
+
+  it('carries the id check all the way through the client, not just the parser', async () => {
+    // The wiring, not the function. `extractRpcPayload` gaining an `expectedId` parameter proves
+    // nothing if `exchange` never passes one, and that call site is exactly the kind of gap this
+    // repository has shipped before.
+    const client = createMcpClient({
+      config: CONFIG,
+      fetchImpl: (_url, init) => {
+        const body = JSON.parse(init.body) as Recorded['body'];
+        if (body.method === 'initialize') {
+          return Promise.resolve(sse(echoId({ jsonrpc: '2.0', result: { protocolVersion: '2025-06-18' } }, body.id)));
+        }
+        if (body.method === 'notifications/initialized') return Promise.resolve(accepted());
+        // Answers a request nobody made.
+        return Promise.resolve(sse({ ...(rowsPayload([{ id: 'SOMEONE-ELSES-ROW' }]) as object), id: 999 }));
+      },
+    });
+
+    await expect(client.select({ database: 'defaultdb', sql: 'SELECT 1', limit: 2 })).rejects.toThrow(
+      /without finding an answer/,
+    );
   });
 });
 
@@ -774,12 +848,12 @@ describe('createMcpClient, on the wire', () => {
               },
               text: () =>
                 Promise.resolve(
-                  `event: message\ndata: ${JSON.stringify({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2025-06-18' } })}\n\n`,
+                  `event: message\ndata: ${JSON.stringify(echoId({ jsonrpc: '2.0', result: { protocolVersion: '2025-06-18' } }, body.id))}\n\n`,
                 ),
             },
           );
         }
-        return Promise.resolve(sse(rowsPayload([{ one: 1 }]), 'unused'));
+        return Promise.resolve(sse(echoId(rowsPayload([{ one: 1 }]), body.id), 'unused'));
       },
     });
     await client.select({ database: 'defaultdb', sql: 'SELECT 1', limit: 2 });
@@ -810,7 +884,7 @@ describe('createMcpClient, on the wire', () => {
       fetchImpl: (_url, init) => {
         const body = JSON.parse(init.body) as Recorded['body'];
         if (body.method === 'initialize') {
-          return Promise.resolve(sse({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2025-06-18' } }));
+          return Promise.resolve(sse(echoId({ jsonrpc: '2.0', result: { protocolVersion: '2025-06-18' } }, body.id)));
         }
         if (body.method === 'notifications/initialized') return Promise.resolve(accepted());
         return Promise.resolve({
@@ -906,7 +980,7 @@ describe('createMcpClient, on the wire', () => {
         const body = JSON.parse(init.body) as Recorded['body'];
         recorded.push({ headers: init.headers, body });
         if (body.method === 'initialize') {
-          return Promise.resolve(sse({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2025-06-18' } }));
+          return Promise.resolve(sse(echoId({ jsonrpc: '2.0', result: { protocolVersion: '2025-06-18' } }, body.id)));
         }
         if (body.method === 'notifications/initialized') return Promise.resolve(accepted());
         toolCallCount += 1;
@@ -948,7 +1022,7 @@ describe('createMcpClient, on the wire', () => {
         const body = JSON.parse(init.body) as Recorded['body'];
         recorded.push({ headers: init.headers, body });
         if (body.method === 'initialize') {
-          return Promise.resolve(sse({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2025-06-18' } }));
+          return Promise.resolve(sse(echoId({ jsonrpc: '2.0', result: { protocolVersion: '2025-06-18' } }, body.id)));
         }
         if (body.method === 'notifications/initialized') return Promise.resolve(accepted());
         toolCallCount += 1;
@@ -959,7 +1033,7 @@ describe('createMcpClient, on the wire', () => {
             text: (): Promise<string> => Promise.resolve(''),
           });
         }
-        return Promise.resolve(sse(rowsPayload([{ one: 1 }])));
+        return Promise.resolve(sse(echoId(rowsPayload([{ one: 1 }]), body.id)));
       },
     });
 
@@ -980,7 +1054,7 @@ describe('createMcpClient, on the wire', () => {
       fetchImpl: (_url, init) => {
         const body = JSON.parse(init.body) as Recorded['body'];
         if (body.method === 'initialize') {
-          return Promise.resolve(sse({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2025-06-18' } }));
+          return Promise.resolve(sse(echoId({ jsonrpc: '2.0', result: { protocolVersion: '2025-06-18' } }, body.id)));
         }
         if (body.method === 'notifications/initialized') return Promise.resolve(accepted());
         toolCallCount += 1;
@@ -991,7 +1065,7 @@ describe('createMcpClient, on the wire', () => {
             text: (): Promise<string> => Promise.resolve(''),
           });
         }
-        return Promise.resolve(sse(errorPayload(LIVE_MESSAGES.tooLarge)));
+        return Promise.resolve(sse(echoId(errorPayload(LIVE_MESSAGES.tooLarge), body.id)));
       },
     });
 

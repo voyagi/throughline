@@ -65,8 +65,13 @@ import { z } from 'zod';
  * MEASURED 2026-08-05 against the live endpoint: the server inspects the CTE and refuses INSERT,
  * UPDATE and DELETE inside one, with "CTE contains a non-SELECT statement". So the read-only claim
  * rests on two independent controls, one of them the vendor's, and the vendor's is the one that
- * would have to fail silently for this channel to write. The wording is a test fixture, so a
- * vendor change is a red test rather than a discovery.
+ * would have to fail silently for this channel to write.
+ *
+ * What would actually notice a vendor change, stated precisely because the tempting sentence here
+ * is false: `npm run verify:mcp` sends a real CTE write and asserts the refusal. Nothing in the
+ * offline suite can notice, because it feeds our own recorded string to our own classifier. And
+ * `verify:mcp` is deliberately outside `npm run gate`, so this is caught when someone runs the
+ * live proof, not on every build.
  */
 export const READ_TOOLS = [
   'list_clusters',
@@ -331,7 +336,11 @@ function classifiedError(message: string, apiKey?: string, cause?: unknown): Mcp
  * not the same as taking the last line: a payload split across lines parses under one reading and
  * fails under the other.
  */
-export function extractRpcPayload(rawBody: string, contentType: string | null): unknown {
+export function extractRpcPayload(
+  rawBody: string,
+  contentType: string | null,
+  expectedId?: number | string,
+): unknown {
   const emptyBody = (): McpError =>
     new McpError(
       'unrecognised_envelope',
@@ -345,14 +354,40 @@ export function extractRpcPayload(rawBody: string, contentType: string | null): 
         'knowledge at all rather than an empty result.',
       cause === undefined ? undefined : { cause },
     );
+  const foreignAnswer = (): McpError =>
+    new McpError(
+      'unrecognised_envelope',
+      'The verification channel read the response stream to the end without finding an answer to ' +
+        'the request it sent. Nothing was read, so nothing is known. Answering with a message ' +
+        'that belongs to a different request would put another query\'s rows in front of this ' +
+        'memory and report the mismatch as a divergence.',
+    );
+
+  /**
+   * Does this message answer the request we sent, as opposed to merely being an answer?
+   *
+   * Shape alone is not enough and the difference is not academic. Returning the first response on
+   * the stream regardless of which request it answers hands the caller ANOTHER request's rows, and
+   * those rows are then compared against this memory and reported as a divergence: a claim about
+   * the database assembled from someone else's answer, with `failure: null` on it. When no id is
+   * stated the shape check stands alone, which is the protocol's own position for a plain body.
+   */
+  const answersUs = (parsed: unknown): boolean => {
+    if (!parsed || typeof parsed !== 'object') return false;
+    if (!('result' in parsed) && !('error' in parsed)) return false;
+    return expectedId === undefined || (parsed as { id?: unknown }).id === expectedId;
+  };
 
   if (!(contentType ?? '').includes('text/event-stream')) {
     if (!rawBody.trim()) throw emptyBody();
+    let parsed: unknown;
     try {
-      return JSON.parse(rawBody) as unknown;
+      parsed = JSON.parse(rawBody) as unknown;
     } catch (cause) {
       throw unparseable(cause);
     }
+    if (expectedId !== undefined && !answersUs(parsed)) throw foreignAnswer();
+    return parsed;
   }
 
   // Per EVENT, not per body. This transport is explicitly allowed to deliver other messages before
@@ -381,21 +416,12 @@ export function extractRpcPayload(rawBody: string, contentType: string | null): 
       parseFailure = cause;
       continue;
     }
-    // A JSON-RPC response carries exactly one of `result` or `error`, so this is what distinguishes
-    // the answer to our request from a notification that happened to arrive on the same stream.
-    if (parsed && typeof parsed === 'object' && ('result' in parsed || 'error' in parsed)) {
-      return parsed;
-    }
+    if (answersUs(parsed)) return parsed;
   }
 
   if (!sawData) throw emptyBody();
   if (parseFailure !== undefined) throw unparseable(parseFailure);
-  throw new McpError(
-    'unrecognised_envelope',
-    'The verification channel read the response stream to the end without finding an answer to ' +
-      'its request. Messages arrived, but none of them was a result or an error, so nothing was ' +
-      'read and nothing is known.',
-  );
+  throw foreignAnswer();
 }
 
 /**
@@ -722,10 +748,18 @@ export function createMcpClient(options: McpClientOptions): McpClient {
       if (!expect.expectPayload) {
         return { status: response.status, sessionHeader, payload: null };
       }
+      // The id we sent, so the parser can tell an answer to THIS request from any other message
+      // sharing the stream. A notification has no id and never reaches here, because it is sent
+      // with `expectPayload: false`.
+      const sentId = (body as { id?: unknown }).id;
       return {
         status: response.status,
         sessionHeader,
-        payload: extractRpcPayload(raw, response.headers.get('content-type')),
+        payload: extractRpcPayload(
+          raw,
+          response.headers.get('content-type'),
+          typeof sentId === 'number' || typeof sentId === 'string' ? sentId : undefined,
+        ),
       };
     } catch (error) {
       if (error instanceof McpError) throw error;
@@ -853,7 +887,8 @@ export function assertReadOnly(name: string): void {
       'read_only_violation',
       `"${name}" writes to the cluster and this channel is read only. The service account behind ` +
         'it holds Cluster Admin because the managed MCP server requires it, so this refusal is ' +
-        'the only thing standing between a verification read and a write.',
+        'the first of the two controls that keep a verification read from becoming a write; the ' +
+        'second is the server refusing a write smuggled into a CTE, which is measured, not assumed.',
     );
   }
   throw new McpError(
