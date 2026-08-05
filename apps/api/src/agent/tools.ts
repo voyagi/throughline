@@ -375,29 +375,43 @@ export function renderMemory(memory: MemoryRecord, similarity?: number, stale?: 
  * container has no memory limit set", "No customers reported errors during the window", "There is
  * no entropy left in the pool", "The dashboard shows no outage on the provider status page".
  *
- * Three versions, wrong three ways, in both directions. That is the finding, and the design below
- * takes it seriously rather than trying a fourth tuning. THIS PREDICATE IS OPTIMISED FOR PRECISION
- * AND ITS RECALL IS POOR ON PURPOSE. Every alternative is an explicit whole-word phrase; there are
- * no prefix stems, so no word can be eaten by a longer one. "memories" appears and "memory" does
- * not, because a memory is RAM at least as often as it is the archive, and the plural never is. A
- * bare archive noun is not enough either: a negation needs a QUALIFIER as well ("no similar
- * incident"), which is what leaves "no outage on the status page" alone.
+ * Round four then found the fourth version wrong two more ways, both of them inside the fix. The
+ * alternation was written `\b(?:...)` with a LEADING boundary and no trailing one, so every
+ * alternative's last token was still a prefix and "no other incident" matched inside "no other
+ * incidental costs". And the docblock claimed "memory" was absent while one alternative reached it
+ * through "in the memory", so "Nothing in the memory bank was corrupted" was withheld: RAM again,
+ * the exact class the previous commit existed to remove.
  *
- * The gaps that buys are large, real, and listed in the tests one sentence at a time: "no prior
- * report of this", "Nothing similar has come up before", "Nothing was found matching that", "no
- * trace of that incident", "this is the first time", "I could not find anything", "zero matches".
- * Every one of those is an absence claim this will not catch. That is the deliberate trade: two
- * structural controls stand behind a phrase this misses, and NOTHING stands behind an answer it
- * wrongly withholds. Read this as a BACKSTOP with known holes, never as a filter.
+ * FOUR VERSIONS, WRONG FOUR WAYS. The pattern is not the recurring defect. The recurring defect is
+ * that each version's negative controls were written from the author's mental model of the pattern
+ * instead of derived from the pattern itself, so each round's controls could only catch the
+ * previous round's bug. That is why the tests below now assert a STRUCTURAL property of
+ * `ABSENCE_PHRASES` rather than only sampling sentences, and why the phrase list is data a test can
+ * read rather than one long literal.
+ *
+ * THIS PREDICATE IS OPTIMISED FOR PRECISION AND ITS RECALL IS POOR. Both boundaries are closed, so
+ * no token can be eaten by a longer word. "memory" appears ONLY inside the fixed phrase "incident
+ * memory"; the bare noun is RAM as often as it is the archive. A negation needs a QUALIFIER as well
+ * as an archive noun, which is what leaves "no outage on the status page" alone.
+ *
+ * THE GAP IS LARGE AND IT IS A CLASS, NOT A LIST. Requiring a qualifier drops the most natural
+ * archive phrasings there are: "There are no incidents in memory", "I found no incidents for that
+ * service", "There have been no outages before now", "We have never had an incident like this".
+ * Round four measured sixteen such sentences missed. Earlier versions of this comment enumerated
+ * the gaps as though the enumeration were closed, which read as a bound and was not one. It is not
+ * a bound. Assume any absence claim not shaped like the phrases below reaches the operator
+ * unchecked, and read this as a BACKSTOP, never as a filter. Two structural controls stand behind
+ * a phrase this misses; nothing stands behind an answer it wrongly withholds, which is why the
+ * trade runs this way.
  *
  * Word separators are `\s+` rather than a literal space, because a model's answer is wrapped text
  * and round three showed "no matching\nincidents in memory" walking through a single-space pattern.
  */
-const ABSENCE_PHRASES = [
+export const ABSENCE_PHRASES = [
   // A negation, a qualifier, and an archive noun, all three required. Dropping the qualifier is
   // what made "no outage on the provider status page" a refusal.
   String.raw`no\s+(?:prior|previous|earlier|similar|matching|relevant|such|other)\s+(?:incidents?|outages?|memories|records)`,
-  // "memories" is only ever the archive, so it needs no qualifier. "memory" is deliberately absent.
+  // "memories" is only ever the archive, so it needs no qualifier. The SINGULAR is not here.
   String.raw`no\s+memories`,
   // `record\s+of` cannot match "recording of": there is no whitespace after "record" there.
   String.raw`no\s+(?:record|history)\s+of`,
@@ -406,10 +420,16 @@ const ABSENCE_PHRASES = [
   // untouched because neither verb is in this list.
   String.raw`never(?:\s+\w+){0,2}\s+(?:seen|encountered|happened|occurred)`,
   String.raw`never\s+been\s+an?(?:\s+\w+)?\s+(?:incident|outage)`,
-  String.raw`nothing(?:\s+\w+){0,3}\s+(?:in\s+(?:the\s+)?(?:incident\s+)?memory|on\s+record|recorded)`,
+  // "incident memory" in full, never a bare "memory". The previous version allowed "in the memory",
+  // which withheld "Nothing in the memory bank was corrupted": RAM, not the archive.
+  String.raw`nothing(?:\s+\w+){0,3}\s+(?:in\s+the\s+incident\s+memory|on\s+record|recorded)`,
 ];
 
-const ABSENCE_CLAIM = new RegExp(String.raw`\b(?:${ABSENCE_PHRASES.join('|')})`, 'i');
+// BOTH boundaries. The leading `\b` was there from the start and the trailing one was not, so every
+// alternative's final token stayed a prefix and "no other incident" matched inside "no other
+// incidental costs". Every alternative ends in a word character, which is what makes one trailing
+// `\b` sufficient, and a test asserts that rather than leaving it to be true by luck.
+const ABSENCE_CLAIM = new RegExp(String.raw`\b(?:${ABSENCE_PHRASES.join('|')})\b`, 'i');
 
 export function claimsAbsence(text: string): boolean {
   return ABSENCE_CLAIM.test(text);

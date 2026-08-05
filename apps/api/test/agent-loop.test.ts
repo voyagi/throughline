@@ -160,6 +160,7 @@ describe('CONTROL 3: an absence claim is checked against what the recalls establ
   // same defect on three different paths, and each time the test that asserted the property drove
   // only the path that had just been fixed, so the next instance was invisible. A test claiming
   // "on any path" has to enumerate the paths.
+  // Five scenarios across the three exits `runAgentTurn` has (two pairs share a return statement).
   it('never puts its own words under the assistant role, on any exit', async () => {
     const insatiable: ChatModel = {
       id: 'insatiable',

@@ -54,6 +54,14 @@ function decideReply(history: readonly Turn[], maxRecalls: number): ChatReply {
   // A refusal is the loop telling this model its last answer was not supported. Answering the same
   // way again would end the turn on the refusal, so this is where the model corrects itself, which
   // is the branch that proves control 3 does more than log.
+  //
+  // NOTE, because the two files can drift apart silently. The `refusal` role in `loop.ts` was
+  // widened to mean any sentence the loop authored, which now includes the round-cap notice, and
+  // this reader still treats a trailing refusal as "my last answer was rejected". Not reachable
+  // today: the loop pushes the round-cap notice and returns on the same statement, so `reply` is
+  // never called again after it. If a future change lets any other loop-authored turn be followed
+  // by another model call, this branch starts apologising for an answer it never gave, and the
+  // fix is to distinguish the KIND of loop turn rather than to read the role alone.
   const last = history[history.length - 1];
   if (last?.role === 'refusal') return { kind: 'answer', text: correctedAnswer(history) };
 

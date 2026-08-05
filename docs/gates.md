@@ -120,13 +120,22 @@ was run, the failures were recorded, and the tree was restored and confirmed cle
 one.
 
 **Measured at commit `01bfe35`, baseline 652 tests across 19 files.** Every one of the thirteen runs
-also collected 652, which is the only reason the red counts below mean anything. The commit is named
-because this set has now been measured three times: the first pass ran at 605 and published a count
-that described the wrong mutation, the second ran at 627 and was overtaken by the next review round
-before anyone read it. A mutation count is a statement about ONE tree, so that tree is named rather
-than left implied. The numbers describe the source and tests as of `01bfe35`; a later commit that
-touches only documentation leaves them standing, and any commit that touches
-`apps/api/src/agent/**` or its tests makes them unverified until they are re-run.
+also collected 652, which is the only reason the red counts below mean anything.
+
+**AND HEAD HAS SINCE MOVED PAST THAT COMMIT.** A fourth review round changed `claimsAbsence` and its
+tests again, which took the baseline to 659, so the counts below describe `01bfe35` and are PENDING
+RE-MEASUREMENT against the branch tip. They are published with that label rather than quietly
+carried forward, and re-measuring them is a named item in the handoff. Do not read them as
+describing the code at the tip.
+
+The commit is named because this set has now been measured three times and invalidated three times,
+each by the review round that followed it: the first pass ran at 605 and published a count that
+described the wrong mutation, the second ran at 627 and was overtaken before anyone read it, and
+this one was overtaken the same way. A mutation count is a statement about ONE tree. The rule for
+reading it: a commit that touches only documentation leaves these standing, and a commit that
+changes any file the suite loads, which is everything under `packages/*/src`, `apps/api/src` and
+either package's tests, makes them unverified until re-run. The earlier version of this rule named
+only `apps/api/src/agent/**`, which is narrower than the suite that produces the 652.
 
 Thirteen bullets follow, one per mutation, counted from the list itself.
 
@@ -156,14 +165,19 @@ Thirteen bullets follow, one per mutation, counted from the list itself.
   then refuses.
 - The record-format flattening removed, so a memory's stored content can forge an `id` or
   `asserted by` line of its own (3 red).
-- The budget branch announcing its `tool_call` AFTER the budget check rather than before, which is
-  how it came to emit results for ids nothing had announced (5 red).
+- The budget branch's `tool_call` announcement DELETED, so an over-budget call is answered by a
+  result no call announced (5 red). The prose here said "announced AFTER the budget check rather
+  than before" and that is a different mutation, worth 1 red, which a review measured. The wording
+  was left over from when the announcement existed in two places; deleting the single remaining one
+  is what was actually run. Naming the mutation you ran rather than the one you meant to run is the
+  second time this section has needed that correction.
 - The operator shown `verdict.refusal`, the second-person text written for the model, instead of
   `refusalForTheUser` (3 red).
 - The round-cap notice pushed as an `assistant` turn rather than in the loop's own role (1 red).
   This one is worth more than its count. It is the THIRD instance of a single defect, loop-authored
   text under the model's role, and the first two were each fixed on one path while the sibling kept
-  doing it. The test that kills it enumerates all five exits from `runAgentTurn` instead of
+  doing it. The test that kills it drives five scenarios across all three exits from `runAgentTurn`
+  (two pairs share a return) instead of
   asserting "on any path" from one of them, which is precisely what hid the first two.
 - A whole-word archive noun turned back into a prefix stem, `memories` to `memor` (2 red). The
   prefix form is how "The container has no memory limit set" became a withheld answer. The negative

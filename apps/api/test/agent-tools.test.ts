@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Coverage } from '@throughline/memory';
 import { MEMORY_KINDS } from '@throughline/memory';
 import {
+  ABSENCE_PHRASES,
   claimsAbsence,
   findTool,
   mayAssertAbsence,
@@ -364,24 +365,57 @@ describe('claimsAbsence', () => {
     expect(claimsAbsence(text)).toBe(false);
   });
 
-  // One negative control per RETAINED stem, which is the check the previous version was missing:
-  // its negative block only exercised alternatives that had been deleted, so it could not have
-  // caught `memor` eating memory-the-RAM or `report` eating "reported". Each line below contains a
-  // word this pattern still looks for, used in its ordinary on-call sense.
+  // STRUCTURAL, and derived from `ABSENCE_PHRASES` rather than from anyone's model of it.
+  //
+  // This is the check that four rounds of sampled sentences kept failing to be. Every previous
+  // negative block was written from what its author believed the pattern contained, so each one
+  // could only catch the PREVIOUS round's bug: round four's block still listed `report` and `entr`,
+  // which round three had already deleted, while the live defect was an unclosed trailing boundary
+  // that no sentence in the block happened to probe. A property read off the phrase list itself
+  // cannot drift from the phrase list.
+  //
+  // The property: every alternative ends in a word character, which is the precondition that makes
+  // one trailing `\b` enough to close all of them. If someone adds an alternative ending in `\s+`
+  // or a group, the single boundary stops covering it and this goes red.
+  it('ends every phrase in a word character, which is what the trailing boundary relies on', () => {
+    for (const phrase of ABSENCE_PHRASES) {
+      expect(phrase, `phrase must not end in a quantifier or separator: ${phrase}`).toMatch(
+        /(?:\w|\))$/,
+      );
+      expect(phrase, `phrase must not end in a bare separator: ${phrase}`).not.toMatch(/\\s\+$/);
+    }
+  });
+
+  // The boundary itself, probed from BOTH ends on every alternative. Round four found "no other
+  // incident" matching inside "no other incidental costs" because only the leading `\b` was there.
   it.each([
-    ['memories/memory', 'The container has no memory limit set, so the OOM killer took it.'],
-    ['memories/memory', 'We saw no memory pressure on the node.'],
-    ['record', 'The session recording of the outage call is in the shared drive.'],
-    ['records', 'There is no recording of that deploy.'],
-    ['report', 'No customers reported errors during the window.'],
-    ['report', 'The service emitted no report for the nightly job.'],
+    ['no other incidental costs came out of the failover', 'no other incident'],
+    ['we saw no such incidental latency on the read replicas', 'no such incident'],
+    ['the driver returned no matching recordsets for that query', 'no matching records'],
+    ['there were no memoriesque artefacts in the dump', 'no memories'],
+  ])('does not match %j, where the phrase %j is only a prefix', (text) => {
+    expect(claimsAbsence(text)).toBe(false);
+  });
+
+  // One control per token the pattern ACTUALLY retains, read off the list above rather than
+  // remembered. Tokens: incident(s), outage(s), memories, records, record/history + of,
+  // "incident memory", on record, recorded, seen, encountered, happened, occurred.
+  it.each([
+    ['memories', 'The container has no memory limit set, so the OOM killer took it.'],
+    ['incident memory', 'Nothing in the memory bank was corrupted.'],
+    ['incident memory', 'Nothing in the memory dump looked wrong.'],
+    ['record of', 'There is no recording of that deploy.'],
+    ['records', 'The query returned no matching recordsets.'],
     ['outage', 'The dashboard shows no outage on the provider status page.'],
     ['incident', 'There was no incident bridge open at the time.'],
-    ['entries', 'There is no entropy left in the pool.'],
     ['history', 'The shell has no history file for that user.'],
-    ['seen/encountered', 'The TLS certificate had never been rotated.'],
-    ['seen/encountered', 'This job has never been run in staging.'],
-  ])('leaves the ordinary sense of %s alone: %j', (_stem, text) => {
+    ['seen', 'The TLS certificate had never been rotated.'],
+    ['encountered', 'This job has never been run in staging.'],
+    ['happened', 'Nothing happens on that queue until the consumer attaches.'],
+    ['occurred', 'The retry occurred twice before the circuit opened.'],
+    ['recorded', 'The session recording of the outage call is in the shared drive.'],
+    ['on record', 'The change record on file was approved by the CAB.'],
+  ])('leaves the ordinary sense of %s alone: %j', (_token, text) => {
     expect(claimsAbsence(text)).toBe(false);
   });
 
