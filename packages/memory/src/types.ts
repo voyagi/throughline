@@ -43,6 +43,20 @@ export type Coverage = 'COVERED' | 'PARTIAL' | 'UNKNOWN';
 /** Which retrieval strategy actually executed. Reported, never assumed. */
 export type RetrievalPath = 'ann_index' | 'exact_scan' | 'none';
 
+/**
+ * Which stage of a recall stopped it, as a value rather than as a sentence.
+ *
+ * Exists so that a caller can say WHY a search did not run without quoting whatever threw. The
+ * stages are the ones `runRecall` actually catches, in the order it meets them, and each maps to
+ * exactly one `catch` block so a new failure mode cannot quietly reuse an existing label.
+ */
+export type CoverageCause =
+  | 'no_retrieval_path'
+  | 'embedder_failed'
+  | 'exclusion_counts_failed'
+  | 'candidate_query_failed'
+  | 'scoring_failed';
+
 /** Named reasons a candidate was dropped. Every exclusion is counted and attributed. */
 export type ExclusionRule =
   | 'superseded'
@@ -122,8 +136,28 @@ export interface RecallReceipt {
   readonly returned: number;
   readonly exclusions: readonly Exclusion[];
   readonly coverage: Coverage;
-  /** Always populated, in plain language. For UNKNOWN this is the only useful field. */
+  /**
+   * Always populated, in plain language. For UNKNOWN this is the only useful prose field.
+   *
+   * WRITTEN FROM SCRATCH, ALWAYS. No caught error's message is ever interpolated into it, and that
+   * is a security boundary rather than a style preference. This receipt is rendered into a
+   * `tool_result`, `/agent/turn` returns the whole transcript on a 200, and the console prints it
+   * on a screen that gets recorded. A review reproduced a role ARN reaching a caller through
+   * exactly this field, twice: once from an embedder rejection and once from a capability probe on
+   * a COVERED turn with nothing wrong. Both controls live in `apps/api/test/server.test.ts`.
+   *
+   * What a reader loses is the driver's own words. What they get instead is `coverageCause`, which
+   * says which stage failed and is a value rather than a sentence, so a console can branch on it
+   * and an operator knows where to look.
+   */
   readonly coverageReason: string;
+  /**
+   * Which stage stopped the search, as a value.
+   *
+   * `null` whenever the search completed, which includes a COVERED empty result: nothing stopped,
+   * there was simply nothing to find. A cause is never inferred from the prose.
+   */
+  readonly coverageCause: CoverageCause | null;
   /**
    * Capabilities that were expected and were not available, in the words a human needs.
    * An empty list means nothing degraded, not that nothing was checked.

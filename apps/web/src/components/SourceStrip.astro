@@ -1,0 +1,48 @@
+---
+/**
+ * The source strip: a footer record naming where this page's numbers came from and how far each
+ * can be trusted. ART-DIRECTION section 4 puts it on every page without exception, and it is the
+ * device that lets an illustration sit on the same page as a measurement without either one
+ * pretending to be the other.
+ *
+ * Three verdicts and no fourth:
+ *
+ * - MEASURED  the number on this page was produced by the running system.
+ * - ILLUSTRATION  the number is an example. It is drawn from policy values in
+ *   `packages/memory/src/policy.ts` where it is a policy number at all, and it describes a
+ *   situation rather than reporting one.
+ * - UNKNOWN  nobody looked. It renders unlit and italic, and it never renders as OK.
+ *
+ * ILLUSTRATION gets a plain outline rather than a colour, for the reason UNKNOWN does: a colour
+ * would be a claim. It stays UPRIGHT, because the semantic slant means "do not stand on this" and
+ * an honest example is not a doubtful measurement.
+ */
+import type { SourceRow } from '../scripts/types.ts';
+
+interface Props {
+  readonly rows: readonly SourceRow[];
+  readonly colophon?: string;
+}
+
+const { rows, colophon } = Astro.props;
+
+const classFor = (trust: SourceRow['trust']) =>
+  trust === 'MEASURED' ? 'verdict v-cov' : trust === 'ILLUSTRATION' ? 'verdict v-ill' : 'verdict v-unk';
+---
+
+<footer class="source">
+  <h2>Source strip</h2>
+  {
+    rows.map((row) => (
+      <div class="srcrow">
+        <span>{row.claim}</span>
+        <span class={classFor(row.trust)}>{row.trust}</span>
+      </div>
+    ))
+  }
+  {colophon && <p class="colophon">{colophon}</p>}
+  <p class="colophon">
+    Throughline &middot; TLN-01 &middot; CockroachDB x AWS &middot; agentic memory &middot;
+    <a href="https://github.com/voyagi/throughline">the repository</a>
+  </p>
+</footer>

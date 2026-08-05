@@ -1,0 +1,13 @@
+{
+  "name": "@throughline/contract",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The wire shapes the HTTP surface returns and the console reads. Types only, no runtime.",
+  "license": "MIT",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {}
+}

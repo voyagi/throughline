@@ -34,6 +34,7 @@
  * survive a turn in which no search completed. It can survive a turn that searched something else.
  */
 
+import type { TurnView } from '@throughline/contract';
 import {
   CoverageUnknownError,
   type Coverage,
@@ -55,31 +56,19 @@ import {
   type ToolDefinition,
 } from './tools.ts';
 
-/** One thing the model said or was told, in the order it happened. */
-export type Turn =
-  | { readonly role: 'user'; readonly content: string }
-  | { readonly role: 'assistant'; readonly content: string }
-  | { readonly role: 'tool_call'; readonly id: string; readonly name: string; readonly args: unknown }
-  | { readonly role: 'tool_result'; readonly id: string; readonly name: string; readonly content: string }
-  /**
-   * The loop's own words. Any sentence this file authored rather than the model: a refusal, and
-   * also the notice that a turn ran out of rounds.
-   *
-   * The wider definition is the third fix of one defect. Twice the loop put its own text under the
-   * `assistant` role, and both times the test asserting otherwise drove only the path that had just
-   * been fixed. The round cap was the last one standing, and it was never a refusal, which is
-   * exactly how it kept slipping past a role named for refusals. What matters is not what the
-   * sentence is FOR, it is who WROTE it, so that is what this role means now.
-   *
-   * Its own role rather than a `tool_result`, and that distinction is load bearing in two places.
-   * A provider adapter has to render it as model input, and a `tool_result` carrying an id that no
-   * preceding `tool_call` announced is rejected outright by both the Bedrock Converse API and the
-   * Anthropic Messages API, so the shape this used to have would have failed on first contact with
-   * a real provider while passing every test here. The console has the mirror problem: attributing
-   * the refusal to the user or to a tool puts the loop's sentence in someone else's mouth on the
-   * one screen that exists to show who said what.
-   */
-  | { readonly role: 'refusal'; readonly content: string };
+/**
+ * One thing the model said or was told, in the order it happened.
+ *
+ * DECLARED IN `@throughline/contract` AND ALIASED HERE, rather than written out twice. This
+ * transcript is returned verbatim in the 200 from `/agent/turn`, so the loop's internal shape and
+ * the wire shape are not two things that resemble each other, they are one thing. They were two
+ * for about an hour, and `npm run gate:dup` refused the commit, which was the correct answer: a
+ * union copied into a second file is the classic thing that silently loses a member.
+ *
+ * The reasoning that used to sit here, on why `refusal` is its own role rather than an `assistant`
+ * turn or a `tool_result`, moved with the declaration and is in that file.
+ */
+export type Turn = TurnView;
 
 export interface ChatToolCall {
   readonly id: string;
@@ -129,10 +118,25 @@ export interface AgentOptions {
   readonly maxToolCalls?: number;
 }
 
+/** One completed recall, keyed to the call the model made, so a receipt can be traced to its ask. */
+export interface RecallEvent {
+  readonly callId: string;
+  readonly result: RecallResult;
+}
+
 export interface AgentAnswer {
   readonly text: string;
-  /** Every tool call and result, in order. This is what the console's memory pane renders. */
+  /** Every tool call and result, in order. This is the record of who said what. */
   readonly transcript: readonly Turn[];
+  /**
+   * Every completed recall, as DATA rather than as the sentence the model was shown.
+   *
+   * The transcript's `tool_result` content is written for a language model. Handing that string to
+   * a console and asking it to find the candidate count in there would be a second implementation
+   * of the receipt, written in regular expressions, free to drift from the first the moment the
+   * rendering changes. So the receipt travels intact and the console reads fields.
+   */
+  readonly recalls: readonly RecallEvent[];
   /** The worst coverage any recall returned. `null` when nothing was recalled at all. */
   readonly coverage: Coverage | null;
   /** True when the loop refused an answer for asserting an absence it had not established. */
@@ -175,6 +179,7 @@ export async function runAgentTurn(options: AgentOptions, message: string): Prom
   const maxToolCalls = options.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS;
 
   const transcript: Turn[] = [{ role: 'user', content: message }];
+  const recalls: RecallEvent[] = [];
   let worstCoverage: Coverage | null = null;
   let toolCallCount = 0;
   let refusedAnAbsenceClaim = false;
@@ -201,6 +206,7 @@ export async function runAgentTurn(options: AgentOptions, message: string): Prom
         refusedAnAbsenceClaim,
         toolCallCount,
         modelId: model.id,
+        recalls,
       };
     }
 
@@ -225,6 +231,7 @@ export async function runAgentTurn(options: AgentOptions, message: string): Prom
           refusedAnAbsenceClaim,
           toolCallCount,
           modelId: model.id,
+          recalls,
         };
       }
 
@@ -246,6 +253,7 @@ export async function runAgentTurn(options: AgentOptions, message: string): Prom
           refusedAnAbsenceClaim,
           toolCallCount,
           modelId: model.id,
+          recalls,
         };
       }
 
@@ -277,6 +285,9 @@ export async function runAgentTurn(options: AgentOptions, message: string): Prom
 
       const outcome = await runTool(call, { repository, workspaceId });
       if (outcome.coverage !== undefined) worstCoverage = worseOf(worstCoverage, outcome.coverage);
+      // Keyed by the call id the model supplied, so a console can line a receipt up with the
+      // request that produced it rather than by position.
+      if (outcome.recall !== undefined) recalls.push({ callId: call.id, result: outcome.recall });
       transcript.push({ role: 'tool_result', id: call.id, name: call.name, content: outcome.content });
     }
   }
@@ -286,6 +297,14 @@ interface ToolOutcome {
   readonly content: string;
   /** Set only by recall, because it is the only tool that produces a coverage verdict. */
   readonly coverage?: Coverage;
+  /**
+   * The recall itself, when the tool WAS a recall and it completed.
+   *
+   * Absent when the recall threw, and that absence is meaningful rather than incidental: there is
+   * no receipt to show for a search that did not finish, and inventing an empty one would put a
+   * blank record on the board where the truth is that nothing was recorded.
+   */
+  readonly recall?: RecallResult;
 }
 
 interface ToolContext {
@@ -369,7 +388,12 @@ async function dispatch(
       text: input.query,
       ...(input.limit === undefined ? {} : { limit: input.limit }),
     });
-    return { content: renderRecall(result), coverage: result.receipt.coverage };
+    // The RESULT travels alongside the rendered text, and the two have different readers. The
+    // string is what the MODEL is shown. The structured result is what the console racks on its
+    // board, so that no reader of this system has to recover a number by parsing a sentence
+    // written for something else. A console that regex-scraped this prose would be a second
+    // implementation of the receipt, free to drift from the first.
+    return { content: renderRecall(result), coverage: result.receipt.coverage, recall: result };
   }
 
   if (tool.name === 'remember') {

@@ -12,6 +12,7 @@
 
 import type {
   Coverage,
+  CoverageCause,
   Exclusion,
   MemoryRecord,
   MemoryRepository,
@@ -62,6 +63,7 @@ export function scoredMemory(overrides: Partial<ScoredMemory> = {}): ScoredMemor
 export interface RecallResultOptions {
   readonly coverage?: Coverage;
   readonly coverageReason?: string;
+  readonly coverageCause?: CoverageCause | null;
   readonly memories?: readonly ScoredMemory[];
   readonly retrievalPath?: RetrievalPath;
   readonly candidatesConsidered?: number;
@@ -85,6 +87,9 @@ export function recallResult(options: RecallResultOptions = {}): RecallResult {
       exclusions: options.exclusions ?? [],
       coverage,
       coverageReason: options.coverageReason ?? 'the search ran over the whole workspace',
+      // Mirrors what `runRecall` does: a cause exists only when a stage stopped the search, and
+      // UNKNOWN is the only verdict a stopped stage can produce.
+      coverageCause: options.coverageCause ?? (coverage === 'UNKNOWN' ? 'embedder_failed' : null),
       degradations: options.degradations ?? [],
     },
   };

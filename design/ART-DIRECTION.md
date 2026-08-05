@@ -166,8 +166,19 @@ Night cab `#131F19`, rail glow `#1B2B22`, lamp buff `#E2D4AC`, night ink `#191C1
 `#8B9887`, holders desaturated about 20 percent (`#46689B`, `#548150`, `#BE9737`, `#A44A39`,
 `#7D5936`), night amber `#FFB454`, tombstone `#6E6A5D`. Ink values for signals printed on lamp
 buff: amber `#7D4A00`, rejected `#A03222`, protected `#2F5A2C`, stamp grey `#5A553F`. Unlit is
-`#93A390`. The authoritative list is `mockups/board.css`; if a colour is named here and not there,
-it does not exist.
+`#93A390`.
+
+**The authoritative list is `apps/web/src/styles/board.css`, and this line was corrected on
+2026-08-05 when that file came into existence.** It used to name `mockups/board.css`, which was
+right while the mockups were the only implementation and became a trap the moment they stopped
+being: two stylesheets, one of them frozen, both claiming to be the list. If a colour is named here
+and not in the product stylesheet, it does not exist. The mockups are kept as the bake-off record
+and are no longer edited.
+
+Every ratio recorded in that stylesheet is recomputed from the tokens by
+`scripts/check-contrast.mjs` on every run of `npm run gate`, in both watches, against WCAG 2.1 AA.
+A ratio written beside a token that stops being true now fails the build rather than sitting there
+being quoted.
 
 ### The colour law, grafted from Direction A
 

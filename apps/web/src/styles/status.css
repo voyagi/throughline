@@ -1,0 +1,20 @@
+/* =============================================================
+   The annunciator at full size. Same lamps as the rail, sized so
+   the legend and the reason fit beside them.
+   ============================================================= */
+
+.statusboard{padding-bottom:26px;border-bottom:3px solid var(--rail)}
+.lamps{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:0;margin:0;border-bottom:1px solid var(--rail-line)}
+.biglamp{padding:20px 28px 22px;border-right:1px solid var(--rail-line)}
+.biglamp:last-child{border-right:0}
+.biglamp dt{font-family:"Big Shoulders",sans-serif;font-weight:600;font-size:22px;letter-spacing:.12em;text-transform:uppercase;color:var(--chalk);margin-bottom:10px}
+.biglamp dd{margin:0}
+.biglamp .state{font-size:13px;padding:5px 13px}
+.biglamp .why{margin:12px 0 0;font-size:15.5px;line-height:1.5;color:var(--chalk-soft);max-width:44ch}
+/* An unmeasured reason is italic for the same reason a stale value is: do not stand on it. */
+.biglamp .why.doubt{font-style:italic}
+
+@media (max-width:900px){
+  .biglamp{border-right:0;border-bottom:1px solid var(--rail-line);padding:16px 14px 18px}
+  .lamps{grid-template-columns:1fr}
+}

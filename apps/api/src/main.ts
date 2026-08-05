@@ -62,6 +62,18 @@ async function main(): Promise<void> {
     embedder,
   });
 
+  const isVerificationChannelConfigured = (source: NodeJS.ProcessEnv): boolean => {
+    try {
+      loadMcpConfig(source);
+      return true;
+    } catch {
+      // Unconfigured is the normal offline state and not an error worth reporting here. The lamp
+      // renders UNKNOWN, which is the truthful reading: nobody has looked, because there is
+      // nothing to look at.
+      return false;
+    }
+  };
+
   const retrieval = retrievalPathFor(capabilities);
   console.log(`[boot] ${database.describe()}`);
   console.log(`[boot] retrieval path: ${retrieval.path} (${retrieval.reason})`);
@@ -88,6 +100,14 @@ async function main(): Promise<void> {
     // Built per call and not at boot: `loadMcpConfig` throws when the channel is unconfigured,
     // which is the normal state offline, and that must not stop the rest of the demo from running.
     openVerificationChannel: () => createMcpClient({ config: loadMcpConfig(env) }),
+    // Re-probed per request rather than reusing the boot snapshot above, because `/status` answers
+    // "what can this system do right now" and an index dropped after boot must not keep reading OK
+    // until the next deploy. The rate limiter is what stops that costing anything.
+    probeCapabilities: () => probeCapabilities(database, { schema: dbConfig.schema, embedder }),
+    // CONFIGURED, not reachable, and the lamp says which. `loadMcpConfig` throws when the channel
+    // is not configured, which is the normal state offline, so a successful load is the honest
+    // signal and opening the channel is deliberately not attempted here.
+    verificationChannelConfigured: isVerificationChannelConfigured(env),
     clientAddressOf: (c) =>
       clientAddressFrom(
         c.req.header('X-Forwarded-For') ?? null,

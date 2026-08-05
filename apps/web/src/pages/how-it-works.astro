@@ -1,0 +1,216 @@
+---
+/**
+ * `/how-it-works` - the equipment drawing and the long read.
+ *
+ * Written for an engineer who wants to argue with it, which means the numbers have to be the real
+ * ones and the limits have to be stated by us rather than found by them. The section on what the
+ * guarantee does NOT cover is the most important on the page.
+ */
+import { DEFAULT_POLICY, MS_PER_DAY } from '@throughline/memory';
+import Board from '../layouts/Board.astro';
+import { articleSchema } from '../scripts/schema.ts';
+import type { SourceRow } from '../scripts/types.ts';
+
+const site = Astro.site?.href ?? Astro.url.origin;
+const policy = DEFAULT_POLICY;
+const graceHours = policy.graceWindowMs / (MS_PER_DAY / 24);
+
+const sources: readonly SourceRow[] = [
+  { claim: 'Every policy number below, imported from packages/memory/src/policy.ts', trust: 'MEASURED' },
+  { claim: 'That vector indexing works on the free Basic tier, measured against a live cluster', trust: 'MEASURED' },
+  { claim: 'The Mackay citation, checked against its DOI', trust: 'MEASURED' },
+];
+---
+
+<Board
+  title="How it works - Throughline"
+  heading="How Throughline makes agent recall auditable"
+  description="The schema, the recall pipeline, the coverage verdict, the capability probe and the eviction policy, with the limits of the guarantee stated rather than implied."
+  designator={['TLN-01 / Equipment drawing', 'Recall pipeline', 'Coverage verdicts']}
+  sources={sources}
+  jsonLd={articleSchema(site, '/how-it-works/', 'How Throughline makes agent recall auditable')}
+>
+  <section class="bay" aria-labelledby="pipeline">
+    <div class="bayhead">
+      <span class="bayno">Section 1</span>
+      <h2 class="baylabel" id="pipeline">The recall pipeline</h2>
+    </div>
+
+    <div class="prose">
+      <p>
+        A recall runs in a fixed order, and every stage that can fail reports which stage it was.
+        The path is chosen first, from what a capability probe actually observed about the cluster.
+        Then the query is embedded. Then candidates are read, scored in code, and filtered.
+      </p>
+      <p>
+        The order matters for a reason that is easy to get backwards: because BOTH retrieval paths
+        order by vector distance, both need a query vector. An embedder outage is therefore total.
+        There is no "force an exact scan" control on this site, because that control cannot exist -
+        the exact scan needs the embedder too. Copy offering one would be describing a product we
+        did not build.
+      </p>
+
+      <h3>The verdict</h3>
+      <p>
+        Every recall returns a receipt carrying the query, which path ran, how many candidates were
+        examined, what was excluded and under which rule, the elapsed time, and one of three
+        verdicts.
+      </p>
+      <ul>
+        <li><strong>COVERED</strong> - the search ran over everything it was meant to. An empty result here is a real absence.</li>
+        <li><strong>PARTIAL</strong> - it was cut short by the candidate cap of {policy.candidateCap}. What came back is real and incomplete.</li>
+        <li><strong>UNKNOWN</strong> - it could not run. An empty result here says nothing whatsoever, and the agent may not treat it as an absence.</li>
+      </ul>
+      <p>
+        A failure outranks a cap. A search that broke halfway through a truncated candidate set is
+        UNKNOWN, not PARTIAL, because downgrading in the other direction would let a broken search
+        present itself as merely incomplete.
+      </p>
+
+      <h3>Three controls, because a prompt is a suggestion</h3>
+      <p>
+        The agent is structurally prevented from reporting an absence it did not establish. First,
+        the tool result for a failed recall leads with the failure, so there is no reading of it in
+        which the model sees memories before it sees that the search did not run. Second, the loop
+        tracks the worst verdict any recall returned this turn, which is state the model cannot
+        influence. Third, the final answer is checked against that verdict, and an answer asserting
+        absence when coverage was not COVERED is refused and the model is told why.
+      </p>
+
+      <h3>What the guarantee does not cover</h3>
+      <p>
+        The guarantee is per turn and per phrasing, not per question. The loop records that SOME
+        recall this turn came back COVERED; nothing binds an absence claim to the SUBJECT that was
+        searched. A turn that recalls "checkout latency", gets a COVERED empty result, and then
+        asserts that nothing is on record about the payments database is permitted. That is a real
+        hole, not a quibble, and closing it needs the claim's subject matched against the queries
+        actually run - a semantic judgement this loop deliberately does not make, because a model
+        deciding whether its own sentence is about the thing it searched is the same theatre as a
+        model deciding when to audit itself.
+      </p>
+      <p>
+        Read the guarantee as: an absence claim cannot survive a turn in which no search completed.
+        It can survive a turn that searched something else.
+      </p>
+    </div>
+  </section>
+
+  <section class="bay" aria-labelledby="decay">
+    <div class="bayhead">
+      <span class="bayno">Section 2</span>
+      <h2 class="baylabel" id="decay">Staleness is computed, not guessed</h2>
+    </div>
+    <div class="rack">
+      {([
+        ['entity_fact', 'ENTITY FACT', '"The primary is db-7" is true on Tuesday and dangerous on Friday'],
+        ['observation', 'OBSERVATION', 'A single reading. It ages, but it was true when recorded'],
+        ['runbook_fact', 'RUNBOOK FACT', 'Durable, right up until a migration quietly invalidates it'],
+        ['resolution', 'RESOLUTION', 'What actually fixed something'],
+        ['rejected_hypothesis', 'REJECTED HYPOTHESIS', 'Stays true more or less forever, and it is the cheapest thing an on-call engineer can be told'],
+      ] as const).map(([kind, label, why]) => (
+        <div class="strip">
+          <span class="holder"></span>
+          <div>
+            <div class="row r-three">
+              <div class="cell"><b>Kind</b><span class="val">{label}</span></div>
+              <div class="cell"><b>Half-life</b><span class="val">{policy.halfLifeDays[kind]} d</span></div>
+              <div class="cell"><b>Why</b><span class="say">{why}</span></div>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+    <div class="prose">
+      <p>
+        Below a freshness of {policy.staleFloor}, meaning older than one half-life for its kind, a
+        memory is returned FLAGGED rather than dropped. Hiding it would remove the human's ability
+        to notice that the system is running on old information. On this site that flag is a strip
+        cocked out of alignment, which is what a controller did to a paper strip that needed
+        attention.
+      </p>
+      <p>
+        The similarity floor is {policy.similarityFloor}, in the remapped space where orthogonal
+        vectors land on 0.5 rather than 0. That detail is load bearing: a floor below 0.5 would
+        exclude nothing at all while its exclusion count sat at zero forever, looking like a
+        working filter.
+      </p>
+    </div>
+  </section>
+
+  <section class="bay" aria-labelledby="cockroach">
+    <div class="bayhead">
+      <span class="bayno">Section 3</span>
+      <h2 class="baylabel" id="cockroach">What the database is doing</h2>
+    </div>
+    <div class="prose">
+      <p>
+        CockroachDB is the system of record. Semantic recall runs over a <code>VECTOR</code> column
+        with the cosine operator class, and the index is treated as an accelerator, never as a
+        correctness dependency: if it is unavailable, recall falls back to an exact scan and says so
+        in the receipt and on the status page.
+      </p>
+      <p>
+        Two things worth knowing, both measured against a live cluster rather than taken from
+        documentation. Vector indexing works on the free Basic tier, which is not documented
+        anywhere we could find. And a vector index on the embedding column alone is useless here:
+        CockroachDB accelerates a filtered nearest-neighbour query only when the filters match the
+        index's PREFIX columns, so an unprefixed index plans as a full scan for every query this
+        system runs. The index is <code>(workspace_id, is_live, embedding vector_cosine_ops)</code>,
+        where <code>is_live</code> is a stored computed column so it cannot drift from the tombstone
+        it is derived from.
+      </p>
+      <p>
+        The capability probe confirms the planner really chooses that index by reading the query
+        plan, not by checking that an index exists. An index the planner ignores accelerates
+        nothing, and reporting a catalog row as a capability is how a system ends up claiming
+        something it does not have.
+      </p>
+      <p>
+        Eviction is a transaction that writes a tombstone, and nothing inside the {graceHours} hour
+        grace window can be evicted at any score.
+      </p>
+    </div>
+  </section>
+
+  <section class="bay" aria-labelledby="anchor">
+    <div class="bayhead">
+      <span class="bayno">Section 4</span>
+      <h2 class="baylabel" id="anchor">Why a strip board</h2>
+    </div>
+    <div class="rack">
+      <div class="strip">
+        <span class="holder h-run"></span>
+        <div>
+          <div class="row r-main">
+            <div class="cell">
+              <b>Cited</b>
+              <span class="say">
+                Controllers refused to give up paper flight strips because the physical record was
+                doing safety work no screen replicated.
+              </span>
+            </div>
+            <div class="cell"><b>Kind</b><span class="val">RUNBOOK FACT</span></div>
+          </div>
+          <div class="row r-three">
+            <div class="cell"><b>Source</b><span class="val">Mackay, ACM TOCHI 1999</span></div>
+            <div class="cell"><b>DOI</b><span class="val">10.1145/331490.331491</span></div>
+            <div class="cell"><b>Asserted by</b><span class="val">human:design</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="prose">
+      <p>
+        Before radar data blocks, every aircraft in a sector was a strip of card in a coloured
+        holder, racked on a painted metal board. The strip existed to keep a legal record of the
+        instructions actually issued, written in real time, under pressure, by people who could not
+        afford to trust their own recall. That is the product, not a mood borrowed from it.
+      </p>
+      <p>
+        The obvious aviation picks, which this deliberately is not: the black box, the accident
+        report, the evidence room. All three are records of the autopsy. The strip board is the
+        record made DURING, which is where on-call actually lives at 3am.
+      </p>
+    </div>
+  </section>
+</Board>

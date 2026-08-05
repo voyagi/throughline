@@ -31,6 +31,7 @@ const resultWith = (coverage: RecallResult['receipt']['coverage'], reason: strin
     exclusions: [],
     coverage,
     coverageReason: reason,
+    coverageCause: coverage === 'UNKNOWN' ? 'embedder_failed' : null,
     degradations: [],
   },
 });

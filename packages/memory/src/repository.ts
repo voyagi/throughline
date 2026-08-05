@@ -9,6 +9,7 @@ import { cosineSimilarity, freshness, isStale, scoreMemory } from './scoring.ts'
 import { decideCoverage } from './coverage.ts';
 import type {
   Capabilities,
+  CoverageCause,
   Exclusion,
   ExclusionRule,
   MemoryKind,
@@ -352,7 +353,11 @@ async function runRecall(context: RecallContext, query: RecallQuery): Promise<Re
   const retrieval = retrievalPathFor(capabilities);
 
   if (retrieval.path === 'none') {
-    return emptyUnknown(query, now, startedAt, retrieval.reason);
+    // The one reason on this path that is NOT written here: `retrievalPathFor` composes it from
+    // capability observations, and those are written from scratch in `capability.ts` for the same
+    // reason the four below are. It says which dimensions disagreed, which is the useful fact and
+    // carries nothing a driver threw.
+    return emptyUnknown(query, now, startedAt, retrieval.reason, 'no_retrieval_path');
   }
 
   let queryVector: number[];
@@ -360,15 +365,23 @@ async function runRecall(context: RecallContext, query: RecallQuery): Promise<Re
     // 'query' matters: some hosted models embed a stored document and a search query into
     // different spaces, and asking for the wrong one degrades retrieval without failing anything.
     queryVector = await embedder.embed(query.text, 'query');
-  } catch (error) {
+  } catch {
     // The embedder failing is the canonical UNKNOWN. It is NOT an empty result, and it is not a
     // reason to fall back to a weaker embedder: a silent substitution produces confident answers
     // from a different measurement.
+    //
+    // THE THROWN MESSAGE IS NOT READ. An embedding provider is a hosted AWS service, and its
+    // rejections carry role ARNs and account ids; this reason ends up in a `tool_result`, in the
+    // transcript, in a 200 body and on the console's screen. Proven, not hypothesised: the control
+    // in `apps/api/test/server.test.ts` failed against the previous version of this line with a
+    // role ARN in the response body.
     return emptyUnknown(
       query,
       now,
       startedAt,
-      `the embedding provider failed: ${error instanceof Error ? error.message : String(error)}`,
+      'the embedding provider failed, so the query could not be turned into a vector and neither ' +
+        'retrieval path could run',
+      'embedder_failed',
     );
   }
 
@@ -378,12 +391,13 @@ async function runRecall(context: RecallContext, query: RecallQuery): Promise<Re
   let counts: WorkspaceCounts;
   try {
     counts = await workspaceCounts(db, table, query.workspaceId);
-  } catch (error) {
+  } catch {
     return emptyUnknown(
       query,
       now,
       startedAt,
-      `the exclusion counts could not be read: ${describe(error)}`,
+      'the exclusion counts could not be read, so this search cannot say what it left out',
+      'exclusion_counts_failed',
     );
   }
 
@@ -394,12 +408,13 @@ async function runRecall(context: RecallContext, query: RecallQuery): Promise<Re
       formatVector(queryVector),
       policy.candidateCap,
     ]);
-  } catch (error) {
+  } catch {
     return emptyUnknown(
       query,
       now,
       startedAt,
-      `the candidate query failed: ${error instanceof Error ? error.message : String(error)}`,
+      'the candidate query failed, so no rows were examined',
+      'candidate_query_failed',
     );
   }
 
@@ -409,8 +424,14 @@ async function runRecall(context: RecallContext, query: RecallQuery): Promise<Re
   let scoredCandidates: { scored: ScoredMemory[]; exclusions: Exclusion[] };
   try {
     scoredCandidates = scoreCandidates(rows, queryVector, now, policy, counts);
-  } catch (error) {
-    return emptyUnknown(query, now, startedAt, `a candidate could not be scored: ${describe(error)}`);
+  } catch {
+    return emptyUnknown(
+      query,
+      now,
+      startedAt,
+      'a candidate could not be scored, so the ranking is incomplete and the search is not usable',
+      'scoring_failed',
+    );
   }
   const { scored, exclusions } = scoredCandidates;
   const ranked = [...scored].sort((left, right) => right.score - left.score).slice(0, limit);
@@ -437,6 +458,9 @@ async function runRecall(context: RecallContext, query: RecallQuery): Promise<Re
       exclusions,
       coverage: verdict.coverage,
       coverageReason: verdict.reason,
+      // Nothing stopped this search. A COVERED empty result has no cause, and inventing one here
+      // would let a console print "stopped by" over a search that ran to completion.
+      coverageCause: null,
       degradations: retrieval.path === 'exact_scan' ? [retrieval.reason] : [],
     },
   };
@@ -578,11 +602,20 @@ function isOutsideValidity(memory: MemoryRecord, now: Date): boolean {
   return memory.validUntil !== null && memory.validUntil.getTime() <= now.getTime();
 }
 
+/**
+ * The UNKNOWN result, built in one place so every failed stage reports itself the same way.
+ *
+ * `reason` is CALLER-AUTHORED PROSE and must never contain a caught error's message. Every call
+ * site above passes a literal for exactly that reason; see the docblock on
+ * `RecallReceipt.coverageReason`. `cause` is the machine-readable half, so a console can say which
+ * stage stopped without any caller having to parse the sentence.
+ */
 function emptyUnknown(
   query: RecallQuery,
   now: Date,
   startedAt: number,
   reason: string,
+  cause: CoverageCause,
 ): RecallResult {
   const verdict = decideCoverage({
     retrievalFailed: true,
@@ -605,6 +638,7 @@ function emptyUnknown(
       exclusions: [],
       coverage: verdict.coverage,
       coverageReason: verdict.reason,
+      coverageCause: cause,
       degradations: [reason],
     },
   };

@@ -8,6 +8,7 @@
 export type {
   Capabilities,
   Coverage,
+  CoverageCause,
   Exclusion,
   ExclusionRule,
   MemoryKind,

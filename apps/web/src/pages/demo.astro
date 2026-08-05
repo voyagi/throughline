@@ -1,0 +1,41 @@
+---
+/**
+ * `/demo` - position and board. The centrepiece, and the thing the video records.
+ *
+ * 40/60. Left is the R/T log, the incident conversation as a position log. Right is THE BOARD,
+ * where every memory event posts a strip whose printed fields are the receipt. Between them runs
+ * the printer slot the strips travel through.
+ *
+ * The whole pane is an island, because none of it can be rendered at build time without inventing
+ * an incident. What is server-rendered is the chrome and the source strip, so the page is legible,
+ * honest and complete before a single byte of JavaScript arrives: it says there is nothing on the
+ * board yet, which is true.
+ */
+import '../styles/console.css';
+import Board from '../layouts/Board.astro';
+import Console from '../islands/Console.tsx';
+import { API_BASE } from '../scripts/config.ts';
+import { applicationSchema } from '../scripts/schema.ts';
+import type { SourceRow } from '../scripts/types.ts';
+
+const site = Astro.site?.href ?? Astro.url.origin;
+
+const sources: readonly SourceRow[] = [
+  { claim: 'Every strip on the board, written by the recall that produced it', trust: 'MEASURED' },
+  { claim: 'Scores, similarity and freshness, computed in code from policy', trust: 'MEASURED' },
+  { claim: 'Elapsed times, measured per call on the connection that ran them', trust: 'MEASURED' },
+  { claim: 'Whether anything exists that a failed search never examined', trust: 'UNKNOWN' },
+];
+---
+
+<Board
+  title="Console - Throughline"
+  heading="The console: an incident conversation and the memory it produced"
+  description="Ask an incident-response agent about a past incident and watch what it recalled, what it wrote, and what it refused, with the receipt for each."
+  designator={['TLN-01 / Position and board', 'Live console', API_BASE]}
+  sources={sources}
+  colophon="The last row is the point of this page. When a search cannot run, the board shows an empty holder and a refusal slip rather than a confident nothing, and no answer above it is allowed to claim an absence."
+  jsonLd={applicationSchema(site)}
+>
+  <Console client:load apiBase={API_BASE} />
+</Board>

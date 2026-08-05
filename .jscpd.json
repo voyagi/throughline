@@ -17,6 +17,6 @@
     "**/*.md",
     "**/docs/**",
     "verify-ship.mjs",
-    "design/mockups/*.html"
+    "design/mockups/**"
   ]
 }

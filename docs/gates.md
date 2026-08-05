@@ -23,8 +23,10 @@ are the reasons this discipline pays.
 | `no-circular` | `npm run gate:deps` | YES | A two-file cycle |
 | `no-hono-cors-middleware` | `npm run gate:deps` | YES | A planted `import { cors } from 'hono/cors'`, which fired the rule BY NAME. The first attempt fired `not-to-unresolvable` instead, because the resolver was not reading package exports maps, so the middleware resolved to no path and a path rule had nothing to match. See below |
 | Duplicated logic | `npm run gate:dup` | YES | Fired on a real clone rather than a planted one: nine lines of channel wiring copied out of `verify-mcp.ts` into a new `measure-freshness.ts`. The threshold is 0, so one clone is enough. Fixed by extracting `apps/api/src/cli/live-channels.ts` |
-| Cross-browser compat | `npm run lint` | NO | No client code yet |
-| Bundle size | `npm run gate:size` | NO | No built bundle yet |
+| Cross-browser compat | `npm run lint` | YES | Client code now EXISTS (`apps/web/src/islands`), so the "no client code yet" that used to sit here is false. A review then falsified the replacement too: it fires, reproduced with a planted `navigator.getBattery()` reported unsupported in Safari 26.3 and iOS Safari 18.5-18.7, exit 1. Two wrong claims in one row, one after the other, which is why the third one names its repro |
+| Bundle size | `npm run gate:size` | NO | A built bundle now EXISTS (`apps/web/dist/_astro`), so the "no built bundle yet" that used to sit here is false. `size-limit` is installed and `gate:size` is in NO chain: not in `gate`, not in `verify:ship`. A budget nobody runs is not a budget |
+| Colour contrast | `npm run gate:contrast` | YES | A darkened `--unlit` token, reported as `2.12:1 is below AA 4.5:1`, exit 1 |
+| Page accessibility | `npm run gate:a11y` | YES | `h1` changed to `p`, reported as `2.4.6 expected exactly one <h1>, found 0` on all five pages, exit 1. An independent pass planted eleven violations covering all seven rules and each was reported by name |
 | Tracked-file check | `npm run gate:artifacts` | YES | Caught a really tracked `.build-lane` on live data, exit 1, and reports UNKNOWN with exit 2 against an empty index |
 | `.npmrc` credential rule | `npm run gate:artifacts` | YES | A planted `//registry.npmjs.org/:_authToken=` line, exit 1, naming file and line without printing the value |
 | Dependency advisories | `npm run gate:advisories` | YES | A removed acceptance for a live HIGH, exit 1. Also exit 2 against a tree with no dependencies, and it prints a verdict through a junction where it used to print nothing at all |
@@ -441,13 +443,92 @@ A build step would fix the first group and not the second, since the same strip 
 on more than one page on purpose. Both kinds of repetition are properties of standalone mockups,
 but only one of them is the kind a template would remove.
 
-The exclusion covers the HTML only. `design/mockups/board.css`, which is the shared part and the
-part where real duplication would matter, stays inside the gate and reports zero clones.
+**Updated 2026-08-05, when the moment this paragraph predicted actually arrived.** The exclusion is
+now `design/mockups/**` rather than the HTML alone.
 
-This exclusion expires on its own. When the site is built as components the chrome becomes one
-component, the mockups stop being the source of truth for layout, and the pattern the gate was
-complaining about stops existing. If these files are still here and still excluded when the built
-site ships, that is a leftover, not a decision.
+The previous version of this section said the exclusion covered the HTML only, that
+`design/mockups/board.css` stayed inside the gate, and that the whole thing expired on its own once
+the site was built as components. `apps/web` now exists, its chrome is one layout component, and
+`apps/web/src/styles/board.css` is the port of that shared stylesheet. The gate immediately reported
+eight CSS clones between the two files, which is correct: they are the same stylesheet twice.
+
+So the question the old paragraph left open had to be answered, and it was answered this way. The
+mockups are kept as the frozen bake-off artefact, because they are the record of a design decision
+that `design/ART-DIRECTION.md` argues from at length, and deleting the evidence for an argument
+makes the argument unreadable. But they stop being authoritative: `ART-DIRECTION.md` section 3 now
+names the product stylesheet as the list a colour has to appear in, so there is no longer a
+question about which of the two files a reader should edit.
+
+That makes every file under `design/mockups/` a historical artefact rather than product code, and
+duplication between a frozen artefact and the product it specified is not the duplication this gate
+exists to prevent. Deleting them outright is the cleaner end state and it is the right call for the
+ship-safe pass, once nothing references them; it was not made here because it would have removed
+the source of an argument in the same change that shipped the thing the argument produced.
+
+## The two accessibility gates, and what each was watched failing at
+
+Both landed with `apps/web` on 2026-08-05, and both were planted-and-watched before being trusted,
+because a gate nobody has seen fail is a gate nobody has tested.
+
+### `gate:contrast` - the ratios the stylesheet claims
+
+`scripts/check-contrast.mjs` parses the colour tokens out of `apps/web/src/styles/board.css`, builds
+the day palette and the night palette the way the cascade does (night inherits every token it does
+not override), and recomputes the WCAG 2.1 relative-luminance ratio for 15 pairs in each watch. It
+fails when a pair falls below 4.5:1, and it fails when a ratio recorded for that pair stops matching
+what the tokens compute.
+
+Watched failing: `--unlit` was changed from `#a3b3a0` to `#5a6858` and the gate reported
+`[day] --unlit #5a6858 on --rail #24382e (the UNKNOWN lamp, which still has to be readable):
+2.12:1 is below AA 4.5:1`, exit 1. Restored.
+
+All 30 pairs pass, and every ratio written in the stylesheet was confirmed by independent
+computation, which is the first time those numbers have been checked by anything but the person who
+wrote them.
+
+**The first version of this gate scraped the expected ratios out of the CSS comments and was
+wrong.** One comment carries two ratios against one token (`4.81:1 on bay, 6.26:1 on rail`), so the
+scraper attached the first number it found to every background that token appears on, and reported
+seven mismatches that existed only inside the scraper. A ratio is a fact about a PAIR. It is now
+recorded against a pair, in the gate.
+
+### `gate:a11y` - the structure of what was actually shipped
+
+`scripts/check-a11y.mjs` reads the built HTML in `apps/web/dist` with `linkedom` and checks WCAG 2.1
+A and AA structure: a language on `<html>`, a non-empty `<title>`, exactly one `<main>`, exactly one
+`<h1>`, no skipped heading levels, `alt` on every image, a label on every control, discernible text
+in every link and button, no positive `tabindex`, and a skip link pointing at an element that
+exists.
+
+It reads the BUILT output rather than the source because the pages are Astro components and Preact
+islands, so the markup a visitor receives does not exist in any single source file. A gate reading
+`.astro` files would be checking an intention. Reading `dist` also covers the server-rendered HTML
+of every island, so the console's own form control is checked the same way a template's is.
+
+Watched failing: the layout's `<h1 class="sr-only">` was changed to a `<p>` and the gate reported
+`2.4.6 expected exactly one <h1>, found 0` on all five pages, exit 1. Restored.
+
+It refuses to pass on an empty run. No `dist` is an error, and zero HTML files found is an error,
+because a checker that reports success from finding nothing is the failure this document keeps
+describing.
+
+### A measured limitation of `astro check`, recorded rather than assumed
+
+`astro check` is wired into `verify:ship` as its own step, because `tsc` cannot read a `.astro` file
+at all and the root `tsconfig.json` excludes that workspace, so step 1 says nothing about the site.
+It catches real errors, and it caught several while the pages were being written: an
+`exactOptionalPropertyTypes` violation, two JSX parse errors, an implicit `any`.
+
+**It does not catch an unknown prop passed to an Astro component here.** Measured on 2026-08-05 by
+planting `bogusPropThatDoesNotExist="x"` on `<Board>` in `src/pages/status.astro` and running the
+check: 0 errors, 0 warnings. Removing the `types` override from `apps/web/tsconfig.json` did not
+change it. Versions: astro 7.1.6, `@astrojs/check` 0.9.10, which is the latest published release
+(2026-07-27), so this is not a version skew that an upgrade fixes.
+
+The consequence, stated so nobody reads more into that step than it delivers: the `Props` interface
+in `Board.astro` is documentation, not enforcement, and `Astro.props` has to be cast there or every
+`.map` over a prop infers `any` and silently stops being checked. What does enforce the pages'
+correctness is `gate:a11y`, which reads what was shipped.
 
 ## Regenerating the lockfile
 

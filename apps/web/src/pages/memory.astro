@@ -1,0 +1,145 @@
+---
+/**
+ * `/memory` - the archive.
+ *
+ * WHAT THIS PAGE CANNOT DO YET, said at the top of the file and again on the page itself, because
+ * this is the page a sceptic opens to check that the console is not theatre and it would be an
+ * absurd place to start bluffing.
+ *
+ * There is no endpoint that lists memories. `apps/api` exposes `/agent/turn`, `/verify`, `/status`
+ * and `/health`, and browsing rows needs a bounded, filtered list route that does not exist. So
+ * this page explains the archive's structure and shows the two devices that structure produces - a
+ * supersede chain and a tombstone - as LABELLED illustrations, and says plainly that the browsable
+ * archive is not built. Filling a rack with invented rows on the one page whose job is to be
+ * checkable would be the worst lie on the site.
+ *
+ * The strips below are the shapes the schema really produces. Every number on them comes from
+ * `policy.ts`, imported, so the illustration cannot drift from the code it illustrates.
+ */
+import { DEFAULT_POLICY, MS_PER_DAY } from '@throughline/memory';
+import Board from '../layouts/Board.astro';
+import { articleSchema } from '../scripts/schema.ts';
+import type { SourceRow } from '../scripts/types.ts';
+
+const site = Astro.site?.href ?? Astro.url.origin;
+const policy = DEFAULT_POLICY;
+const graceHours = policy.graceWindowMs / (MS_PER_DAY / 24);
+
+const sources: readonly SourceRow[] = [
+  { claim: 'Half-lives, the grace window and the similarity floor, imported from policy.ts', trust: 'MEASURED' },
+  { claim: 'The supersede chain and the tombstone below, written to show the shape', trust: 'ILLUSTRATION' },
+  { claim: 'What is actually in the archive right now', trust: 'UNKNOWN' },
+];
+---
+
+<Board
+  title="Archive - Throughline"
+  heading="The archive: how a memory row is structured and what may not be deleted"
+  description="How the memory archive is structured: typed rows, supersede chains that keep the old row queryable, tombstones instead of deletions, and a grace window nothing can be evicted inside."
+  designator={['TLN-01 / Archive', 'Supersede and tombstone', 'Never overwrite']}
+  sources={sources}
+  colophon="The third row is the honest one. There is no list endpoint yet, so this page shows the archive's shape rather than its contents, and it says so rather than filling a rack with rows nobody wrote."
+  jsonLd={articleSchema(site, '/memory/', 'How the Throughline archive is structured')}
+>
+  <section class="bay" aria-labelledby="not-built">
+    <div class="bayhead">
+      <span class="bayno">Notice</span>
+      <h2 class="baylabel" id="not-built">The browsable archive is not built</h2>
+      <p class="baynote">
+        Browsing real rows needs a bounded list route on the API, and there is not one. Rather than
+        rack invented strips on the page whose whole job is to let you check the console, this page
+        shows the structures the schema produces and labels them as examples in the source strip.
+      </p>
+    </div>
+    <div class="rack">
+      <div><span class="tag">Missing &middot; GET /memories, bounded, filtered, workspace fixed</span></div>
+    </div>
+  </section>
+
+  <section class="bay" aria-labelledby="chain">
+    <div class="bayhead">
+      <span class="bayno">Bay 1</span>
+      <h2 class="baylabel" id="chain">A supersede chain</h2>
+      <p class="baynote">
+        Contradicting a fact does not overwrite it. It closes the old row's validity interval and
+        links the two, so "why did you tell me that in June" is a question the archive can answer.
+        The current strip sits proud; the ended one stays behind it in tombstone grey.
+      </p>
+    </div>
+    <div class="rack">
+      <div class="strip">
+        <span class="holder h-ent"></span>
+        <div>
+          <div class="row r-main">
+            <div class="cell"><b>Content</b><span class="say">Pool ceiling is 200 connections</span></div>
+            <div class="cell"><b>State</b><span class="stamp prot">Current</span></div>
+          </div>
+          <div class="row r-three">
+            <div class="cell"><b>Kind</b><span class="val">ENTITY FACT</span></div>
+            <div class="cell"><b>Valid from</b><span class="val">2026-08-05</span></div>
+            <div class="cell"><b>Supersedes</b><span class="val">the row below</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="strip retired">
+        <span class="holder h-tomb"></span>
+        <div>
+          <div class="row r-main">
+            <div class="cell"><b>Content</b><span class="say">Pool ceiling is 120 connections</span></div>
+            <div class="cell"><b>State</b><span class="stamp grey">Superseded</span></div>
+          </div>
+          <div class="row r-three">
+            <div class="cell"><b>Kind</b><span class="val">ENTITY FACT</span></div>
+            <div class="cell"><b>Valid until</b><span class="val">2026-08-05</span></div>
+            <div class="cell"><b>Still queryable</b><span class="val">yes</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="bay" aria-labelledby="eviction">
+    <div class="bayhead">
+      <span class="bayno">Bay 2</span>
+      <h2 class="baylabel" id="eviction">What eviction may not touch</h2>
+      <p class="baynote">
+        Eviction is age and value based with a grace window, and it reports what it refused as well
+        as what it removed.
+      </p>
+    </div>
+    <div class="rack">
+      <div><span class="tag">Refused &middot; inside the {graceHours} h grace window</span></div>
+      <div><span class="tag">Refused &middot; write with no provenance, rejected at the boundary</span></div>
+      <p class="baynote">
+        Nothing younger than {graceHours} hours can be evicted at any score, because the incident
+        that just happened is the one most likely to recur within the hour and it has no usage yet.
+        An evicted row leaves a tombstone, so the archive stays auditable rather than becoming
+        shorter.
+      </p>
+    </div>
+  </section>
+
+  <section class="bay" aria-labelledby="kinds">
+    <div class="bayhead">
+      <span class="bayno">Bay 3</span>
+      <h2 class="baylabel" id="kinds">What a row carries</h2>
+    </div>
+    <div class="prose">
+      <p>
+        Content and embedding, the kind, provenance naming who or what asserted it and out of which
+        incident, confirmation and contradiction counts, the interval over which it is claimed to
+        hold, a pointer to whatever superseded it, and the instant before which it cannot be
+        evicted. A write with no provenance is rejected at the boundary rather than warned about,
+        because a memory you cannot attribute is a rumour.
+      </p>
+      <p>
+        Ranking is deterministic. Similarity, time decay and confirmation combine into a single
+        score computed in code, weighted {policy.weights.similarity} similarity, {policy.weights.freshness} freshness
+        and {policy.weights.confirmation} confirmation. Contradiction is the one that does not add:
+        it SUBTRACTS at {policy.weights.contradiction}, which is more than confirmation adds, so a
+        memory that has been argued with sinks faster than agreement can lift it. The language model
+        writes the narrative around a result and never produces the number that ordered it.
+      </p>
+    </div>
+  </section>
+</Board>

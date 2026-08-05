@@ -1,0 +1,148 @@
+---
+/**
+ * The board. Every page is this instrument with different records in it.
+ *
+ * ART-DIRECTION section 4: the chrome never leaves the viewport and content arrives as records
+ * posted into bays. Header strip, sheet index, annunciator rail and source strip are here because
+ * they are the same on every page; the watch rail belongs to `/` alone and lives there.
+ *
+ * The JSON-LD block is `is:inline` on purpose: it is DATA, not code, and it has to reach the page
+ * exactly as serialised with no bundling step between here and the crawler that reads it. Every
+ * `<` in it is escaped, because a `</script>` appearing inside a string would otherwise end the
+ * element early and turn structured data into markup.
+ *
+ * The annunciator is an ISLAND rather than server-rendered text. At build time nobody has looked
+ * at the cluster, so the only honest thing a static page can say about the vector index is
+ * UNKNOWN, and that is exactly what it renders before hydration. If the API answers, the lamps
+ * light from a real probe. If it does not, they stay unlit, which is the correct answer and not a
+ * broken page.
+ */
+import '../styles/board.css';
+import Annunciator from '../islands/Annunciator.tsx';
+import SourceStrip from '../components/SourceStrip.astro';
+import { API_BASE } from '../scripts/config.ts';
+import type { SourceRow } from '../scripts/types.ts';
+
+interface Props {
+  readonly title: string;
+  /** The page's h1. Visually hidden, because the board deliberately has no visible page title. */
+  readonly heading: string;
+  readonly description: string;
+  /** The right-hand block of the header strip, in instrument type. One line per array entry. */
+  readonly designator: readonly string[];
+  readonly sources: readonly SourceRow[];
+  /** The colophon under the source strip: what this page's last row actually means. */
+  readonly colophon?: string;
+  /**
+   * `/status` IS the annunciator at full size. A miniature copy above it would be a second,
+   * smaller answer to the same question, so that page turns the rail off.
+   */
+  readonly rail?: boolean;
+  readonly jsonLd?: unknown;
+}
+
+// CAST, and the reason is measured rather than assumed. `Astro.props` resolves to
+// `Record<string, any>` here, so without this every `.map` over a prop in this file infers `any`
+// and silently stops being checked.
+//
+// The `Props` interface is therefore DOCUMENTATION in this setup, not enforcement, and that was
+// established by planting a nonsense prop on a caller and watching `astro check` report zero
+// errors (astro 7.1.6, @astrojs/check 0.9.10, 2026-08-05, recorded in docs/gates.md). Do not read
+// the interface below as a contract the build enforces. What does enforce this page's correctness
+// is `gate:a11y`, which reads the built HTML.
+const { title, heading, description, designator, sources, colophon, rail = true, jsonLd } =
+  Astro.props as Props;
+
+const pages = [
+  { href: '/', label: 'The board' },
+  { href: '/demo/', label: 'Console' },
+  { href: '/memory/', label: 'Archive' },
+  { href: '/how-it-works/', label: 'How it works' },
+  { href: '/status/', label: 'Status' },
+] as const;
+
+const here = Astro.url.pathname.replace(/\/+$/, '') || '/';
+const isCurrent = (href: string) => (href.replace(/\/+$/, '') || '/') === here;
+const canonical = new URL(Astro.url.pathname, Astro.site ?? Astro.url).href;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Throughline" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+
+    <meta name="theme-color" content="#2e4b3c" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#131f19" media="(prefers-color-scheme: dark)" />
+
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Big+Shoulders:wght@100..900&family=Big+Shoulders+Stencil:wght@100..900&family=Petrona:ital,wght@0,300..800;1,300..800&family=B612+Mono:ital,wght@0,400;0,700;1,400&family=Caveat:wght@400..700&display=swap"
+      rel="stylesheet"
+    />
+
+    {
+      jsonLd && (
+        <script
+          is:inline
+          type="application/ld+json"
+          set:html={JSON.stringify(jsonLd).replace(/</g, '\\u003c')}
+        />
+      )
+    }
+  </head>
+
+  <body>
+    <a class="skip" href="#main">Skip to the board</a>
+
+    <header class="header">
+      <p class="brand"><a href="/">Throughline</a></p>
+      <p class="designator">{designator.map((line) => <span>{line}</span>)}</p>
+    </header>
+
+    <nav class="index" aria-label="Pages">
+      {
+        pages.map((page) =>
+          isCurrent(page.href) ? (
+            <a href={page.href} aria-current="page">{page.label}</a>
+          ) : (
+            <a href={page.href}>{page.label}</a>
+          ),
+        )
+      }
+    </nav>
+
+    {rail && <Annunciator client:idle apiBase={API_BASE} />}
+
+    <main id="main">
+      {/* The page's real heading, available to a screen reader and absent from the design.
+          The board has no visible page title by design: the header strip carries the product name
+          and the designator block carries the position. That leaves a page whose first heading is
+          an h2, which reads to assistive technology as a document that starts mid-outline. This is
+          the h1 the outline needs, and it says which page you are on rather than repeating the
+          product name five times. */}
+      <h1 class="sr-only">{heading}</h1>
+      <slot />
+    </main>
+
+    {/* Conditional spread rather than `colophon={colophon}`: `exactOptionalPropertyTypes` is on
+        across this repository, so passing an explicit `undefined` to an optional prop is a type
+        error rather than an omission. */}
+    <SourceStrip rows={sources} {...(colophon === undefined ? {} : { colophon })} />
+  </body>
+</html>

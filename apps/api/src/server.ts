@@ -1,7 +1,9 @@
 import { Hono } from 'hono';
 import type { Context, MiddlewareHandler } from 'hono';
 import { z } from 'zod';
-import type { Database, MemoryRepository } from '@throughline/memory';
+import type { AgentTurnResponse, HealthResponse, StatusResponse } from '@throughline/contract';
+import type { Capabilities, Database, MemoryRepository } from '@throughline/memory';
+import { toLamps, toRecallEvent } from './http/contract.ts';
 import { runAgentTurn, type ChatModel } from './agent/loop.ts';
 import { verifyMemory } from './mcp-verifier.ts';
 import { McpError, type McpClient } from './mcp-client.ts';
@@ -75,6 +77,21 @@ export interface ServerDependencies {
    * offline demo depend on the one thing the offline demo exists to avoid.
    */
   readonly openVerificationChannel: () => McpClient;
+  /**
+   * Ask the live database what it can do, now.
+   *
+   * A function and not a value, because `/status` answers "what can this system do right now" and
+   * a capability snapshot taken at boot answers a different question. An index dropped at noon
+   * would keep reading OK until the next deploy.
+   */
+  readonly probeCapabilities: () => Promise<Capabilities>;
+  /**
+   * Whether a verification channel is CONFIGURED. Not whether it answers.
+   *
+   * The distinction is the point: `/status` reports this as a configuration fact and never as a
+   * reachability measurement, because it does not open the channel to draw the lamp.
+   */
+  readonly verificationChannelConfigured: boolean;
   /** How to identify the caller. Injected so a test never needs a socket. */
   readonly clientAddressOf: (c: Context) => string | null;
   readonly now: () => Date;
@@ -178,7 +195,10 @@ export function createApp(deps: ServerDependencies): Hono {
   // It names the server. "Something answered on this port" is not "my server is up": a foreign
   // process holding the port answers a bare TCP check forever, so the body carries an identity a
   // monitor can assert rather than a bare 200.
-  app.get('/health', (c) => c.json({ server: SERVER_NAME, status: 'ok' }));
+  app.get('/health', (c) => {
+    const body: HealthResponse = { server: SERVER_NAME, status: 'ok' };
+    return c.json(body);
+  });
 
   const limited = rateLimitMiddleware(limiter, deps);
 
@@ -206,15 +226,80 @@ export function createApp(deps: ServerDependencies): Hono {
     // way to spend the provider repeatedly for free.
     const answer = await runAgentTurn({ model, repository, workspaceId }, body.message);
 
-    return c.json({
+    const response: AgentTurnResponse = {
       text: answer.text,
       coverage: answer.coverage,
       refusedAnAbsenceClaim: answer.refusedAnAbsenceClaim,
       toolCallCount: answer.toolCallCount,
       modelId: answer.modelId,
       transcript: answer.transcript,
+      // Receipts as DATA, alongside the transcript rather than instead of it. The transcript is
+      // the record of who said what; these are the numbers, so the console never has to recover
+      // one by parsing the other.
+      recalls: answer.recalls.map((event) => toRecallEvent(event.callId, event.result, deps.now())),
       budget: { used: claim.used, limit: claim.limit, day: claim.day },
-    });
+    };
+    return c.json(response);
+  });
+
+  // WHAT THIS SYSTEM CAN ACTUALLY DO RIGHT NOW, asked of the live database rather than remembered
+  // from boot. "The last time anyone actually looked" is the fact the status page is about, so a
+  // cached answer from process start would be the wrong shape of truth even when its content was
+  // right.
+  //
+  // Rate limited like everything else, deliberately: each call runs real queries against the
+  // cluster, and an unlimited status endpoint is a way to spend someone else's database.
+  // A short shared cache in front of the probe.
+  //
+  // One GET runs six statements against the cluster, and the annunciator rail is on every page, so
+  // without this a visitor clicking through five pages spends thirty statements to draw the same
+  // three lamps. That is a way to spend somebody else's database with no credentials, which is the
+  // shape of problem the daily ceiling exists for.
+  //
+  // IT SAVES STATEMENTS, NOT TOKENS, and an earlier version of this comment claimed both. The
+  // `limited` middleware runs BEFORE this handler, so a cached answer has already spent a rate
+  // limit token: four calls at a limit of three still give 200, 200, 200, 429 while the probe runs
+  // once. Measured, not reasoned about. Giving reads their own looser bucket is the fix for that
+  // and it is not this one.
+  //
+  // Fifteen seconds does not weaken the claim this endpoint makes. "What can this system do right
+  // now" is still answered from a probe that ran within the last fifteen seconds, which is a very
+  // different thing from the boot snapshot it replaced; an index dropped at noon is reported
+  // within fifteen seconds rather than at the next deploy.
+  const PROBE_CACHE_MS = 15_000;
+  // The PROMISE is cached, not the result, and that is what makes a BURST probe once. Caching the
+  // result only helps requests arriving after the first has finished; ten arriving together all
+  // miss and all probe, and a status page is exactly the thing that gets hit in bursts. Measured
+  // before it was written this way: three concurrent calls probed three times.
+  let inFlight: { at: number; capabilities: Promise<Capabilities> } | null = null;
+
+  app.get('/status', limited, async (c) => {
+    const now = deps.now().getTime();
+    if (inFlight === null || now - inFlight.at >= PROBE_CACHE_MS) {
+      const started = deps.probeCapabilities();
+      inFlight = { at: now, capabilities: started };
+      // Cleared on rejection so one failed probe does not pin this endpoint to a rejected promise
+      // for the rest of the window, answering 500 to everybody who follows.
+      started.catch(() => {
+        if (inFlight?.capabilities === started) inFlight = null;
+      });
+    }
+
+    const capabilities = await inFlight.capabilities;
+    // ONE body-construction path, deliberately. The first version built the response twice, once
+    // for the cached branch and once for the fresh one, and a review had to check both to confirm
+    // the cluster target was absent from each. Two paths that must agree about what is safe to
+    // publish is one more than necessary.
+    //
+    // `capabilities.target` is NOT served: it is host, port, database and schema of the live
+    // cluster, and this endpoint takes no credentials. `observedAt` is the probe's OWN timestamp,
+    // so a cached answer reports when somebody actually looked rather than when it was handed over.
+    const response: StatusResponse = {
+      server: SERVER_NAME,
+      observedAt: capabilities.observedAt.toISOString(),
+      lamps: toLamps(capabilities, deps.verificationChannelConfigured),
+    };
+    return c.json(response);
   });
 
   // A USER ACTION AND NEVER A MODEL TOOL. It costs a round trip over a second channel, and a model

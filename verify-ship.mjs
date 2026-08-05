@@ -50,6 +50,9 @@ const STEP_TIMEOUT_MS =
 
 const STEPS = [
   { name: 'types', cmd: 'npm run gate:types' }, // tsc --noEmit
+  // `tsc` cannot read a `.astro` file at all, and the root tsconfig excludes that workspace, so
+  // step 1 says nothing whatsoever about the site. This is the step that does.
+  { name: 'web',   cmd: 'npm run gate:web' },   // astro check
   { name: 'tests', cmd: 'npm test' },           // FULL suite, one-shot
   { name: 'lint',  cmd: 'npm run lint' },       // WHOLE-repo lint
   { name: 'gate',  cmd: 'npm run gate' },       // committed gate chain (floors)

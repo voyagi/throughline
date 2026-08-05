@@ -13,10 +13,12 @@
   },
   "dependencies": {
     "@astrojs/preact": "^6",
+    "@throughline/contract": "*",
     "astro": "^7",
     "preact": "^10"
   },
   "devDependencies": {
-    "@astrojs/check": "^0.9"
+    "@astrojs/check": "^0.9",
+    "schema-dts": "^2.0.0"
   }
 }

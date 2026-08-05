@@ -1,0 +1,46 @@
+---
+/**
+ * `/status` - the annunciator at full size.
+ *
+ * The rail is OFF here, and that is a decision rather than an omission: this page IS the
+ * annunciator, and a miniature copy of it above would be a second, smaller answer to the same
+ * question. ART-DIRECTION section 4.
+ */
+import '../styles/status.css';
+import Board from '../layouts/Board.astro';
+import StatusBoard from '../islands/StatusBoard.tsx';
+import { API_BASE } from '../scripts/config.ts';
+import type { SourceRow } from '../scripts/types.ts';
+
+const sources: readonly SourceRow[] = [
+  { claim: 'Every lamp, lit by a probe against the live database when you loaded this page', trust: 'MEASURED' },
+  { claim: 'Whether the verification channel answers, as opposed to being configured', trust: 'UNKNOWN' },
+];
+---
+
+<Board
+  title="Status - Throughline"
+  heading="What this system can actually do right now"
+  description="What this system can actually do right now against the live database: vector index, embeddings and verification channel, each reported as OK, DEGRADED or UNKNOWN and never inferred."
+  designator={['TLN-01 / Annunciator', 'Live probe', API_BASE]}
+  sources={sources}
+  colophon="The second row is not a hedge. This page does not open the verification channel to draw a lamp, because polling a third party on every page load is not a status check, so it reports configuration and says which one it is reporting."
+  rail={false}
+>
+  <StatusBoard client:load apiBase={API_BASE} />
+
+  <section class="prose">
+    <h3>Why a lamp can be unlit</h3>
+    <p>
+      An unlit lamp is not an OK lamp. It means the probe could not answer, and the difference
+      matters more here than anywhere else on this site: a monitor that reports a capability it
+      could not measure is committing the exact failure this whole system exists to argue against.
+    </p>
+    <p>
+      OK and DEGRADED are measurements. The vector index lamp reads OK only when the query planner
+      is observed CHOOSING the index for the query recall actually runs, not when an index merely
+      exists in the catalog. An index the planner ignores accelerates nothing, and reporting its
+      existence as a capability would be trusting a catalog row over the system's behaviour.
+    </p>
+  </section>
+</Board>

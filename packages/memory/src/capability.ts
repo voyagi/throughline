@@ -67,8 +67,8 @@ async function probeServerVersion(db: Database): Promise<Observation<string>> {
     const rows = await db.query<{ version: string }>('SELECT version() AS version');
     const version = rows[0]?.version;
     return version ? observed(version) : unknown('version() returned no rows');
-  } catch (error) {
-    return unknown(`could not read the server version: ${messageOf(error)}`);
+  } catch {
+    return unknown('could not read the server version');
   }
 }
 
@@ -102,8 +102,8 @@ async function probeVectorColumn(
       return unknown(`the embedding column reports type "${declared}", which carries no dimension`);
     }
     return observed(Number.parseInt(match[1], 10));
-  } catch (error) {
-    return unknown(`could not inspect the embedding column: ${messageOf(error)}`);
+  } catch {
+    return unknown(`could not inspect the embedding column on ${schema}.${table}`);
   }
 }
 
@@ -135,8 +135,8 @@ async function probeVectorIndex(
         WHERE column_name = 'embedding' AND storing = false AND implicit = false`,
     );
     return observed(rows.length > 0);
-  } catch (error) {
-    return unknown(`could not list indexes on ${schema}.${table}: ${messageOf(error)}`);
+  } catch {
+    return unknown(`could not list indexes on ${schema}.${table}`);
   }
 }
 
@@ -184,8 +184,8 @@ async function probeAnnPlan(
     // operator rather than only on the index name, because an index can be named anything.
     const usesVectorSearch = plan.includes('vector search') || plan.includes('vecindex');
     return observed(usesVectorSearch);
-  } catch (error) {
-    return unknown(`the query plan could not be read: ${messageOf(error)}`);
+  } catch {
+    return unknown('the query plan could not be read');
   }
 }
 
@@ -207,8 +207,8 @@ async function probeVectorIndexingEnabled(db: Database): Promise<Observation<boo
     if (typeof value === 'boolean') return observed(value);
     if (typeof value === 'string') return observed(value === 'true' || value === 'on');
     return unknown(`feature.vector_index.enabled reported an unrecognised value: ${String(value)}`);
-  } catch (error) {
-    return unknown(`this cluster would not report feature.vector_index.enabled: ${messageOf(error)}`);
+  } catch {
+    return unknown('this cluster would not report feature.vector_index.enabled');
   }
 }
 
@@ -219,8 +219,8 @@ async function probeEmbedder(embedder: Embedder): Promise<Observation<number>> {
       return unknown(`embedder ${embedder.id} returned an empty vector`);
     }
     return observed(vector.length);
-  } catch (error) {
-    return unknown(`embedder ${embedder.id} failed: ${messageOf(error)}`);
+  } catch {
+    return unknown(`embedder ${embedder.id} failed`);
   }
 }
 
@@ -286,6 +286,20 @@ function explainNoAnn(capabilities: Capabilities): string {
   return 'no vector index exists on the embedding column';
 }
 
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+/*
+ * WHY NO PROBE REASON ABOVE QUOTES WHAT WAS THROWN, and this used to be a helper called
+ * `messageOf` that every `catch` in this file passed its error to.
+ *
+ * These reasons are not private diagnostics. `retrievalPathFor` composes them into the reason
+ * recall reports for falling back to an exact scan, that reason becomes `receipt.degradations`,
+ * `renderRecall` prints degradations into a `tool_result`, and `/agent/turn` returns the whole
+ * transcript on a 200. So a driver message caught here is a public response body two hops later,
+ * on a COVERED turn with nothing wrong, on every turn after a boot-time probe that failed once.
+ *
+ * That is not a hypothesis. The control named "does not carry a capability probe failure into a
+ * COVERED transcript" in `apps/api/test/server.test.ts` failed against the previous version of
+ * this file with a role ARN in the response body.
+ *
+ * What is lost is the driver's own words in `npm run probe` output. What is kept is the sentence
+ * that says which check failed, which is the half an operator acts on.
+ */

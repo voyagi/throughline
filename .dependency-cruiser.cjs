@@ -114,6 +114,23 @@ module.exports = {
           '(^|/)(index|main|entry|handler)\\.[jt]sx?$',
           '\\.config\\.[jt]s$',
           '^apps/web/src/pages/',
+          // DEPENDENCY-CRUISER CANNOT PARSE `.astro`. Not "parses it badly": those files are absent
+          // from the graph entirely, so anything imported ONLY by a page or a layout has no
+          // importer the cruiser can see and reads as an orphan. Three real modules reported that
+          // way the moment the site landed.
+          //
+          // The cost of this exemption is stated rather than hidden: a genuinely dead module under
+          // these paths stops being flagged. That is acceptable only because the check could not
+          // distinguish dead from page-imported here anyway, so it was producing noise and no
+          // signal. It is NOT a general licence, and the same blindness has a sharper consequence
+          // recorded in docs/gates.md: `browser-code-stays-in-the-browser` cannot see `.astro`
+          // files either, so it does not cover pages or layouts.
+          // `scripts` only. A `styles` arm was in the first version of this exemption and matched
+          // NOTHING: there are zero `.css` modules in the graph, because the cruiser follows
+          // JavaScript imports and a stylesheet imported by a page is not one. An exemption that
+          // matches nothing is the same shape of thing as a rule that matches nothing, and this
+          // file's own header says a rule matching nothing describes a wall that does not exist.
+          '^apps/web/src/scripts/',
         ],
       },
       to: {},

@@ -1,0 +1,183 @@
+---
+/**
+ * `/` - the board.
+ *
+ * Four bays, each carrying real strips rather than a paragraph about strips, and a watch rail down
+ * the left edge marked in wall-clock time. The rail belongs to this page alone: it is the only one
+ * whose scroll is a passage of time.
+ *
+ * Every number printed here comes from `packages/memory/src/policy.ts`, imported rather than
+ * retyped, so this page cannot drift from the code the way the bake-off mockups did. The source
+ * strip at the foot says which rows are measurements and which are examples, and the three bays
+ * that illustrate the failure modes say ILLUSTRATION rather than dressing themselves as telemetry.
+ */
+import { DEFAULT_POLICY, MS_PER_DAY } from '@throughline/memory';
+import Board from '../layouts/Board.astro';
+import { siteSchema } from '../scripts/schema.ts';
+import type { SourceRow } from '../scripts/types.ts';
+
+const site = Astro.site?.href ?? Astro.url.origin;
+const policy = DEFAULT_POLICY;
+const graceHours = policy.graceWindowMs / (MS_PER_DAY / 24);
+
+const ticks = ['02:00', '02:14', '02:31', '02:33', '03:07', '03:20'];
+
+const sources: readonly SourceRow[] = [
+  { claim: 'Half-lives, floors, the candidate cap and the grace window', trust: 'MEASURED' },
+  { claim: 'The three incidents on the strips below, written to show the shape of each failure', trust: 'ILLUSTRATION' },
+  { claim: 'What this system can do against the live cluster right now', trust: 'UNKNOWN' },
+];
+---
+
+<Board
+  title="Throughline - an incident-response agent whose memory you can audit"
+  heading="Throughline: an incident-response agent whose memory you can audit"
+  description="Every recall returns a receipt: what was searched, which path ran, what was excluded, and whether the search covered what it claims to. A search that could not run answers UNKNOWN."
+  designator={['TLN-01 / The board', 'CockroachDB x AWS', 'Agentic memory']}
+  sources={sources}
+  colophon="The third row is not a gap in this page. Nobody has probed the cluster from your browser yet, so the honest answer is that nobody looked."
+  jsonLd={siteSchema(site)}
+>
+  <div class="board">
+    <div class="watch" aria-hidden="true">
+      {ticks.map((tick, index) => (
+        <div class={index % 2 === 0 ? 'tick major' : 'tick'}><span>{tick}</span></div>
+      ))}
+    </div>
+
+    <div>
+      <section class="bay" aria-labelledby="bay-1">
+        <div class="bayhead">
+          <span class="bayno">Bay 1</span>
+          <h2 class="baylabel" id="bay-1">The fact that expired</h2>
+          <p class="baynote">
+            A runbook step is correct until a migration lands, and then it is confidently wrong. A
+            plain embedding store has nowhere to record that.
+          </p>
+        </div>
+        <div class="rack">
+          <div class="strip cocked">
+            <span class="holder h-ent"></span>
+            <div>
+              <div class="row r-main">
+                <div class="cell"><b>Content</b><span class="say doubt">Pool ceiling is 120 connections</span></div>
+                <div class="cell"><b>Score</b><span class="val doubt">0.48</span></div>
+              </div>
+              <div class="row r-four">
+                <div class="cell"><b>Kind</b><span class="val">ENTITY FACT</span></div>
+                <div class="cell"><b>Age</b><span class="val">32 d</span></div>
+                <div class="cell"><b>Half-life</b><span class="val">{policy.halfLifeDays.entity_fact} d</span></div>
+                <div class="cell"><b>State</b><span class="stamp cock">Cocked</span></div>
+              </div>
+            </div>
+          </div>
+          <p class="baynote">
+            It is <strong>returned flagged, never dropped</strong>. Below a freshness
+            of {policy.staleFloor} for its kind the strip is cocked out of alignment, because a stale
+            memory a human can see is safer than one that quietly vanished. The rotation is the
+            information; it survives even under reduced motion.
+          </p>
+        </div>
+      </section>
+
+      <section class="bay" aria-labelledby="bay-2">
+        <div class="bayhead">
+          <span class="bayno">Bay 2</span>
+          <h2 class="baylabel" id="bay-2">The search that never ran</h2>
+          <p class="baynote">
+            The embedding call times out and the agent reports "no prior incidents". The caller
+            cannot tell that from a genuine empty result. During an incident those are opposite
+            facts.
+          </p>
+        </div>
+        <div class="rack">
+          <div class="empty">
+            <span class="holder"></span>
+            <div class="slip">
+              <span class="k">Refusal slip</span>
+              <div class="v">NO SEARCH RAN. VERDICT: UNKNOWN.</div>
+              <div class="fields">
+                <div><span>QUERY</span> standby region, failover</div>
+                <div><span>PATH</span> none, both paths need a query vector</div>
+                <div><span>EXAMINED</span> 0 candidates</div>
+                <div><span>STOPPED BY</span> embedder_failed</div>
+              </div>
+              <p>
+                An empty holder is information. The agent is structurally forbidden from turning
+                this into "there are no prior incidents", and that refusal is enforced in code
+                rather than requested in a prompt.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="bay" aria-labelledby="bay-3">
+        <div class="bayhead">
+          <span class="bayno">Bay 3</span>
+          <h2 class="baylabel" id="bay-3">The eviction that ate the newest entry</h2>
+          <p class="baynote">
+            Value-based eviction ranks by usage. A memory written four minutes ago has no usage, so
+            the incident that just happened is the first thing thrown away.
+          </p>
+        </div>
+        <div class="rack">
+          <div><span class="tag">Refused &middot; 3 entries inside the {graceHours} h grace window</span></div>
+          <div class="strip retired">
+            <span class="holder h-tomb"></span>
+            <div>
+              <div class="row r-main">
+                <div class="cell"><b>Content</b><span class="say">Tombstone &middot; evicted, still queryable</span></div>
+                <div class="cell"><b>State</b><span class="stamp grey">Evicted</span></div>
+              </div>
+            </div>
+          </div>
+          <p class="baynote">
+            Nothing under {graceHours} hours old can be evicted at any score. What is evicted
+            leaves a tombstone rather than a hole, so the archive can be asked what it removed and
+            what it refused to remove.
+          </p>
+        </div>
+      </section>
+
+      <section class="bay" aria-labelledby="bay-4">
+        <div class="bayhead">
+          <span class="bayno">Bay 4</span>
+          <h2 class="baylabel" id="bay-4">Active</h2>
+          <p class="baynote">
+            Five kinds, five holder colours, five half-lives. The kind sets how fast a memory ages
+            and what recall does with it, which is why it is not decoration.
+          </p>
+        </div>
+        <div class="rack">
+          {([
+            ['entity_fact', 'h-ent', 'ENTITY FACT', 'True on Tuesday, dangerous on Friday'],
+            ['observation', 'holder', 'OBSERVATION', 'A single reading. It ages, but it was true when recorded'],
+            ['runbook_fact', 'h-run', 'RUNBOOK FACT', 'Durable, right up until a migration invalidates it'],
+            ['resolution', 'h-res', 'RESOLUTION', 'What actually fixed something. Worth keeping'],
+            ['rejected_hypothesis', 'h-rej', 'REJECTED HYPOTHESIS', 'What did NOT work, and the first thing a summariser deletes'],
+          ] as const).map(([kind, holder, label, why]) => (
+            <div class="strip">
+              <span class={holder === 'holder' ? 'holder' : `holder ${holder}`}></span>
+              <div>
+                <div class="row r-three">
+                  <div class="cell"><b>Kind</b><span class="val">{label}</span></div>
+                  <div class="cell"><b>Half-life</b><span class="val">{policy.halfLifeDays[kind]} d</span></div>
+                  <div class="cell"><b>Why</b><span class="say">{why}</span></div>
+                </div>
+              </div>
+            </div>
+          ))}
+          <p class="baynote">
+            Recall examines at most {policy.candidateCap} candidates and reports PARTIAL when it
+            hits that cap, so a bounded search never presents itself as an exhaustive one. Anything
+            below a similarity of {policy.similarityFloor} is a different subject, not a weak match.
+          </p>
+          <p>
+            <a class="cta" href="/demo/"><span class="holder h-res"></span><span class="lbl">Open the console</span></a>
+          </p>
+        </div>
+      </section>
+    </div>
+  </div>
+</Board>

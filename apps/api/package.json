@@ -12,6 +12,7 @@
     "@aws-sdk/client-bedrock-runtime": "^3",
     "@aws-sdk/client-secrets-manager": "^3",
     "@hono/node-server": "^2",
+    "@throughline/contract": "*",
     "@throughline/memory": "*",
     "hono": "^4",
     "zod": "^4"
