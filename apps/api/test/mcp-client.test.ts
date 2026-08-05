@@ -400,7 +400,7 @@ describe('extractRpcPayload', () => {
 
   it('refuses a stream that carried messages but no answer', () => {
     const raw = 'event: message\ndata: {"jsonrpc":"2.0","method":"notifications/progress"}\n\n';
-    expect(() => extractRpcPayload(raw, 'text/event-stream')).toThrow(/without finding an answer/);
+    expect(() => extractRpcPayload(raw, 'text/event-stream')).toThrow(/did not receive an answer/);
     expect(() => extractRpcPayload(raw, 'text/event-stream')).toThrow(McpError);
   });
 
@@ -422,7 +422,7 @@ describe('extractRpcPayload', () => {
     // memory and reports DIVERGES with failure null. Shape is not identity.
     const foreign =
       'event: message\ndata: {"jsonrpc":"2.0","id":999,"result":{"content":[]}}\n\n';
-    expect(() => extractRpcPayload(foreign, 'text/event-stream', 2)).toThrow(/without finding an answer/);
+    expect(() => extractRpcPayload(foreign, 'text/event-stream', 2)).toThrow(/did not receive an answer/);
     expect(() => extractRpcPayload(foreign, 'text/event-stream', 2)).toThrow(McpError);
     // Ours is still found when it is on the stream, whatever else is sharing it.
     const mixed =
@@ -436,8 +436,51 @@ describe('extractRpcPayload', () => {
     });
     // A plain JSON body is held to the same rule.
     expect(() => extractRpcPayload('{"jsonrpc":"2.0","id":999,"result":{}}', 'application/json', 2)).toThrow(
-      /without finding an answer/,
+      /did not receive an answer/,
     );
+  });
+
+  it('keeps an error the server could not attribute, because id null still answers us', () => {
+    // JSON-RPC requires `id: null` on an error the server cannot tie back to a request. Holding
+    // that to the same rule as a result LOOKS consistent and throws away the only thing the
+    // failure path exists to produce: measured before this allowance, an oversized-result error
+    // arrived as `unrecognised_envelope` with no serverMessage and no cause, instead of
+    // `result_too_large` with the server's own words kept for the log. Still UNKNOWN either way,
+    // so no data claim, but the operator loses the reason.
+    const raw = `event: message\ndata: ${JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: 0, message: LIVE_MESSAGES.tooLarge } })}\n\n`;
+    const payload = extractRpcPayload(raw, 'text/event-stream', 2);
+    let thrown: unknown;
+    try {
+      readRows(payload);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(McpError);
+    expect((thrown as McpError).kind).toBe('result_too_large');
+    expect((thrown as McpError).serverMessage).toContain('max result size exceeded');
+
+    // A RESULT gets no such latitude: unattributable ROWS are the whole hazard.
+    const rowsWithNullId = `event: message\ndata: ${JSON.stringify({ jsonrpc: '2.0', id: null, result: { content: [] } })}\n\n`;
+    expect(() => extractRpcPayload(rowsWithNullId, 'text/event-stream', 2)).toThrow(
+      /did not receive an answer/,
+    );
+  });
+
+  it('numbers its requests, so the id check is checking something', async () => {
+    // The invariant the whole id check rests on, and nothing pinned it: replacing
+    // `id: (requestId += 1)` with `id: requestId` left every test green, which would make the
+    // check compare a constant against a constant and pass forever.
+    const recorded: Recorded[] = [];
+    const client = createMcpClient({
+      config: CONFIG,
+      fetchImpl: fakeFetch([rowsPayload([]), rowsPayload([])], recorded),
+    });
+    await client.select({ database: 'defaultdb', sql: 'SELECT 1', limit: 2 });
+    await client.select({ database: 'defaultdb', sql: 'SELECT 2', limit: 2 });
+
+    const ids = recorded.filter((entry) => entry.body.id !== undefined).map((entry) => entry.body.id);
+    expect(ids.length).toBeGreaterThan(1);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 
   it('carries the id check all the way through the client, not just the parser', async () => {
@@ -458,7 +501,7 @@ describe('extractRpcPayload', () => {
     });
 
     await expect(client.select({ database: 'defaultdb', sql: 'SELECT 1', limit: 2 })).rejects.toThrow(
-      /without finding an answer/,
+      /did not receive an answer/,
     );
   });
 });

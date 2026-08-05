@@ -354,13 +354,18 @@ export function extractRpcPayload(
         'knowledge at all rather than an empty result.',
       cause === undefined ? undefined : { cause },
     );
-  const foreignAnswer = (): McpError =>
+  /**
+   * No answer arrived. `detail` says WHICH of the ways that happened, because one sentence covering
+   * four situations names the wrong one three times out of four, and this text is what an operator
+   * reads when a verification could not be performed.
+   */
+  const noAnswer = (detail: string, cause?: unknown): McpError =>
     new McpError(
       'unrecognised_envelope',
-      'The verification channel read the response stream to the end without finding an answer to ' +
-        'the request it sent. Nothing was read, so nothing is known. Answering with a message ' +
-        'that belongs to a different request would put another query\'s rows in front of this ' +
-        'memory and report the mismatch as a divergence.',
+      `The verification channel did not receive an answer to the request it sent: ${detail} ` +
+        'Nothing was read, so nothing is known. Treating another message as the answer would put ' +
+        "a different query's rows in front of this memory and report the mismatch as a divergence.",
+      cause === undefined ? undefined : { cause },
     );
 
   /**
@@ -374,8 +379,21 @@ export function extractRpcPayload(
    */
   const answersUs = (parsed: unknown): boolean => {
     if (!parsed || typeof parsed !== 'object') return false;
-    if (!('result' in parsed) && !('error' in parsed)) return false;
-    return expectedId === undefined || (parsed as { id?: unknown }).id === expectedId;
+    const hasError = 'error' in parsed;
+    if (!('result' in parsed) && !hasError) return false;
+    if (expectedId === undefined) return true;
+
+    const id = (parsed as { id?: unknown }).id;
+    if (id === expectedId) return true;
+
+    // `id: null` on an ERROR is what JSON-RPC requires when the server could not attribute the
+    // failure to a request, and it is still our error: this exchange is one request on one
+    // connection. Dropping it would replace a named cause ("the answer was too large for this
+    // channel to carry") with "no answer arrived", discarding the classification, the server's own
+    // words and the cause together, on the one code path whose entire job is to say WHY a read did
+    // not happen. A RESULT gets no such latitude: rows that cannot be attributed to this request
+    // are precisely the foreign-data hazard this check exists to stop.
+    return hasError && id === null;
   };
 
   if (!(contentType ?? '').includes('text/event-stream')) {
@@ -386,7 +404,9 @@ export function extractRpcPayload(
     } catch (cause) {
       throw unparseable(cause);
     }
-    if (expectedId !== undefined && !answersUs(parsed)) throw foreignAnswer();
+    if (expectedId !== undefined && !answersUs(parsed)) {
+      throw noAnswer('the body carried a message that does not answer it.', parsed);
+    }
     return parsed;
   }
 
@@ -399,6 +419,10 @@ export function extractRpcPayload(
   const events = rawBody.split(/\r?\n[ \t]*\r?\n/);
   let sawData = false;
   let parseFailure: unknown;
+  // Kept so the throw below can say whether the stream held OTHER requests' answers or no answer
+  // at all, and can carry one along as a cause for the log. Those are different operational
+  // situations and the distinction is free to preserve.
+  let foreignResponse: unknown;
 
   for (const event of events) {
     const data = event
@@ -417,11 +441,17 @@ export function extractRpcPayload(
       continue;
     }
     if (answersUs(parsed)) return parsed;
+    if (parsed && typeof parsed === 'object' && ('result' in parsed || 'error' in parsed)) {
+      foreignResponse = parsed;
+    }
   }
 
   if (!sawData) throw emptyBody();
   if (parseFailure !== undefined) throw unparseable(parseFailure);
-  throw foreignAnswer();
+  if (foreignResponse !== undefined) {
+    throw noAnswer('the stream ended after messages answering other requests.', foreignResponse);
+  }
+  throw noAnswer('the stream carried messages, but none of them was a result or an error.');
 }
 
 /**
