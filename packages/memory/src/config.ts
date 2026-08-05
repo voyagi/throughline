@@ -37,7 +37,16 @@ export interface DatabaseConfig {
   readonly connectionTimeoutMs: number;
 }
 
-const SCHEMA_NAME = /^[a-z_][a-z0-9_]*$/;
+/**
+ * A bare lowercase SQL identifier: what this system accepts as a schema name, anywhere.
+ *
+ * Exported because it has two consumers and they must not each hold a copy. The other is the
+ * verification channel, which refuses a schema rather than quoting one into a query, and a copy
+ * there drifts in a direction that is fail-safe in only one of its two senses: relax the rule HERE
+ * and the channel starts refusing a schema this config accepts, turning every verification of a
+ * legitimately named schema into UNKNOWN. One regex, imported by both, cannot drift at all.
+ */
+export const SCHEMA_IDENTIFIER = /^[a-z_][a-z0-9_]*$/;
 
 const configSchema = z.object({
   DATABASE_URL: z
@@ -49,7 +58,7 @@ const configSchema = z.object({
     ),
   THROUGHLINE_SCHEMA: z
     .string()
-    .regex(SCHEMA_NAME, 'must be a bare lowercase SQL identifier')
+    .regex(SCHEMA_IDENTIFIER, 'must be a bare lowercase SQL identifier')
     .default('throughline'),
   THROUGHLINE_APP_NAME: z.string().min(1).default('throughline'),
   THROUGHLINE_STATEMENT_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
