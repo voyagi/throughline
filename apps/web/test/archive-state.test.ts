@@ -32,17 +32,45 @@ import type { Coverage, MemoryListReceiptView } from '../src/scripts/types.ts';
  * body the API cannot produce, and this file had one: building the default that way is precisely how
  * a suite ends up pinning a body that only a broken server could send.
  */
-const receipt = (coverage: Coverage, overrides: Partial<MemoryListReceiptView> = {}): MemoryListReceiptView => ({
-  kinds: [],
-  limit: coverage === 'PARTIAL' ? 2 : 50,
-  returned: coverage === 'UNKNOWN' ? 0 : 2,
-  coverage,
-  coverageReason: 'every row matching this filter fitted inside the bound',
-  coverageCause: coverage === 'UNKNOWN' ? 'listing_query_failed' : null,
-  requestedAt: '2026-08-08T12:00:00.000Z',
-  elapsedMs: 4,
-  ...overrides,
-});
+/**
+ * The sentence `runList` actually emits for each verdict, so no fixture here pairs one verdict's
+ * cause with another's reason.
+ *
+ * THE HEADLINE ABOVE WAS FALSE UNTIL THIS EXISTED, which is the same defect the sibling island file
+ * was corrected for: half-correcting a fixture leaves it impossible in a way no guard can catch.
+ * `limit`, `returned` and `coverageCause` moved with the coverage and `coverageReason` did not, so
+ * `receipt('UNKNOWN')` carried cause `listing_query_failed` beside "every row matching this filter
+ * fitted inside the bound", a completed listing's sentence on a listing that failed. `runList`
+ * sends no such body. Free text is the one field no guard checks, so a wrong one here is invisible
+ * forever, and a test below asserted that exact pairing.
+ */
+function listingReason(coverage: Coverage, limit: number): string {
+  if (coverage === 'UNKNOWN') {
+    return 'the archive query failed, so no rows were read and this page cannot say the archive is empty';
+  }
+  if (coverage === 'PARTIAL') {
+    return (
+      `the archive holds more than ${limit} rows matching this filter, so this page is the ` +
+      'newest of them and not all of them'
+    );
+  }
+  return 'every row matching this filter fitted inside the bound';
+}
+
+const receipt = (coverage: Coverage, overrides: Partial<MemoryListReceiptView> = {}): MemoryListReceiptView => {
+  const limit = coverage === 'PARTIAL' ? 2 : 50;
+  return {
+    kinds: [],
+    limit,
+    returned: coverage === 'UNKNOWN' ? 0 : 2,
+    coverage,
+    coverageReason: listingReason(coverage, limit),
+    coverageCause: coverage === 'UNKNOWN' ? 'listing_query_failed' : null,
+    requestedAt: '2026-08-08T12:00:00.000Z',
+    elapsedMs: 4,
+    ...overrides,
+  };
+};
 
 const input = (overrides: Partial<ListingInput> = {}): ListingInput => ({
   pending: false,
@@ -225,6 +253,9 @@ describe('describeListing on a body that contradicts itself', () => {
 
     expect(state.kind).toBe('refused');
     expect(refusalDetail(state)).toContain('names a stage that stopped the listing');
+    // TWO RECEIPT FIELDS, and no row is involved, so the sentence may not blame the rows either.
+    expect(refusalDetail(state)).toContain('a receipt whose own fields disagree');
+    expect(refusalDetail(state)).not.toContain('contradicts the rows beside it');
   });
 
   it.each([
@@ -239,6 +270,13 @@ describe('describeListing on a body that contradicts itself', () => {
 
     expect(state.kind).toBe('refused');
     expect(refusalDetail(state)).toContain('not a number of rows');
+    // THE SENTENCE, not just the phrase inside it. This page minted one opening for all six rules,
+    // saying the receipt contradicts the rows beside it, and only four of the six read the row
+    // count. With `rowCount: 0` there is no row on the page for anything to contradict, so the
+    // reader was told about a comparison that never happened. The console was graded HIGH for the
+    // identical defect and fixed, and this file taught the console the lesson.
+    expect(refusalDetail(state)).toContain('a receipt carrying a value that is not a measurement');
+    expect(refusalDetail(state)).not.toContain('contradicts the rows beside it');
   });
 
   it('refuses more rows than the bound allowed', () => {
@@ -322,9 +360,11 @@ describe('receiptOf', () => {
   ])('returns the receipt for %s', (_label, given) => {
     const state = describeListing(given);
     expect(receiptOf(state)).not.toBeNull();
-    expect(receiptOf(state)?.coverageReason).toBe(
-      'every row matching this filter fitted inside the bound',
-    );
+    // IDENTITY, not a string compare. This asserted one hardcoded reason for all three states,
+    // which is what pinned the impossible UNKNOWN fixture green. Identity proves it returned THIS
+    // receipt rather than some other one, catches the planted `receiptOf` that dropped the UNKNOWN
+    // case, and cannot drift when a fixture's wording changes.
+    expect(receiptOf(state)).toBe(given.receipt);
   });
 
   it.each([

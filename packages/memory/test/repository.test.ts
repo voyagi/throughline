@@ -4,6 +4,7 @@ import { createRepository } from '../src/repository.ts';
 import { createLocalEmbedder, embedSync, type Embedder } from '../src/embeddings.ts';
 import { observed, type Capabilities } from '../src/types.ts';
 import { DEFAULT_POLICY, type MemoryPolicy } from '../src/policy.ts';
+import { describeCoverage } from '../src/coverage.ts';
 import { createFakeDatabase, mentions, type Responder } from './fake-database.ts';
 
 const CAPABILITIES: Capabilities = {
@@ -242,6 +243,127 @@ describe('recall', () => {
     expect(result.receipt.returned).toBe(2);
     // The receipt must still admit how many were examined, not just how many came back.
     expect(result.receipt.candidatesConsidered).toBe(5);
+  });
+
+  /**
+   * The same repository with a policy of its own and the fake database exposed.
+   *
+   * A SECOND BUILDER rather than a third parameter on the one above, whose second parameter is an
+   * embedder that every existing call site passes positionally.
+   */
+  const buildWith = (responder: Responder, policy: MemoryPolicy) => {
+    const db = createFakeDatabase(responder);
+    return {
+      db,
+      repository: createRepository({
+        db,
+        embedder,
+        schema: 'throughline',
+        capabilities: CAPABILITIES,
+        policy,
+      }),
+    };
+  };
+
+  /** The bound the candidate query actually ran with, read off the driver rather than inferred. */
+  const candidateBound = (db: ReturnType<typeof createFakeDatabase>): unknown =>
+    db.queries.find((query) => mentions(query.text, 'order by embedding'))?.values.at(-1);
+
+  /** `count` candidates that all score, so a bound has something to bite on. */
+  const candidates = (count: number): MemoryRow[] =>
+    Array.from({ length: count }, (_unused, index) =>
+      row({ id: `1111111${index}-1111-1111-1111-111111111111` }),
+    );
+
+  // THE CANDIDATE CAP, which this path trusted exactly the way the listing path used to trust
+  // `listCap`. `policy` is public on `createRepository`, the cap went to the driver raw, and the
+  // PARTIAL test compared `rows.length` against that same raw value, so a cap of 0 made `0 >= 0`
+  // TRUE and the receipt reported PARTIAL reading "The candidate cap of 0 was reached" over nothing
+  // examined at all. `decideCoverage` is tested exhaustively and was never the problem: it was told
+  // the cap had been reached, and it said so.
+  it.each([
+    ['zero', 0],
+    ['a negative', -10],
+    ['a fraction below one', 0.5],
+    // All three non-finite values, because the arm takes three. `Infinity` is the likeliest to be
+    // written on purpose, as the natural spelling of "examine everything".
+    ['not a number at all', Number.NaN],
+    ['infinity', Number.POSITIVE_INFINITY],
+    ['negative infinity', Number.NEGATIVE_INFINITY],
+  ])('floors a candidateCap of %s to a bound that can hold a candidate', async (_label, candidateCap) => {
+    const { db, repository } = buildWith(respond([row()]), { ...DEFAULT_POLICY, candidateCap });
+    const result = await repository.recall({ workspaceId: 'demo', text: QUERY_TEXT });
+
+    expect(candidateBound(db)).toBe(1);
+    // PARTIAL is the honest verdict here, and it now arrives with the candidate that makes the
+    // sentence true rather than over an empty examination.
+    expect(result.receipt.candidatesConsidered).toBe(1);
+    expect(result.receipt.coverage).toBe('PARTIAL');
+    expect(result.receipt.coverageReason).toContain('candidate cap of 1 was reached');
+  });
+
+  it('floors a fractional candidateCap rather than handing the driver a fraction', async () => {
+    // Separate from the table because the expectation differs in kind: this pins the `Math.floor`,
+    // which a bare `Math.max(1, cap)` would pass while still sending 7.9 to the driver.
+    const { db, repository } = buildWith(respond(candidates(3)), { ...DEFAULT_POLICY, candidateCap: 7.9 });
+    await repository.recall({ workspaceId: 'demo', text: QUERY_TEXT });
+
+    expect(candidateBound(db)).toBe(7);
+  });
+
+  it('still reports a COVERED empty workspace under a floored candidate cap', async () => {
+    // The floor must not turn an empty workspace into a truncated search. THE INVARIANT, stated as
+    // the thing that must never travel: PARTIAL with nothing examined. Both the console and the
+    // agent read PARTIAL as "what came back is real and incomplete", and nothing came back.
+    const { repository } = buildWith(respond([]), { ...DEFAULT_POLICY, candidateCap: 0 });
+    const result = await repository.recall({ workspaceId: 'demo', text: QUERY_TEXT });
+
+    expect(result.receipt.candidatesConsidered).toBe(0);
+    expect(result.receipt.coverage).toBe('COVERED');
+    expect(result.receipt.coverageReason).not.toContain('candidate cap');
+  });
+
+  // THE CALLER'S OWN BOUND, which had no clamp at all: `query.limit ?? 5` straight into
+  // `.slice(0, limit)`. Five is written here rather than imported because it is the default a
+  // caller observes, and a test that imported the constant would agree with the source by
+  // construction whatever either of them said.
+  it.each([
+    ['a fraction', 2.7, 2],
+    ['zero', 0, 5],
+    ['a negative', -3, 5],
+    ['not a number at all', Number.NaN, 5],
+    ['a fraction below one', 0.5, 5],
+    ['infinity', Number.POSITIVE_INFINITY, 5],
+    ['negative infinity', Number.NEGATIVE_INFINITY, 5],
+  ])('reads a limit of %s as no preference rather than as a bound', async (_label, requested, expected) => {
+    const result = await build(respond(candidates(6))).recall({
+      workspaceId: 'demo',
+      text: QUERY_TEXT,
+      limit: requested,
+    });
+
+    expect(result.memories).toHaveLength(expected);
+    expect(result.receipt.returned).toBe(expected);
+  });
+
+  it('never leads with an absence it did not establish when the bound was unusable', async () => {
+    // THE SENTENCE THIS PROTECTS IS GENERATED RATHER THAN WRITTEN BY THE MODEL, which is the whole
+    // reason it cannot be softened, and under a bound of zero it was the one sentence in the system
+    // able to state an absence nobody established. `.slice(0, 0)` returns nothing while the receipt
+    // still reports every candidate examined, so COVERED arrived with `returned: 0` and the agent
+    // was handed "I searched the whole workspace and found nothing relevant" over six candidates
+    // that all scored. A negative bound is worse: `.slice(0, -3)` drops the last three and returns
+    // the rest, so asking for fewer than none returns a page.
+    const result = await build(respond(candidates(6))).recall({
+      workspaceId: 'demo',
+      text: QUERY_TEXT,
+      limit: 0,
+    });
+
+    expect(result.receipt.candidatesConsidered).toBe(6);
+    expect(result.memories.length).toBeGreaterThan(0);
+    expect(describeCoverage(result)).not.toContain('found nothing relevant');
+    expect(describeCoverage(result)).toContain('the search was complete');
   });
 
   it('scopes the candidate query to one workspace', async () => {

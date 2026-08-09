@@ -46,9 +46,12 @@ const UNREACHABLE = 'api_unreachable';
  * from this code. `Archive.tsx` inferred one, and printed a sentence denying that the API had
  * refused, over a 429.
  *
- * A CONSTANT RATHER THAN FIVE HAND-TYPED COPIES: three here and two in `archive-state.ts`, with
- * `Archive.tsx` comparing against it. Two code paths that must agree on a string is the case this
- * repository settles with one shared module, never with a comment asking for care.
+ * A CONSTANT RATHER THAN HAND-TYPED COPIES: three mint sites here, two in `archive-state.ts` and
+ * one in `recall-state.ts`, with `Archive.tsx` comparing against it. No total is written down, and
+ * that is deliberate. This sentence gave one, a later file added a site, and the number went stale
+ * inside a single branch, which is the same failure the constant exists to prevent applied to the
+ * prose about it. Two code paths that must agree on a string is the case this repository settles
+ * with one shared module, never with a comment asking for care.
  */
 const UNRECOGNISED = 'unrecognised_response';
 

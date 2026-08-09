@@ -1,7 +1,9 @@
 import { useRef, useState } from 'preact/hooks';
 import { postTurn, type ApiFailure } from '../scripts/api.ts';
 import { clock, HOLDER, KIND_LABEL, labelled, verdictClass } from '../scripts/presentation.ts';
+import { readRecall } from '../scripts/recall-state.ts';
 import { KindAgeCells } from './cells.tsx';
+import type { ContradictionKind } from '../scripts/contradiction.ts';
 import type {
   AgentTurnResponse,
   CoverageCause,
@@ -71,6 +73,20 @@ const CAUSE: Readonly<Record<CoverageCause, string>> = {
   scoring_failed: 'a candidate could not be scored',
 };
 
+/**
+ * The chip's words for each kind of refusal.
+ *
+ * A TABLE KEYED BY THE UNION, so a fourth kind fails the build rather than borrowing the wording of
+ * a third. This was a two armed ternary over what turned out to be three cases, and the third case
+ * silently took the second's sentence: a receipt reporting minus one memory was refused with the
+ * words "its own fields disagree" when its fields agreed and one value was simply not a count.
+ */
+const REFUSED_CHIP: Readonly<Record<ContradictionKind, string>> = {
+  malformed: 'A FIELD IS NOT A MEASUREMENT',
+  internal: 'ITS OWN FIELDS DISAGREE',
+  rack: 'ITS COUNT DISAGREES WITH THE STRIPS',
+};
+
 const PATH_LABEL: Readonly<Record<string, string>> = {
   ann_index: 'ANN index',
   exact_scan: 'exact scan',
@@ -129,13 +145,24 @@ function RecalledStrip({ memory }: { memory: RecalledMemoryView }) {
 /** An empty holder with a printed refusal slip in it: absence given a physical shape. */
 function UnknownSlip({ event, at }: { event: RecallEventView; at: string }) {
   const { receipt } = event;
+  // NOTHING RAN, OR IT RAN AND DID NOT FINISH, and those are different sentences. This slip said
+  // NO SEARCH RAN for every UNKNOWN, and the guard beside it deliberately does NOT refuse an
+  // UNKNOWN that reports a path and candidates examined, because an UNKNOWN must never be hidden.
+  // The docblock in `recall-state.ts` named the wording as the honest fix for that pair and the
+  // first version of this change shipped neither, which a review caught. Today's producer always
+  // sends a path of `none` with nothing examined, so this reads exactly as it did before.
+  const nothingRan = receipt.retrievalPath === 'none' && receipt.candidatesConsidered === 0;
   return (
     <div class="empty">
       <span class="holder"></span>
       <div class="slip">
         <span class="k">Refusal slip &middot; {at}</span>
         <div class="v">
-          {receipt.coverage === 'UNKNOWN' ? 'NO SEARCH RAN. VERDICT: UNKNOWN.' : 'SEARCH CUT SHORT. VERDICT: PARTIAL.'}
+          {receipt.coverage !== 'UNKNOWN'
+            ? 'SEARCH CUT SHORT. VERDICT: PARTIAL.'
+            : nothingRan
+              ? 'NO SEARCH RAN. VERDICT: UNKNOWN.'
+              : 'THE SEARCH DID NOT COMPLETE. VERDICT: UNKNOWN.'}
         </div>
         <div class="fields">
           <div>
@@ -164,12 +191,90 @@ function UnknownSlip({ event, at }: { event: RecallEventView; at: string }) {
           </div>
         </div>
         <p>
-          {receipt.coverage === 'UNKNOWN'
-            ? 'Nothing here says the archive is empty. The search did not run, so this question has no answer on this board.'
-            : 'What is here is real but incomplete. Some of the workspace was never examined.'}
+          {receipt.coverage !== 'UNKNOWN'
+            ? 'What is here is real but incomplete. Some of the workspace was never examined.'
+            : nothingRan
+              ? 'Nothing here says the archive is empty. The search did not run, so this question has no answer on this board.'
+              : // NOT "the search started". `retrievalPathFor` NAMES a path before anything executes,
+                // so the negation of `nothingRan` is satisfied by a receipt that only reports a path,
+                // and a review pointed out that the two halves of that negation carry very different
+                // evidence. This says what the receipt shows and stops there.
+                'Nothing here says the archive is empty. This search reports a path or candidates examined and still produced no usable result, so this question has no answer on this board.'}
         </p>
       </div>
     </div>
+  );
+}
+
+/**
+ * Every verdict one answered turn prints in the log: one chip per recall, then the turn's own.
+ *
+ * ONE COMPONENT BECAUSE THE TURN CHIP HAS TO KNOW WHAT THE RECALL CHIPS DECIDED, and the first
+ * version of this change did not let it. It took a refused receipt's NUMBERS off this line and left
+ * the turn verdict two lines below, which is not independent of them: `loop.ts` folds each recall's
+ * own coverage into `worstCoverage` with `worseOf`, and `server.ts` ships that as
+ * `response.coverage`, so for a single recall turn it IS the refused receipt's word. The board
+ * declared that receipt unbelievable and the log printed COVERED underneath, in the green class,
+ * next to an UNKNOWN one. COVERED is the verdict that licenses an absence claim, which makes it the
+ * worst possible field to have left behind.
+ *
+ * SO A REFUSED RECEIPT SUPPRESSES THE TURN'S VERDICT, unless the turn already reports UNKNOWN.
+ * `worseOf` takes the worst of the recalls, so UNKNOWN is the one value a refused input cannot have
+ * flattered, and it is the verdict this product exists to show: passing it through is both safe and
+ * required. Anything better than UNKNOWN may be resting on the receipt just refused, and there is
+ * no way from here to tell whether it is.
+ */
+function TurnVerdicts({ at, response }: { readonly at: string; readonly response: AgentTurnResponse }) {
+  const strips = response.recalls.map(readRecall);
+  // BOTH WAYS A SEARCH IN THIS TURN CAN LEAVE NO READABLE RECEIPT, and the first version counted
+  // one. A recall whose arguments failed the schema, or that arrived after the tool budget was
+  // spent, never produces a receipt and never reaches `worseOf`, so it is excluded from the turn's
+  // verdict entirely while the board racks a slip saying the search did not complete. The comment
+  // justifying the suppression said there is no way from here to tell, and for THIS case there is:
+  // `failedRecalls` derives it by call id, and the board already draws it.
+  const unreadable =
+    strips.some((strip) => strip.kind === 'refused') ||
+    failedRecalls(response.transcript, response.recalls).length > 0;
+  return (
+    <>
+      {strips.map((strip, index) =>
+        strip.kind === 'refused' ? (
+          <span class={verdictClass('UNKNOWN')} key={`${at}-${index}`}>
+            RECEIPT REFUSED &middot; {REFUSED_CHIP[strip.contradiction]}
+          </span>
+        ) : (
+          <span class={verdictClass(strip.event.receipt.coverage)} key={`${at}-${index}`}>
+            {(labelled(PATH_LABEL, strip.event.receipt.retrievalPath) ?? strip.event.receipt.retrievalPath).toUpperCase()}{' '}
+            &middot; {strip.event.receipt.candidatesConsidered} EXAMINED &middot;{' '}
+            {strip.event.receipt.returned} RETURNED &middot; {strip.event.receipt.elapsedMs} MS &middot;{' '}
+            {strip.event.receipt.coverage}
+          </span>
+        ),
+      )}
+      {/* The TURN's verdict, which is the worst any recall returned and the thing `judgeAnswer`
+          actually gates on. It used to be rendered nowhere at all, so a turn whose only recall
+          THREW showed no verdict anywhere on the page: the output of the control this product is
+          built around was invisible. */}
+      {response.coverage !== null &&
+        (unreadable && response.coverage !== 'UNKNOWN' ? (
+          // THE WORD IS STILL PRINTED, and suppressing it was the first fix's own defect. COVERED
+          // is the only verdict `judgeAnswer` accepts as licence for an absence claim, so a turn
+          // that reported COVERED while carrying an unreadable receipt is exactly the turn a
+          // sceptic needs to see, and hiding the word traded an overclaim for a silence. It is
+          // printed as WHAT ARRIVED rather than as this turn's verdict, in the unlit class.
+          //
+          // The sentence says only what this console can see: a search in this turn has no receipt
+          // it could read. It does NOT say the refused receipt fed the fold, which was the previous
+          // wording and is a claim about how the API computed a value, asserted about a body this
+          // board has just concluded did not come from that API.
+          <span class={verdictClass('UNKNOWN')}>
+            TURN COVERAGE &middot; REPORTED {response.coverage}, NOT USABLE: A SEARCH IN THIS TURN HAS
+            NO RECEIPT THIS BOARD COULD READ
+          </span>
+        ) : (
+          <span class={verdictClass(response.coverage)}>TURN COVERAGE &middot; {response.coverage}</span>
+        ))}
+    </>
   );
 }
 
@@ -313,9 +418,19 @@ export default function Console({ apiBase }: Props) {
     exchange.outcome.kind === 'answered' ? [{ at: exchange.at, response: exchange.outcome.response }] : [],
   );
 
-  const recalls = answered.flatMap(({ at, response }) => response.recalls.map((event) => ({ at, event })));
-  const found = recalls.flatMap(({ event }) => event.memories);
-  const unresolved = recalls.filter(({ event }) => event.receipt.coverage !== 'COVERED');
+  // EVERY RECALL IS READ THROUGH `readRecall` BEFORE ANY OF IT IS DRAWN, and the strips a refused
+  // one carries are never racked. The board used to print `receipt.returned` in the log and rack
+  // `event.memories` on the right with nothing comparing them, which is the same defect the archive
+  // page was fixed for, on the page this product demonstrates itself on. The decision lives in
+  // `recall-state.ts` so it can be tested without mounting anything, and the log below calls the
+  // same function on the same event rather than repeating the test.
+  const recalls = answered.flatMap(({ at, response }) =>
+    response.recalls.map((event) => ({ at, strip: readRecall(event) })),
+  );
+  const shown = recalls.flatMap(({ at, strip }) => (strip.kind === 'shown' ? [{ at, event: strip.event }] : []));
+  const contradicting = recalls.flatMap(({ at, strip }) => (strip.kind === 'refused' ? [{ at, strip }] : []));
+  const found = shown.flatMap(({ event }) => event.memories);
+  const unresolved = shown.filter(({ event }) => event.receipt.coverage !== 'COVERED');
   const refusals = answered.flatMap(({ response }) =>
     response.transcript.flatMap((turn) => (turn.role === 'refusal' ? [turn.content] : [])),
   );
@@ -329,7 +444,12 @@ export default function Console({ apiBase }: Props) {
     ),
   );
   const latest = answered.at(-1);
-  const stripCount = found.length + unresolved.length + broken.length + refusals.length + attempts.length;
+  // `contradicting` COUNTS, and leaving it out would be the defect this whole change is about. An
+  // empty board prints "Every search this session completed and matched nothing. Under a COVERED
+  // verdict that is a real absence", which is the page's most confident sentence, and a refused
+  // receipt is the last thing that may sit under it.
+  const stripCount =
+    found.length + unresolved.length + broken.length + refusals.length + attempts.length + contradicting.length;
 
   return (
     <div class="split">
@@ -394,23 +514,7 @@ export default function Console({ apiBase }: Props) {
                   <div>
                     <p class="who">Throughline</p>
                     <p class="said">{exchange.outcome.response.text}</p>
-                    {exchange.outcome.response.recalls.map((event, index) => (
-                      <span class={verdictClass(event.receipt.coverage)} key={`${exchange.at}-${index}`}>
-                        {(labelled(PATH_LABEL, event.receipt.retrievalPath) ?? event.receipt.retrievalPath).toUpperCase()}{' '}
-                        &middot; {event.receipt.candidatesConsidered} EXAMINED &middot;{' '}
-                        {event.receipt.returned} RETURNED &middot; {event.receipt.elapsedMs} MS &middot;{' '}
-                        {event.receipt.coverage}
-                      </span>
-                    ))}
-                    {/* The TURN's verdict, which is the worst any recall returned and the thing
-                        `judgeAnswer` actually gates on. It used to be rendered nowhere at all, so a
-                        turn whose only recall THREW showed no verdict anywhere on the page: the
-                        output of the control this product is built around was invisible. */}
-                    {exchange.outcome.response.coverage !== null && (
-                      <span class={verdictClass(exchange.outcome.response.coverage)}>
-                        TURN COVERAGE &middot; {exchange.outcome.response.coverage}
-                      </span>
-                    )}
+                    <TurnVerdicts at={exchange.at} response={exchange.outcome.response} />
                     {exchange.outcome.response.refusedAnAbsenceClaim && (
                       <p class="said">
                         <em>
@@ -490,6 +594,38 @@ export default function Console({ apiBase }: Props) {
           {unresolved.length > 0 && <h3 class="subbay">Unknown</h3>}
           {unresolved.map(({ at, event }, index) => (
             <UnknownSlip event={event} at={clock(at)} key={`${at}-${index}`} />
+          ))}
+
+          {contradicting.length > 0 && <h3 class="subbay">Receipts this board refused</h3>}
+          {contradicting.map(({ at, strip }, index) => (
+            <div class="empty" key={`contradiction-${index}`}>
+              <span class="holder"></span>
+              <div class="slip">
+                <span class="k">Refusal slip &middot; {clock(at)}</span>
+                <div class="v">RECEIPT REFUSED. VERDICT: UNKNOWN.</div>
+                <div class="fields">
+                  {/* THE QUERY THE RECEIPT CLAIMS, labelled as exactly that. Without it a reader
+                      cannot tell which of the turn's searches was refused, but it is still a field
+                      off a receipt this board has just called unbelievable, and the transcript
+                      holds an independent copy of what the model asked keyed by the same call id.
+                      Printing it as "QUERY" would present the refused receipt's word as the
+                      question, which is the one overclaim this slip had left. Every measurement is
+                      withheld: they are what could not be believed. */}
+                  <div>
+                    <span>QUERY THE RECEIPT CLAIMS</span> {strip.event.receipt.query}
+                  </div>
+                  <div>
+                    <span>MEASUREMENTS</span> none, because nothing on this receipt can be read as one
+                  </div>
+                </div>
+                <p>{strip.failure.detail}</p>
+                <p>
+                  Nothing here says the memory is empty. A receipt that cannot be read as one
+                  consistent statement gives no reason to believe any part of it, so this board
+                  prints none of its measurements rather than choosing the comfortable ones.
+                </p>
+              </div>
+            </div>
           ))}
 
           {refusals.length > 0 && <h3 class="subbay">Refused</h3>}

@@ -1,4 +1,11 @@
 import { UNREACHABLE, UNRECOGNISED } from './api.ts';
+import {
+  internal,
+  malformed,
+  rack,
+  type Contradiction,
+  type ContradictionKind,
+} from './contradiction.ts';
 import type { FailureResponse, MemoryListReceiptView } from './types.ts';
 
 /**
@@ -76,8 +83,10 @@ export interface ListingInput {
  * which is a different claim from the true one. Before the effect runs nothing is pending and nothing
  * has been asked, so the static HTML is still NOT ASKED.
  *
- * An empty rack is drawn for `empty` alone; `unknown` deliberately draws none, because an empty rack
- * under UNKNOWN would mean nothing at all.
+ * WHICH STATE DRAWS THE RACK IS NOT STATED HERE ANY MORE. This paragraph said an empty rack is
+ * drawn for `empty` alone and none for `unknown`, which stopped being true when the island narrowed
+ * the rack to `rows`: the two states now emit the same DOM, which is none. This module decides the
+ * state and nothing about the markup, so the claim belongs beside the rack and only there.
  */
 export function describeListing(input: ListingInput): ListingState {
   if (input.pending) return { kind: 'asking' };
@@ -119,9 +128,7 @@ export function describeListing(input: ListingInput): ListingState {
       kind: 'refused',
       failure: {
         error: UNRECOGNISED,
-        detail:
-          `The archive answered with a receipt that contradicts the rows beside it: ${contradiction}. ` +
-          'Nothing here is a result.',
+        detail: `${OPENING[contradiction.kind]}${contradiction.phrase}. Nothing here is a result.`,
       },
     };
   }
@@ -133,6 +140,25 @@ export function describeListing(input: ListingInput): ListingState {
 
 /** `1 row` or `N rows`, so a contradiction reads as a sentence rather than as a bare count. */
 const rowsPhrase = (count: number): string => (count === 1 ? '1 row' : `${count} rows`);
+
+/**
+ * How each kind of refusal opens, so no sentence describes a comparison that did not happen.
+ *
+ * THIS PAGE TAUGHT THE CONSOLE THE LESSON AND HAD NOT LEARNED IT. One sentence was minted for all
+ * six rules, saying the receipt contradicts the rows beside it. FOUR of the six read `rowCount`.
+ * Rule 0 tests the bound on its own and rule 2 compares two receipt fields, so a listing refused
+ * for a bound of 0, with no row on the page, told the reader its receipt contradicted rows that
+ * were never there. The console's guard was written because the archive's fix stopped at the
+ * archive, and then the console's own fix stopped at the console. Same defect, both directions,
+ * one branch.
+ *
+ * A table keyed by the union, so a fourth kind fails the build rather than borrowing a sentence.
+ */
+const OPENING: Readonly<Record<ContradictionKind, string>> = {
+  malformed: 'The archive answered with a receipt carrying a value that is not a measurement: ',
+  internal: 'The archive answered with a receipt whose own fields disagree: ',
+  rack: 'The archive answered with a receipt that contradicts the rows beside it: ',
+};
 
 /**
  * Which way a receipt and the rows beside it disagree, as a phrase, or null when they agree.
@@ -174,8 +200,11 @@ const rowsPhrase = (count: number): string => (count === 1 ? '1 row' : `${count}
  * `requestedAt` and `elapsedMs` are not printed at all.
  *
  * NONE OF THESE IS REACHABLE FROM THIS PROJECT'S OWN API, and each was read rather than assumed.
- * `runList` reaches UNKNOWN only through `emptyUnknownPage`, which hardcodes `memories: []`,
- * `returned: 0` and the only non-null cause in the file. Its success path hardcodes `coverageCause:
+ * `runList` reaches UNKNOWN only through `emptyUnknownPage`, which hardcodes `memories: []` and
+ * `returned: 0`. (This sentence also called that the only non-null `coverageCause` in the file.
+ * Measured: `repository.ts` has two, one per path, and the recall one is not on this page's path at
+ * all. The clause is deleted rather than narrowed, in a paragraph whose subject is not
+ * over-reaching.) Its success path hardcodes `coverageCause:
  * null` and sets PARTIAL from `rows.length > limit`, where `memories` is `rows.slice(0, limit)`, so
  * PARTIAL always carries exactly `limit` rows and `boundedLimit` now floors that bound to at least
  * one. `returned` is `memories.length` at the source, copied field for field by
@@ -188,30 +217,38 @@ const rowsPhrase = (count: number): string => (count === 1 ? '1 row' : `${count}
  * returns for a settled answer carrying no receipt, and it says the one true thing available, which
  * is that nothing on the screen is a result.
  */
-function receiptContradiction(receipt: MemoryListReceiptView, rowCount: number): string | null {
+function receiptContradiction(
+  receipt: MemoryListReceiptView,
+  rowCount: number,
+): Contradiction | null {
+  // THE KIND TRAVELS WITH THE PHRASE, because the sentence above is worded from it. Counted: ONE
+  // rule tests a field on its own, ONE compares two receipt fields, FOUR read `rowCount`.
+  //
   // FIRST, because the two rules that DO compare against this bound, PARTIAL-not-the-bound and
   // too-many-rows, are meaningless rather than false when it is not a whole number of rows. (The
   // first version of this comment said every rule below compares against it. Two of the five do.)
   if (!Number.isInteger(receipt.limit) || receipt.limit < 1) {
-    return `it reports a bound of ${receipt.limit}, which is not a number of rows a listing could return`;
+    return malformed(
+      `it reports a bound of ${receipt.limit}, which is not a number of rows a listing could return`,
+    );
   }
   if (receipt.coverage === 'UNKNOWN' && rowCount > 0) {
-    return `it says the listing could not be read, and ${rowsPhrase(rowCount)} arrived with it`;
+    return rack(`it says the listing could not be read, and ${rowsPhrase(rowCount)} arrived with it`);
   }
   if (receipt.coverageCause !== null && receipt.coverage !== 'UNKNOWN') {
-    return `it names a stage that stopped the listing and still reports ${receipt.coverage}`;
+    return internal(`it names a stage that stopped the listing and still reports ${receipt.coverage}`);
   }
   if (receipt.coverage === 'PARTIAL' && rowCount !== receipt.limit) {
-    return (
+    return rack(
       `it says the archive holds more than the bound of ${receipt.limit}, and ` +
-      `${rowsPhrase(rowCount)} arrived with it rather than the bound`
+        `${rowsPhrase(rowCount)} arrived with it rather than the bound`,
     );
   }
   if (rowCount > receipt.limit) {
-    return `it reports a bound of ${receipt.limit}, and ${rowsPhrase(rowCount)} arrived with it`;
+    return rack(`it reports a bound of ${receipt.limit}, and ${rowsPhrase(rowCount)} arrived with it`);
   }
   if (receipt.returned !== rowCount) {
-    return `it counts ${rowsPhrase(receipt.returned)}, and ${rowsPhrase(rowCount)} arrived with it`;
+    return rack(`it counts ${rowsPhrase(receipt.returned)}, and ${rowsPhrase(rowCount)} arrived with it`);
   }
   return null;
 }
@@ -234,8 +271,12 @@ export function verdictWord(state: ListingState): string {
     case 'unreachable':
       return 'NO ANSWER';
     case 'refused':
-      // The API's own code, so a reader can tell RATE_LIMITED from a server fault. The sibling
-      // console already does this; the archive dropped the distinction.
+      // THE FAILURE'S OWN CODE, whoever minted it, so a reader can tell RATE_LIMITED from a server
+      // fault. This said "the API's own code", which a review falsified: only `asFailure`'s
+      // pass-through carries a code the API wrote. `UNRECOGNISED` is minted by this console, in
+      // `api.ts` and twice in this file. (A correction to this sentence then said the contradiction
+      // rules made it the common case, which a second review falsified against the paragraph above
+      // them: those rules cannot fire on an answer this API sends. Corrections get checked too.)
       return state.failure.error.toUpperCase();
     default:
       return state.receipt.coverage;

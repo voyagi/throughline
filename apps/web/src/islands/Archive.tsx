@@ -331,8 +331,10 @@ function Slip({
 /**
  * ONE SENTENCE PER STATE, and the state is decided in `archive-state.ts` rather than here.
  *
- * A slip renders for every state except `rows`, and the empty rack is the answer in `empty` alone.
- * `unknown` deliberately draws no rack, because an empty rack under UNKNOWN would mean nothing at all.
+ * A slip renders for every state except `rows`. Which state draws the rack is stated once, beside
+ * the rack, and used to be stated a second time here in words the rack no longer matches: `empty`
+ * and `unknown` now emit identical DOM, which is none. The duplicate is deleted rather than
+ * corrected, because a second copy of a claim is a second thing to get wrong.
  *
  * `asking` and `refused` each earn their own sentence, which is the fix for two review findings: the
  * first was borrowing the unreachable state's word with no sentence at all, and the second was
@@ -363,13 +365,22 @@ function StateSlip({ state }: { readonly state: ListingState }) {
         </Slip>
       );
 
+    // ONE STATE, TWO EVENTS, AND THE SECOND PARAGRAPH USED TO NAME ONLY ONE OF THEM. `api.ts` mints
+    // this code with two different sentences: a connection that failed, and a request that was
+    // answered too slowly to wait for. The fixed paragraph here said "The API could not be reached
+    // from this browser", so a slow cold start past the eight second timeout printed the timeout
+    // sentence and then denied it on the next line. That is the same shape as the `refused` branch
+    // below, twenty lines away, found by the review of the commit that fixed the other one.
+    //
+    // The detail line above is the half that knows which event happened. This paragraph now says
+    // only what both events share, which is that no answer arrived here.
     case 'unreachable':
       return (
-        <Slip title="Refusal slip" verdict="THE ARCHIVE DID NOT ANSWER. VERDICT: UNKNOWN.">
+        <Slip title="Refusal slip" verdict="NO ANSWER ARRIVED. VERDICT: UNKNOWN.">
           <p>{state.failure.detail}</p>
           <p>
-            Nothing here says the archive is empty. The API could not be reached from this browser,
-            which is a fact about the connection and not about the memory.
+            Nothing here says the archive is empty. No answer arrived, which is a fact about this
+            request and not about the memory.
           </p>
         </Slip>
       );
@@ -389,6 +400,17 @@ function StateSlip({ state }: { readonly state: ListingState }) {
     // So NEITHER arm names who refused unless the answer named it. The console cannot tell them
     // apart, the detail line above already prints the status when there was one, and the claim both
     // arms keep is the only one that matters here: nothing on this screen says the archive is empty.
+    //
+    // THAT FIX CLOSED THE PREDICATE IT WAS LOOKING AT AND LEFT ITS SIBLING, which is the third
+    // generation of one defect in this branch. Both arms stopped naming WHO refused and went on to
+    // assert WHAT WAS REACHED: "the archive was reachable". The rate limiter in `server.ts` answers
+    // 429 from middleware that runs before `/memories` ever calls `repository.list`, so the archive
+    // is not touched at all, and a 502 carrying HTML from a gateway need not have reached this
+    // product. A visitor clicking filter chips is the likeliest reader of both sentences.
+    //
+    // THE TWO FACTS THIS CONSOLE ACTUALLY HAS are that a response arrived, and whether its body
+    // named an error code. Every word below is built from those two and from nothing else. "The
+    // API" is gone from both verdicts for the same reason: a proxy can answer in the API's place.
     case 'refused': {
       const unreadable = state.failure.error === UNRECOGNISED;
       return (
@@ -397,14 +419,14 @@ function StateSlip({ state }: { readonly state: ListingState }) {
           verdict={
             unreadable
               ? 'THIS CONSOLE COULD NOT READ THE ANSWER. VERDICT: UNKNOWN.'
-              : `THE API REFUSED: ${state.failure.error.toUpperCase()}.`
+              : `REFUSED: ${state.failure.error.toUpperCase()}.`
           }
         >
           <p>{state.failure.detail}</p>
           <p>
             {unreadable
-              ? 'The archive was reachable and it answered. This console could not read a result out of that answer, which is a fact about the response and not about the memory. Nothing here says the archive is empty.'
-              : 'The API answered and refused, which is a different thing from not answering: the archive was reachable. Nothing here says it is empty.'}
+              ? 'Something answered this request, and this console could not read a result out of the answer. That is a fact about the response and not about the memory. Nothing here says the archive is empty.'
+              : 'The answer named its own refusal, which is a different thing from no answer at all. It does not say the archive was read. Nothing here says the archive is empty.'}
           </p>
         </Slip>
       );

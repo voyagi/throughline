@@ -48,7 +48,12 @@ export interface RememberInput {
 export interface RecallQuery {
   readonly workspaceId: string;
   readonly text: string;
-  /** How many scored memories to return. Candidates examined is a separate, larger number. */
+  /**
+   * How many scored memories to return. Candidates examined is a separate, larger number.
+   *
+   * Omit, or pass anything that is not a positive whole number, for the default handful. Clamped to
+   * the candidate cap, because a recall cannot return more rows than it examined.
+   */
   readonly limit?: number;
   /** Reference instant for decay and validity. Injected so a test can pin an exact value. */
   readonly now?: Date;
@@ -376,11 +381,35 @@ interface WorkspaceCounts {
   readonly unembedded: number;
 }
 
+/**
+ * What a recall returns when the caller states no usable preference.
+ *
+ * A HANDFUL, not the candidate cap, which is the one way this bound differs from the listing's. It
+ * was written inline as `query.limit ?? 5` with no clamp under it at all.
+ */
+const DEFAULT_RECALL_LIMIT = 5;
+
 async function runRecall(context: RecallContext, query: RecallQuery): Promise<RecallResult> {
   const { db, embedder, capabilities, policy, table } = context;
   const now = query.now ?? new Date();
   const startedAt = Date.now();
-  const limit = query.limit ?? 5;
+  // BOTH BOUNDS ARE CLAMPED HERE, WHERE THEY ARE READ, and neither of them was.
+  //
+  // The candidate cap is the same hole the listing path was fixed for: see `boundedCap`. The
+  // caller's own bound was the other half and it fails the other way round. `.slice(0, 0)` returns
+  // nothing while the receipt still reports every candidate it examined, so COVERED arrives with
+  // `returned: 0` and `describeCoverage` leads the agent with "I searched the whole workspace and
+  // found nothing relevant" over a search that found plenty and was told to hand back none. That
+  // sentence is generated rather than written by the model precisely so it cannot be softened, and
+  // it was the one sentence able to state an absence nobody established. A negative bound is worse
+  // still, because `.slice(0, -3)` DROPS the last three and returns the rest, so asking for less
+  // than nothing returns a page.
+  //
+  // `recallSchema` in `apps/api` does refuse all of that at the HTTP edge today. That is the "safe
+  // because of who calls you" position the listing path was fixed for, and `cli/verify-live.ts`
+  // calls `recall` without passing through that edge at all.
+  const candidateCap = boundedCap(policy.candidateCap);
+  const limit = boundedLimit(query.limit, candidateCap, DEFAULT_RECALL_LIMIT);
   const retrieval = retrievalPathFor(capabilities);
 
   if (retrieval.path === 'none') {
@@ -437,7 +466,7 @@ async function runRecall(context: RecallContext, query: RecallQuery): Promise<Re
     rows = await db.query<MemoryRow>(candidateSql(table, retrieval.path), [
       query.workspaceId,
       formatVector(queryVector),
-      policy.candidateCap,
+      candidateCap,
     ]);
   } catch {
     return emptyUnknown(
@@ -471,7 +500,10 @@ async function runRecall(context: RecallContext, query: RecallQuery): Promise<Re
     retrievalFailed: false,
     failureReason: null,
     retrievalPath: retrieval.path,
-    candidateCapReached: rows.length >= policy.candidateCap,
+    // THE SAME FLOORED VALUE THE DRIVER GOT. Comparing against `policy.candidateCap` here while
+    // the query ran with a different bound is how the two disagree, and it is what made `0 >= 0`
+    // report a cap that had been reached over nothing at all.
+    candidateCapReached: rows.length >= candidateCap,
     deadlineExceeded: false,
     candidatesConsidered: rows.length,
   });
@@ -688,13 +720,40 @@ function listStatement(
  * "unbounded" and not one, which previously reached the driver as `LIMIT Infinity`, and
  * `-Infinity`, which is a bound below every row there could be. A bound of 1 that reports PARTIAL
  * honestly is a smaller answer rather than a query the driver refuses.
+ *
+ * `fallback` IS WHAT AN UNUSABLE REQUEST MEANS, and it exists so `runRecall` can share this function
+ * instead of growing a second one beside it. The two bounds differ in exactly one way: an archive
+ * page asking for nothing means "as much as you will give me", so its fallback is the cap, which is
+ * what the default preserves and why the listing call site is unchanged. A recall asking for nothing
+ * means "the usual handful", so it passes 5. Without the parameter the recall path would floor `0`
+ * to the CANDIDATE cap and return two hundred memories to a caller who asked for none, which is a
+ * worse answer than the one it replaces. Copying the four lines into a second function was the other
+ * option and it is the one this repository has been bitten by: two functions that must make the same
+ * decision drift, and a comment saying "keep in sync" prevents nothing.
  */
-function boundedLimit(requested: number | undefined, cap: number): number {
-  const bound = Number.isFinite(cap) ? Math.max(1, Math.floor(cap)) : 1;
-  if (requested === undefined || !Number.isFinite(requested)) return bound;
+function boundedLimit(requested: number | undefined, cap: number, fallback = cap): number {
+  const bound = boundedCap(cap);
+  const noPreference = Math.min(boundedCap(fallback), bound);
+  if (requested === undefined || !Number.isFinite(requested)) return noPreference;
   const whole = Math.floor(requested);
-  if (whole <= 0) return bound;
+  if (whole <= 0) return noPreference;
   return Math.min(whole, bound);
+}
+
+/**
+ * A cap, floored into a bound that can hold a row.
+ *
+ * EXTRACTED SO TWO CALLERS CANNOT DISAGREE, which is the whole reason it is a function. This
+ * expression lived inside `boundedLimit` and the recall path had no equivalent at all: `runRecall`
+ * passed `policy.candidateCap` to the driver raw and then compared `rows.length >= policy
+ * .candidateCap`, so a cap of 0 made that comparison `0 >= 0`, which is TRUE, and the receipt
+ * reported PARTIAL reading "The candidate cap of 0 was reached" over zero candidates examined. That
+ * is the same hole the listing path was fixed for, on the other path, and the fix has to be the same
+ * one: floor the cap WHERE IT IS READ, so "PARTIAL implies at least one candidate" is a property of
+ * the function rather than of whoever called it.
+ */
+function boundedCap(cap: number): number {
+  return Number.isFinite(cap) ? Math.max(1, Math.floor(cap)) : 1;
 }
 
 /** A page that could not be read, with the receipt saying so. Never an empty array on its own. */

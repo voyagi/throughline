@@ -461,6 +461,27 @@ function slipDetail(container: HTMLElement): string {
   return words(paragraph);
 }
 
+/**
+ * The slip's LAST paragraph, which is the sentence the page wrote rather than the one the API sent.
+ *
+ * IT EXISTS BECAUSE A NEGATIVE CANNOT GUARD A CLAIM, ONLY A WORDING. A review found two assertions
+ * added by the very commit that articulated the rule: `.not.toContain('was reachable')`, against a
+ * substring no rendered string in `apps/web/src` contains, so neither could fail on any input. Worse
+ * than vacuous, they were misleading, because the claim they meant to guard has now been
+ * reintroduced in FRESH WORDING three generations running, and a fourth rewrite would pass them.
+ *
+ * Asserting this paragraph WHOLE is the only form that makes a rewrite visible: any new sentence,
+ * however phrased, fails until somebody reads it and decides it is true.
+ *
+ * THROWS, like `slipWords` and `slipDetail`, and for the reason documented on both.
+ */
+function slipClosing(container: HTMLElement): string {
+  const paragraphs = elements(container, '.slip p');
+  const last = paragraphs.at(-1);
+  if (last === undefined) throw new Error('the slip has no paragraph to read a closing sentence from');
+  return words(last);
+}
+
 /** A filter chip by the word printed on it. Throws rather than returning nothing, same as `stripAt`. */
 function chip(container: HTMLElement, label: string): HTMLElement {
   const found = elements(container, '.chip').find((one) => words(one) === label);
@@ -774,8 +795,10 @@ describe('the archive island, hydrated', () => {
 
     const text = slipWords(container);
     expect(text).toContain('THIS CONSOLE COULD NOT READ THE ANSWER');
-    expect(text).toContain('could not read a result out of that answer');
-    expect(text).not.toContain('The API answered and refused');
+    expect(text).toContain('could not read a result out of the answer');
+    // THE SIBLING ARM'S SENTENCE, kept current on purpose. This named a phrase production stopped
+    // emitting, which is a negative nothing can fail. It has to name what the OTHER arm says now.
+    expect(text).not.toContain('The answer named its own refusal');
     // The claim that survives in both wordings, because it is the one that matters here.
     expect(text).toContain('Nothing here says the archive is empty');
   });
@@ -795,6 +818,14 @@ describe('the archive island, hydrated', () => {
     expect(text).toContain('The API answered 429 in a shape this console does not recognise');
     // What it must not do is tell this visitor that nobody refused them.
     expect(text).not.toContain('this console refused the answer');
+    // NOR THAT THE ARCHIVE WAS REACHED. This 429 is answered by rate-limit middleware before
+    // `/memories` runs, and a 502 carrying HTML need not have reached this product at all, yet both
+    // land on this arm. The arm that stopped naming WHO refused went on to name WHAT was reached.
+    // Asserted WHOLE, for the reason given on the sibling test below.
+    expect(slipClosing(container)).toBe(
+      'Something answered this request, and this console could not read a result out of the answer. ' +
+        'That is a fact about the response and not about the memory. Nothing here says the archive is empty.',
+    );
     expect(text).toContain('Nothing here says the archive is empty');
   });
 
@@ -847,8 +878,21 @@ describe('the archive island, hydrated', () => {
     expect(cellText(strip, 'Bound')).toBe('unknown');
     const text = slipWords(container);
     expect(text).toContain('The demo allows three questions a minute.');
-    expect(text).toContain('The API answered and refused');
+    expect(text).toContain('The answer named its own refusal');
     expect(text).not.toContain('could not be reached');
+    // THE CLAIM THE PREVIOUS FIX OPENED, and this fixture is the exact input that falsified it.
+    // `server.ts` answers 429 from rate-limit middleware that runs BEFORE `/memories` calls
+    // `repository.list`, so nothing read the archive and the slip may not say it was reachable.
+    // This is the likeliest refusal on the page: a visitor clicking filter chips causes it.
+    //
+    // ASSERTED WHOLE rather than as `.not.toContain('was reachable')`, which is how this was first
+    // written and could not fail: no rendered string contains that substring, and the claim has
+    // come back in fresh wording three generations running, so pinning a dead phrase guards the
+    // wording and not the claim.
+    expect(slipClosing(container)).toBe(
+      'The answer named its own refusal, which is a different thing from no answer at all. It does ' +
+        'not say the archive was read. Nothing here says the archive is empty.',
+    );
   });
 
   it('says the browser could not reach the API when the request never lands', async () => {
@@ -863,6 +907,8 @@ describe('the archive island, hydrated', () => {
       'The API could not be reached from this browser. Nothing here says the memory is empty.',
     );
     expect(slipWords(container)).toContain('Nothing here says the archive is empty');
+    // The closing paragraph, which now says only what a connection failure and a timeout share.
+    expect(slipWords(container)).toContain('which is a fact about this request and not about the memory');
   });
 
   it('refuses a 200 whose body the console cannot read rather than racking it', async () => {
@@ -951,6 +997,11 @@ describe('the archive island, hydrated', () => {
       expect(slipDetail(container)).toBe(
         'The API did not answer within 8 seconds. Nothing here says the memory is empty.',
       );
+      // THE HALF THIS TEST WAS MISSING, and the reason the defect survived being written down. The
+      // shared closing paragraph asserted "The API could not be reached from this browser" under
+      // BOTH events, so a slow cold start printed the timeout sentence and denied it on the next
+      // line. Asserting only the detail could never catch that. This reads the WHOLE slip.
+      expect(slipWords(container)).not.toContain('could not be reached');
     } finally {
       vi.useRealTimers();
     }
@@ -1106,7 +1157,9 @@ describe('the archive island, hydrated', () => {
     const container = await mountAndSettle();
 
     expect(words(container.querySelector('.slip .k'))).toBe('Refusal slip');
-    expect(words(container.querySelector('.slip .v'))).toBe('THE API REFUSED: INTERNAL_ERROR.');
+    // "THE API" is gone from this verdict: a proxy can answer 500 in the API's place, and this
+    // console cannot tell which did. The code the answer carried is all it knows.
+    expect(words(container.querySelector('.slip .v'))).toBe('REFUSED: INTERNAL_ERROR.');
   });
 
   it('reads the filter cell off the receipt rather than off the pressed chip', async () => {
