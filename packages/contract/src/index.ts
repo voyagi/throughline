@@ -159,7 +159,26 @@ export type TurnView =
   | { readonly role: 'refusal'; readonly content: string };
 
 export interface BudgetView {
-  /** Null when the ceiling refused the turn: nothing was spent, so nothing is reported as spent. */
+  /**
+   * Nullable, and NOTHING IN THIS REPOSITORY PRODUCES THE NULL ON THIS PATH. That is the whole
+   * honest description of it, and this sentence has now been wrong twice by reaching for a better
+   * one.
+   *
+   * It first said "null when the ceiling refused the turn". A refusal is answered 429 with a
+   * `FailureResponse` and carries no `BudgetView` at all, so that case never travels in this shape.
+   * Corrected, it then said "so a turn can report a ceiling it could not read a count from", which
+   * names no producer: the only one is `server.ts:288`, which runs after the refusal has already
+   * returned, and a `DemoBudget` that allows a turn always carries a number. Writing a narrower
+   * scenario was not a fix either time.
+   *
+   * What is true, counted rather than recalled. `used: null` appears five times under `apps/`.
+   * THREE are the internal `BudgetDecision`, a different type on a different path, where the null is
+   * real and means "refused, so no count was taken". ONE is `shapes.ts`, the console's validator
+   * entry `used: nullOr(isNumber)`, which is a rule and not a value at all. The fifth is a fixture
+   * in `apps/web/test/api-shape.test.ts` that builds the null deliberately, to prove the console
+   * accepts one rather than refusing the whole turn over it. So the nullability is inherited from
+   * `BudgetDecision`'s shape, and the only place it is load-bearing today is that test.
+   */
   readonly used: number | null;
   readonly limit: number;
   readonly day: string;
@@ -218,4 +237,89 @@ export interface StatusResponse {
 export interface HealthResponse {
   readonly server: string;
   readonly status: 'ok';
+}
+
+/** Mirrors the memory layer's `MemoryState`, checked at compile time. Three states, no fourth. */
+export type MemoryState = 'current' | 'superseded' | 'tombstoned';
+
+/** Mirrors the memory layer's `ListFailureCause`: which stage stopped a listing, as a value. */
+export type ListFailureCause = 'listing_query_failed' | 'row_unreadable';
+
+/**
+ * One row of the archive, as the archive page reads it.
+ *
+ * THERE IS NO `similarity` AND NO `score`, and their absence is the point of having a shape of its
+ * own rather than reusing `RecalledMemoryView`. Both of those numbers are produced by scoring a row
+ * against a query embedding. Listing runs no query, so neither exists, and a column filled with a
+ * plausible number nobody computed is the failure this whole site is an argument against. The two
+ * shapes look similar enough that sharing one and sending zeros would have been the easy move.
+ *
+ * `freshness` and `stale` DO travel, and they are honest here: both are pure time decay against the
+ * row's kind and its last confirmation, with no query involved. So the page can show that the
+ * archive is running on old information, which is the thing a reader most needs to see.
+ *
+ * `evictionReason` is the archive's own text and not a driver's. Today the only writer is the
+ * scheduled sweep, which writes a literal. When `forget` is wired it will carry a model-supplied
+ * sentence, which is the same content class as `content` itself and is published on the same terms.
+ */
+export interface MemoryRowView {
+  readonly id: string;
+  readonly kind: MemoryKind;
+  readonly content: string;
+  /** The headline. `supersededBy` and the eviction fields carry the rest of the history regardless. */
+  readonly state: MemoryState;
+  readonly freshness: number;
+  /** True when freshness fell past this kind's floor. The row is shown FLAGGED, never hidden. */
+  readonly stale: boolean;
+  readonly ageDays: number;
+  readonly halfLifeDays: number;
+  readonly confirmations: number;
+  readonly contradictions: number;
+  readonly assertedBy: string;
+  readonly incidentId: string | null;
+  /** The memory that replaced this one. Non-null is what makes a chain a chain. */
+  readonly supersededBy: string | null;
+  readonly createdAt: string;
+  readonly validFrom: string;
+  /** Set when the row was superseded: the instant its claim stopped being current. */
+  readonly validUntil: string | null;
+  readonly evictedAt: string | null;
+  readonly evictionReason: string | null;
+}
+
+/**
+ * What happened during one listing.
+ *
+ * THERE IS NO TOTAL, for the same reason `RecallReceiptView` has none: nobody counted the archive,
+ * so nothing here may print a denominator. A reader learns that more rows exist from PARTIAL
+ * coverage, which is measured by asking the database for one row more than the bound.
+ */
+export interface MemoryListReceiptView {
+  /** The kinds asked for. EMPTY MEANS EVERY KIND, which is not "no kind matched". */
+  readonly kinds: readonly MemoryKind[];
+  /** The bound actually applied after clamping, not the one the caller asked for. */
+  readonly limit: number;
+  readonly returned: number;
+  readonly coverage: Coverage;
+  readonly coverageReason: string;
+  readonly coverageCause: ListFailureCause | null;
+  readonly requestedAt: string;
+  readonly elapsedMs: number;
+}
+
+/**
+ * The 200 from `GET /memories`.
+ *
+ * The receipt is NOT optional and the rows never travel without it, mirroring the memory layer's own
+ * invariant all the way to the browser. A console holding this cannot render an empty rack without
+ * having been handed the reason it is empty.
+ *
+ * THERE IS NO WORKSPACE FIELD. The workspace is server side configuration on every route in this
+ * API, so echoing it back would publish an internal identifier to an unauthenticated caller and
+ * imply the caller could have chosen it.
+ */
+export interface MemoryListResponse {
+  readonly server: string;
+  readonly receipt: MemoryListReceiptView;
+  readonly memories: readonly MemoryRowView[];
 }

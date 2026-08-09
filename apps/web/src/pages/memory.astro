@@ -2,22 +2,26 @@
 /**
  * `/memory` - the archive.
  *
- * WHAT THIS PAGE CANNOT DO YET, said at the top of the file and again on the page itself, because
- * this is the page a sceptic opens to check that the console is not theatre and it would be an
- * absurd place to start bluffing.
+ * THIS PAGE NOW SHOWS REAL ROWS, and until 2026-08-08 it did not. It carried a notice saying the
+ * browsable archive was not built, because no endpoint listed memories, and racking invented strips
+ * on the one page whose job is to be checkable would have been the worst lie on the site. `GET
+ * /memories` exists now, so the notice is gone and the rows are live.
  *
- * There is no endpoint that lists memories. `apps/api` exposes `/agent/turn`, `/verify`, `/status`
- * and `/health`, and browsing rows needs a bounded, filtered list route that does not exist. So
- * this page explains the archive's structure and shows the two devices that structure produces - a
- * supersede chain and a tombstone - as LABELLED illustrations, and says plainly that the browsable
- * archive is not built. Filling a rack with invented rows on the one page whose job is to be
- * checkable would be the worst lie on the site.
+ * THREE STATEMENTS HAD TO CHANGE TOGETHER and they are listed here because missing one would leave
+ * the page contradicting itself: the notice bay, the third source strip row that read UNKNOWN, and
+ * the colophon explaining why the archive's contents were absent. A page that racks live rows while
+ * still printing "there is no list endpoint yet" in its own footer is worse than either version.
  *
- * The strips below are the shapes the schema really produces. Every number on them comes from
- * `policy.ts`, imported, so the illustration cannot drift from the code it illustrates.
+ * WHAT IS STILL AN ILLUSTRATION is the eviction bay, and it says so. Nothing here has ever been
+ * evicted, because eviction runs on a schedule this demo does not run, so the grace window is
+ * described from `policy.ts` rather than shown. Every number in it is imported, so the description
+ * cannot drift from the code it describes.
  */
 import { DEFAULT_POLICY, MS_PER_DAY } from '@throughline/memory';
+import '../styles/archive.css';
+import Archive from '../islands/Archive.tsx';
 import Board from '../layouts/Board.astro';
+import { API_BASE } from '../scripts/config.ts';
 import { articleSchema } from '../scripts/schema.ts';
 import type { SourceRow } from '../scripts/types.ts';
 
@@ -27,8 +31,19 @@ const graceHours = policy.graceWindowMs / (MS_PER_DAY / 24);
 
 const sources: readonly SourceRow[] = [
   { claim: 'Half-lives, the grace window and the similarity floor, imported from policy.ts', trust: 'MEASURED' },
-  { claim: 'The supersede chain and the tombstone below, written to show the shape', trust: 'ILLUSTRATION' },
-  { claim: 'What is actually in the archive right now', trust: 'UNKNOWN' },
+  // THE CLAIM IS ABOUT PROVENANCE AND SAYS SO, because this strip is static HTML and cannot report a
+  // runtime outcome. A review pointed out that the first wording ("the rows in bay 1, read from the
+  // live archive") stamps MEASURED on rows that are absent before hydration and stay absent when the
+  // API is unreachable, and that the row it replaced was the hedge which made the strip safe under
+  // every outcome. So the claim now names where bay 1's rows come from and hands the presence
+  // question to the receipt, which is the only thing that can answer it.
+  {
+    claim: 'Bay 1 is read from GET /memories; whether the listing ran is on its receipt, not here',
+    trust: 'MEASURED',
+  },
+  // Still UNKNOWN, deliberately, and it is a different claim from the row above. Nothing on this
+  // page has been evicted, because eviction runs on a schedule this demo does not run.
+  { claim: 'What the eviction sweep would refuse, which has never run here', trust: 'UNKNOWN' },
 ];
 ---
 
@@ -38,69 +53,39 @@ const sources: readonly SourceRow[] = [
   description="How the memory archive is structured: typed rows, supersede chains that keep the old row queryable, tombstones instead of deletions, and a grace window nothing can be evicted inside."
   designator={['TLN-01 / Archive', 'Supersede and tombstone', 'Never overwrite']}
   sources={sources}
-  colophon="The third row is the honest one. There is no list endpoint yet, so this page shows the archive's shape rather than its contents, and it says so rather than filling a rack with rows nobody wrote."
+  colophon="The rows in bay 1 are read from the live archive, with the listing's own receipt printed above them, so an empty rack and a failed query never look alike. The eviction bay is still a description: nothing here has been evicted, because that sweep does not run in this demo."
   jsonLd={articleSchema(site, '/memory/', 'How the Throughline archive is structured')}
 >
-  <section class="bay" aria-labelledby="not-built">
-    <div class="bayhead">
-      <span class="bayno">Notice</span>
-      <h2 class="baylabel" id="not-built">The browsable archive is not built</h2>
-      <p class="baynote">
-        Browsing real rows needs a bounded list route on the API, and there is not one. Rather than
-        rack invented strips on the page whose whole job is to let you check the console, this page
-        shows the structures the schema produces and labels them as examples in the source strip.
-      </p>
-    </div>
-    <div class="rack">
-      <div><span class="tag">Missing &middot; GET /memories, bounded, filtered, workspace fixed</span></div>
-    </div>
+  {/* No wrapping heading: the island renders its own `bayhead` with the h2, the same way
+      `StatusBoard` does on /status. A second heading here would either duplicate it visibly or need
+      a hiding class, and `sr-only` exists for text that has no visible counterpart, not for one that
+      does. */}
+  <section class="bay">
+    <Archive client:load apiBase={API_BASE} />
   </section>
 
   <section class="bay" aria-labelledby="chain">
     <div class="bayhead">
-      <span class="bayno">Bay 1</span>
-      <h2 class="baylabel" id="chain">A supersede chain</h2>
+      <span class="bayno">Bay 2</span>
+      <h2 class="baylabel" id="chain">How to read a supersede chain above</h2>
       <p class="baynote">
         Contradicting a fact does not overwrite it. It closes the old row's validity interval and
         links the two, so "why did you tell me that in June" is a question the archive can answer.
-        The current strip sits proud; the ended one stays behind it in tombstone grey.
+        The replacement keeps its kind colour and reads <em>Current</em>; the row it replaced is
+        dimmed, stamped <em>Superseded</em>, and still carries the id of what replaced it. Both are
+        in the rack above if the workspace holds a chain, because neither is filtered out.
       </p>
-    </div>
-    <div class="rack">
-      <div class="strip">
-        <span class="holder h-ent"></span>
-        <div>
-          <div class="row r-main">
-            <div class="cell"><b>Content</b><span class="say">Pool ceiling is 200 connections</span></div>
-            <div class="cell"><b>State</b><span class="stamp prot">Current</span></div>
-          </div>
-          <div class="row r-three">
-            <div class="cell"><b>Kind</b><span class="val">ENTITY FACT</span></div>
-            <div class="cell"><b>Valid from</b><span class="val">2026-08-05</span></div>
-            <div class="cell"><b>Supersedes</b><span class="val">the row below</span></div>
-          </div>
-        </div>
-      </div>
-      <div class="strip retired">
-        <span class="holder h-tomb"></span>
-        <div>
-          <div class="row r-main">
-            <div class="cell"><b>Content</b><span class="say">Pool ceiling is 120 connections</span></div>
-            <div class="cell"><b>State</b><span class="stamp grey">Superseded</span></div>
-          </div>
-          <div class="row r-three">
-            <div class="cell"><b>Kind</b><span class="val">ENTITY FACT</span></div>
-            <div class="cell"><b>Valid until</b><span class="val">2026-08-05</span></div>
-            <div class="cell"><b>Still queryable</b><span class="val">yes</span></div>
-          </div>
-        </div>
-      </div>
+      <p class="baynote">
+        A tombstone is the other one. An evicted row is not deleted: it takes the grey holder, keeps
+        every field it had, and gains the date it was removed and the reason. That is why this archive
+        gets longer rather than shorter, and it is the thing a plain vector store cannot show you.
+      </p>
     </div>
   </section>
 
   <section class="bay" aria-labelledby="eviction">
     <div class="bayhead">
-      <span class="bayno">Bay 2</span>
+      <span class="bayno">Bay 3</span>
       <h2 class="baylabel" id="eviction">What eviction may not touch</h2>
       <p class="baynote">
         Eviction is age and value based with a grace window, and it reports what it refused as well
@@ -121,7 +106,7 @@ const sources: readonly SourceRow[] = [
 
   <section class="bay" aria-labelledby="kinds">
     <div class="bayhead">
-      <span class="bayno">Bay 3</span>
+      <span class="bayno">Bay 4</span>
       <h2 class="baylabel" id="kinds">What a row carries</h2>
     </div>
     <div class="prose">

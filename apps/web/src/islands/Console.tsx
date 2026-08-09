@@ -1,5 +1,7 @@
 import { useRef, useState } from 'preact/hooks';
 import { postTurn, type ApiFailure } from '../scripts/api.ts';
+import { clock, HOLDER, KIND_LABEL, labelled, verdictClass } from '../scripts/presentation.ts';
+import { KindAgeCells } from './cells.tsx';
 import type {
   AgentTurnResponse,
   CoverageCause,
@@ -53,22 +55,6 @@ interface Exchange {
     | { readonly kind: 'failed'; readonly failure: ApiFailure };
 }
 
-const HOLDER: Readonly<Record<MemoryKind, string>> = {
-  observation: 'holder',
-  resolution: 'holder h-res',
-  runbook_fact: 'holder h-run',
-  rejected_hypothesis: 'holder h-rej',
-  entity_fact: 'holder h-ent',
-};
-
-const KIND_LABEL: Readonly<Record<MemoryKind, string>> = {
-  observation: 'OBSERVATION',
-  resolution: 'RESOLUTION',
-  runbook_fact: 'RUNBOOK FACT',
-  rejected_hypothesis: 'REJECTED HYPOTHESIS',
-  entity_fact: 'ENTITY FACT',
-};
-
 /**
  * What the search could not do, in the operator's words rather than the provider's.
  *
@@ -91,11 +77,6 @@ const PATH_LABEL: Readonly<Record<string, string>> = {
   none: 'none, both paths need a query vector',
 };
 
-const clock = (iso: string) => iso.slice(11, 19);
-
-const verdictClass = (coverage: string) =>
-  coverage === 'COVERED' ? 'verdict v-cov' : coverage === 'PARTIAL' ? 'verdict v-par' : 'verdict v-unk';
-
 /** A recalled memory, as a strip in its holder. Stale rows are COCKED, never dropped or dimmed. */
 function RecalledStrip({ memory }: { memory: RecalledMemoryView }) {
   return (
@@ -103,7 +84,7 @@ function RecalledStrip({ memory }: { memory: RecalledMemoryView }) {
       {/* Guarded, like every other lookup on this board. A kind the server adds later would
           otherwise render a holder with NO colour, which on this design means "unlit" and is a
           claim about the memory rather than about the console. */}
-      <span class={HOLDER[memory.kind] ?? 'holder'}></span>
+      <span class={labelled(HOLDER, memory.kind) ?? 'holder'}></span>
       <div>
         <div class="row r-main">
           <div class="cell">
@@ -116,18 +97,7 @@ function RecalledStrip({ memory }: { memory: RecalledMemoryView }) {
           </div>
         </div>
         <div class="row r-four">
-          <div class="cell">
-            <b>Kind</b>
-            <span class="val">{KIND_LABEL[memory.kind] ?? memory.kind}</span>
-          </div>
-          <div class="cell">
-            <b>Age</b>
-            <span class="val">{memory.ageDays} d</span>
-          </div>
-          <div class="cell">
-            <b>Half-life</b>
-            <span class="val">{memory.halfLifeDays} d</span>
-          </div>
+          <KindAgeCells kind={memory.kind} ageDays={memory.ageDays} halfLifeDays={memory.halfLifeDays} />
           <div class="cell">
             <b>{memory.stale ? 'State' : 'Confirmed'}</b>
             {memory.stale ? (
@@ -172,7 +142,7 @@ function UnknownSlip({ event, at }: { event: RecallEventView; at: string }) {
             <span>QUERY</span> {receipt.query}
           </div>
           <div>
-            <span>PATH</span> {PATH_LABEL[receipt.retrievalPath] ?? receipt.retrievalPath}
+            <span>PATH</span> {labelled(PATH_LABEL, receipt.retrievalPath) ?? receipt.retrievalPath}
           </div>
           <div>
             <span>EXAMINED</span> {receipt.candidatesConsidered} candidates
@@ -187,7 +157,7 @@ function UnknownSlip({ event, at }: { event: RecallEventView; at: string }) {
             <span>STOPPED BY</span>{' '}
             {receipt.coverageCause === null
               ? 'not recorded'
-              : (CAUSE[receipt.coverageCause] ?? receipt.coverageCause)}
+              : (labelled(CAUSE, receipt.coverageCause) ?? receipt.coverageCause)}
           </div>
           <div>
             <span>RETURNED</span> {receipt.returned}
@@ -426,7 +396,7 @@ export default function Console({ apiBase }: Props) {
                     <p class="said">{exchange.outcome.response.text}</p>
                     {exchange.outcome.response.recalls.map((event, index) => (
                       <span class={verdictClass(event.receipt.coverage)} key={`${exchange.at}-${index}`}>
-                        {(PATH_LABEL[event.receipt.retrievalPath] ?? event.receipt.retrievalPath).toUpperCase()}{' '}
+                        {(labelled(PATH_LABEL, event.receipt.retrievalPath) ?? event.receipt.retrievalPath).toUpperCase()}{' '}
                         &middot; {event.receipt.candidatesConsidered} EXAMINED &middot;{' '}
                         {event.receipt.returned} RETURNED &middot; {event.receipt.elapsedMs} MS &middot;{' '}
                         {event.receipt.coverage}
@@ -561,7 +531,7 @@ export default function Console({ apiBase }: Props) {
           {attempts.length > 0 && <h3 class="subbay">Writes the agent asked for</h3>}
           {attempts.map((entry, index) => (
             <div class="strip posted" key={`attempt-${index}`}>
-              <span class={entry.kind === null ? 'holder' : (HOLDER[entry.kind] ?? 'holder')}></span>
+              <span class={entry.kind === null ? 'holder' : (labelled(HOLDER, entry.kind) ?? 'holder')}></span>
               <div>
                 <div class="row r-main">
                   <div class="cell">
@@ -577,7 +547,7 @@ export default function Console({ apiBase }: Props) {
                   <div class="cell">
                     <b>Kind</b>
                     <span class="val">
-                      {entry.kind === null ? 'not supplied' : (KIND_LABEL[entry.kind] ?? entry.kind)}
+                      {entry.kind === null ? 'not supplied' : (labelled(KIND_LABEL, entry.kind) ?? entry.kind)}
                     </span>
                   </div>
                   <div class="cell">

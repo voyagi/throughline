@@ -10,10 +10,14 @@
  * production, and that has cost this repository 107 green tests over a broken client once already.
  */
 
+import { DEFAULT_POLICY } from '@throughline/memory';
 import type {
   Coverage,
   CoverageCause,
   Exclusion,
+  ListFailureCause,
+  MemoryKind,
+  MemoryPage,
   MemoryRecord,
   MemoryRepository,
   RecallResult,
@@ -95,8 +99,45 @@ export function recallResult(options: RecallResultOptions = {}): RecallResult {
   };
 }
 
+export interface MemoryPageOptions {
+  readonly memories?: readonly MemoryRecord[];
+  readonly coverage?: Coverage;
+  readonly coverageReason?: string;
+  readonly coverageCause?: ListFailureCause | null;
+  readonly kinds?: readonly MemoryKind[];
+  readonly limit?: number;
+}
+
+/**
+ * A listing, built the way `runList` builds one.
+ *
+ * The `coverageCause` default mirrors the real thing rather than being convenient: a cause exists
+ * only when a stage stopped the listing, so it is null for COVERED and for PARTIAL. PARTIAL is a
+ * bound that was reached, not a failure, and a fixture that attached a cause to it would let a test
+ * pass against a console that rendered "stopped by" over a page that ran perfectly.
+ */
+export function memoryPage(options: MemoryPageOptions = {}): MemoryPage {
+  const memories = options.memories ?? [];
+  const coverage = options.coverage ?? 'COVERED';
+  return {
+    memories,
+    receipt: {
+      workspaceId: 'demo',
+      requestedAt: FIXED_NOW,
+      elapsedMs: 4,
+      kinds: options.kinds ?? [],
+      limit: options.limit ?? DEFAULT_POLICY.listCap,
+      returned: memories.length,
+      coverage,
+      coverageReason: options.coverageReason ?? 'every row matching this filter fitted inside the bound',
+      coverageCause: options.coverageCause ?? (coverage === 'UNKNOWN' ? 'listing_query_failed' : null),
+    },
+  };
+}
+
 export interface RepositoryStubs {
   readonly recall?: MemoryRepository['recall'];
+  readonly list?: MemoryRepository['list'];
   readonly remember?: MemoryRepository['remember'];
   readonly supersede?: MemoryRepository['supersede'];
   readonly evict?: MemoryRepository['evict'];
@@ -109,6 +150,7 @@ export function fakeRepository(stubs: RepositoryStubs = {}): MemoryRepository {
 
   return {
     recall: stubs.recall ?? refuse('recall'),
+    list: stubs.list ?? refuse('list'),
     remember: stubs.remember ?? refuse('remember'),
     supersede: stubs.supersede ?? refuse('supersede'),
     evict: stubs.evict ?? refuse('evict'),

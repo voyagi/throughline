@@ -94,20 +94,37 @@ Working now:
 - The live database path: schema, migrations, a connection layer that keeps credentials out of
   logs, and a capability probe that asks the running cluster what it can actually do. Migrations
   are applied and the probe runs green against a real CockroachDB Cloud cluster.
-- 144 tests, including property tests and several written specifically to go red if a protection is
-  removed.
+- A large test suite, including property tests and many written specifically to go red if a
+  protection is removed. `npm run verify:ship` prints the count, and this line deliberately does not:
+  it carried a number twice, and both times the number was stale within the same afternoon that
+  wrote it. A figure nothing re-derives is a claim waiting to go false.
 - The quality gate chain, with a written record of which gates have actually been proven to fail
   in [docs/gates.md](docs/gates.md).
 
-- The repository layer: remembering, recalling, superseding and evicting against real rows, with
-  every recall returning a receipt. `npm run verify:live` exercises all of it end to end against a
-  real cluster and asserts each outcome rather than printing it for a human to eyeball.
+- The repository layer: remembering, recalling, superseding, evicting and listing against real rows,
+  with every recall AND every listing returning a receipt. `npm run verify:live` exercises all five
+  end to end against a real cluster and asserts each outcome rather than printing it for a human to
+  eyeball. That includes a superseded row being EXCLUDED from recall and PRESENT in the listing,
+  which is the difference the archive page exists to show. It did not cover listing at all until a
+  reviewer noticed this sentence claiming it did.
+- The agent tool surface and loop, offline end to end.
+- The HTTP surface: `/agent/turn`, `/memories`, `/verify`, `/status` and `/health`, with CORS from an
+  exact allowlist, a per-client rate limiter and a daily ceiling counted in the database.
+- The web console: five pages, the live archive at `/memory`, and the annunciator at `/status`.
+  Driven in a real browser against a running API on 2026-08-08: all five pages, the agent turn, the
+  archive and every filter chip, plus the rate-limited refusal and the API-is-down case. Nothing
+  automated repeats that, so it is a measurement with a date on it rather than a gate.
 
 Not built yet:
 
-- The agent, the HTTP surface and the Bedrock adapter.
-- The web console, the memory inspector and the status page.
+- The Bedrock chat adapter. The loop runs against a scripted local model today.
 - The deployed stack and the public demo URL.
+- Three of the four islands have no test of their own. What IS covered on the console side is the
+  archive page's state logic (`apps/web/test/archive-state.test.ts`) and the response-shape guard on
+  all three endpoints (`apps/web/test/api-shape.test.ts`). `Console.tsx`, `StatusBoard.tsx` and
+  `Annunciator.tsx` decide their states inline and nothing tests them; no test mounts any rendering.
+  An earlier version of this line said "the decision logic behind each page state", which was one
+  island out of four. `docs/gates.md` records which gates have been watched failing.
 
 ## Running it locally
 
@@ -123,6 +140,31 @@ cp .env.example .env      # then set DATABASE_URL
 npm run migrate           # apply the schema
 npm run probe             # ask the live cluster what it can actually do
 ```
+
+To run the console against the API. The first two are servers and each wants a terminal of its own;
+the third is a one-off:
+
+```bash
+CORS_ALLOWED_ORIGINS=http://127.0.0.1:4321,http://localhost:4321 npm run dev:api
+npm run dev:web           # http://127.0.0.1:4321
+npm run seed:demo         # one incident, so the archive has something to show
+```
+
+On PowerShell the first line is two statements, because `VAR=value command` is POSIX shell syntax
+and sets nothing there:
+
+```powershell
+$env:CORS_ALLOWED_ORIGINS = "http://127.0.0.1:4321,http://localhost:4321"; npm run dev:api
+```
+
+Both loopback spellings, because a browser treats `127.0.0.1` and `localhost` as different origins
+and `npm run dev:web` serves the first one. Without them the API boots with an empty allowlist, every
+page still loads, and the console reports that it could not reach the API. It now says so at boot
+rather than leaving you to work it out from the word `none` at the end of a line.
+
+`npm run seed:demo` writes one scripted incident to the demo workspace and refuses to run twice.
+Every row it writes is asserted by `system:demo-seed` rather than by an invented person, because the
+provenance column is one of the things the archive is for.
 
 `npm run probe` is the one to run first against any new cluster. It reports the server version, the
 embedding column width, whether vector indexing is available, and whether the planner really uses

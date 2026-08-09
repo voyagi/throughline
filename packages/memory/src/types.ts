@@ -175,6 +175,74 @@ export interface RecallResult {
 }
 
 /**
+ * Where a row sits in its own history. Derived by `memoryState`, never stored.
+ *
+ * Three states and no fourth, and `current` does NOT mean correct. It means nothing has replaced
+ * this row and nothing has evicted it, which is a claim about the archive rather than about the
+ * world.
+ */
+export type MemoryState = 'current' | 'superseded' | 'tombstoned';
+
+/**
+ * Which stage stopped a listing, as a value rather than as a sentence.
+ *
+ * The same shape as `CoverageCause` and for the same reason: a caller says WHY a list is empty
+ * without quoting whatever threw. Two stages, because two things can fail, and each maps to exactly
+ * one `catch` so a new failure mode cannot quietly borrow an existing label.
+ *
+ * `row_unreadable` is not hypothetical. `rowToMemory` throws when a row's `kind` is not one the code
+ * knows, which means the database CHECK constraint and `MEMORY_KINDS` have diverged, and a listing
+ * that swallowed that would show a short archive instead of reporting a broken one.
+ */
+export type ListFailureCause = 'listing_query_failed' | 'row_unreadable';
+
+/**
+ * What actually happened during one listing. Returned with every page, never optional.
+ *
+ * A LIST GETS A RECEIPT FOR THE SAME REASON A RECALL DOES. This package's rule is that no caller
+ * can read memories without the thing that says whether the read ran, and a list is where that rule
+ * is easiest to talk yourself out of: it feels like plain data. It is not. An empty archive and an
+ * archive whose query timed out are the same empty array, and the second one is the dangerous claim.
+ *
+ * THERE IS NO TOTAL, and its absence is the same decision as the missing workspace total on
+ * `RecallReceipt`. Counting every row in the workspace is a second statement whose cost grows with
+ * the archive, and this page is bounded on purpose. A caller learns that more exist from PARTIAL
+ * coverage, which is measured, rather than from a number nobody counted.
+ */
+export interface MemoryListReceipt {
+  readonly workspaceId: string;
+  readonly requestedAt: Date;
+  readonly elapsedMs: number;
+  /**
+   * The kinds asked for. EMPTY MEANS EVERY KIND, and that is not the same fact as "no kind
+   * matched": one is a filter nobody applied, the other is a filter that excluded everything. A
+   * reader of an empty page needs to be able to tell those apart, so the filter is reported back.
+   */
+  readonly kinds: readonly MemoryKind[];
+  /** The bound actually APPLIED, after clamping, not the one the caller asked for. */
+  readonly limit: number;
+  readonly returned: number;
+  /**
+   * COVERED  every row matching the filter fitted inside the bound.
+   * PARTIAL  the bound was reached and more rows exist. Measured by asking for one more than the
+   *          bound, never guessed from `returned === limit`.
+   * UNKNOWN  the listing could not be completed. An empty page under UNKNOWN means nothing at all.
+   */
+  readonly coverage: Coverage;
+  readonly coverageReason: string;
+  /** Null whenever the listing completed, which includes a COVERED empty archive. */
+  readonly coverageCause: ListFailureCause | null;
+}
+
+/**
+ * The only shape a listing returns. Memories and receipt travel together.
+ */
+export interface MemoryPage {
+  readonly memories: readonly MemoryRecord[];
+  readonly receipt: MemoryListReceipt;
+}
+
+/**
  * One capability check.
  *
  * A tri-state rather than a value that might be null, because "checked, and it is absent" and

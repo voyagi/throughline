@@ -1,8 +1,20 @@
 /**
  * The memory layer's public surface.
  *
- * Note what is NOT exported: there is no function anywhere in this package that returns memories
- * without the receipt that says whether the search ran. That absence is the design.
+ * Note what is NOT exported: no function here returns a SET of memories without the receipt that says
+ * whether the read ran. That absence is the design. `recall` returns a `RecallResult` and `list`
+ * returns a `MemoryPage`, and neither has an overload handing back the rows alone.
+ *
+ * `list` is why this says "read" rather than "search". Browsing the archive is where that rule is
+ * easiest to abandon, since a page of rows feels like plain data in a way a ranked search does not.
+ * It is not: an empty archive and an archive whose query timed out are the same empty array.
+ *
+ * THE ONE EXCEPTION IS `getById`, and it is named here because a review caught this docblock claiming
+ * otherwise. It returns `MemoryRecord | null` with no receipt, so its `null` really is the ambiguous
+ * "not there, or could not look" value the rest of the package designs away. It is defensible for a
+ * single known id, where the caller supplied the id and a missing row is a different question from a
+ * failed search, but it IS an exception rather than an instance of the rule. Saying "a set of
+ * memories" is the honest scope; the earlier wording said "memories" and was false.
  */
 
 export type {
@@ -11,8 +23,12 @@ export type {
   CoverageCause,
   Exclusion,
   ExclusionRule,
+  ListFailureCause,
   MemoryKind,
+  MemoryListReceipt,
+  MemoryPage,
   MemoryRecord,
+  MemoryState,
   Observation,
   Provenance,
   RecallReceipt,
@@ -21,6 +37,8 @@ export type {
   ScoredMemory,
 } from './types.ts';
 export { MEMORY_KINDS, observed, unknown } from './types.ts';
+
+export { memoryState } from './lifecycle.ts';
 
 export type { DatabaseConfig, EmbeddingConfig } from './config.ts';
 export {
@@ -52,6 +70,7 @@ export { formatVector, parseVector, rowToMemory } from './rows.ts';
 
 export type {
   EvictionOutcome,
+  ListQuery,
   MemoryRepository,
   RecallQuery,
   RememberInput,

@@ -69,6 +69,40 @@ export class LimitsError extends Error {
 }
 
 /**
+ * What to say at boot when no browser origin is allowed, or null when one is.
+ *
+ * WRITTEN AFTER THE FIRST TIME ANYONE LOADED THIS CONSOLE IN A BROWSER. An empty allowlist is a
+ * legitimate configuration - it is the right one for a deployment with no browser client - so it
+ * cannot be an error. But it is also what an operator gets by following this repository's own
+ * README, because `.env.example` does not mention `CORS_ALLOWED_ORIGINS` at all. The result,
+ * measured rather than imagined: every page loads, the console reports "The API could not be
+ * reached from this browser", and the only sign of the cause is the word `none` at the end of a
+ * boot line. A reader concludes the demo is broken.
+ *
+ * The API is doing exactly what it was told. This is the difference between doing that silently and
+ * saying so, which is the same argument the product makes about an empty search result.
+ *
+ * BOTH LOOPBACK SPELLINGS ARE NAMED because they are different origins to a browser and only one of
+ * them is what `npm run dev:web` serves. `astro dev --host 127.0.0.1` means the page is at
+ * `http://127.0.0.1:4321`, so an allowlist holding only `http://localhost:4321` never matches. That
+ * exact mistake was sitting in this project's own notes, and it was found by trying it.
+ *
+ * A PURE FUNCTION rather than a `console.log` inside `main.ts`, because `main.ts` calls `main()` at
+ * the top level and no test can import it without starting a server. A warning nothing can test is
+ * a warning nobody has watched appear.
+ */
+export function originPolicyWarning(limits: DemoLimits): string | null {
+  if (limits.allowedOrigins.length > 0) return null;
+  return (
+    'CORS_ALLOWED_ORIGINS is empty, so no browser on another origin may call this API and the ' +
+    'console will report that it could not be reached. That is correct for a deployment with no ' +
+    'browser client. To run the console locally, set ' +
+    'CORS_ALLOWED_ORIGINS=http://127.0.0.1:4321,http://localhost:4321 - both spellings, because a ' +
+    'browser treats them as different origins and `npm run dev:web` serves the first one.'
+  );
+}
+
+/**
  * Split, trim and check the allowlist.
  *
  * A wildcard is REFUSED rather than honoured. An allow-origin header naming every site is the

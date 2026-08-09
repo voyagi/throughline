@@ -13,13 +13,6 @@
       "severity": "high",
       "reason": "Bundled inside aws-cdk-lib, which names minimatch in bundleDependencies, so npm never re-resolves it and an overrides entry cannot reach it. Measured: adding the override left the nested copy at 5.0.8. No released aws-cdk-lib bundles the fixed 5.0.9 yet. Reachable only at synthesis time on a developer machine or in CI, never in Lambda and never in the request path, over glob patterns this repository wrote itself.",
       "recheckAfter": "2026-08-11"
-    },
-    {
-      "id": "GHSA-8j4g-w8fx-2239",
-      "package": "hono",
-      "severity": "moderate",
-      "reason": "ReDoS in the CORS middleware via Access-Control-Request-Headers. Fixed in 4.12.34, published 2026-08-03T02:36Z, which is still inside the min-release-age cooldown this repository sets in .npmrc; it clears 2026-08-06T02:36Z. The cooldown is not bypassed to clear a finding faster. The previous reason here was that no HTTP surface was mounted yet, and that stopped being true on 2026-08-05. The mitigation now is that the vulnerable middleware is never imported: apps/api/src/http/cors.ts matches an exact Set of origins with no regular expression in it, and the no-hono-cors-middleware rule in .dependency-cruiser.cjs fails the build on any import of hono/cors, proven failable by planting that import and watching it fire by name.",
-      "recheckAfter": "2026-08-07"
     }
   ]
 }

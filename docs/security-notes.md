@@ -42,37 +42,6 @@ this file exists to prevent.
 - Fix path: an `aws-cdk-lib` release that bundles minimatch with brace-expansion 5.0.9 or later.
   Action, dated: re-check on or after **2026-08-11**, and record the outcome here either way.
 
-### GHSA-8j4g-w8fx-2239, hono, MODERATE, deferred by the cooldown
-
-`npm audit` surfaced this during the same upgrade: hono before 4.12.34 has a ReDoS in the CORS
-middleware, reachable through the `Access-Control-Request-Headers` header. `apps/api` declares
-`hono: ^4`.
-
-- Not fixed today, and deliberately so. 4.12.34 was published 2026-08-03T02:36Z and 4.13.0 on
-  2026-08-03T21:54Z, so on 2026-08-05 both still sit inside the three day supply chain cooldown
-  that `.npmrc` sets for this repository: 4.12.34 clears at 2026-08-06T02:36Z. The cooldown is not
-  bypassed to clear a finding faster, and `.npmrc` says so in its own words.
-- **The line that used to sit here was "no HTTP surface exists yet, so the middleware is not
-  mounted anywhere", labelled a fact about today rather than a mitigation. That sentence stopped
-  being true on 2026-08-05, when the HTTP surface shipped.** It is replaced by a real mitigation
-  rather than deleted, because the difference is the whole point of this file.
-- **The mitigation: `hono/cors` is never imported.** `apps/api/src/http/cors.ts` does the same job
-  with an exact-match `Set` of origins, which contains no regular expression, so there is no
-  pathological input for anyone to find. This is enforced rather than remembered: the
-  `no-hono-cors-middleware` rule in `.dependency-cruiser.cjs` fails the build on any import of the
-  middleware, and it was proven failable by planting that import and watching it fire BY NAME.
-  Watching it fire by name mattered: the first attempt was caught by `not-to-unresolvable` instead,
-  because the resolver was not reading package exports maps, so `hono/cors` resolved to nothing and
-  a path rule had no path to match. The rule looked like a control and was inert.
-- The mitigation outlives the upgrade and the rule stays afterwards. A matched allowlist is a
-  stronger position than a patched reflector, and without the rule the import returns the first
-  time somebody reaches for the obvious middleware.
-- Action, dated: on or after **2026-08-06**, `npm install hono@4.12.34 -w @throughline/api` (a
-  pinned version, not `@latest`, so the install cannot pull something published this morning), then
-  re-run `npm audit` and trivy, then delete this entry rather than extending it. The acceptance in
-  `scripts/accepted-advisories.json` is dated **2026-08-07** so that it expires if that does not
-  happen.
-
 ### CVE-2026-14257, brace-expansion 5.0.7, HIGH, bundled inside aws-cdk-lib, SUPERSEDED
 
 Closed on 2026-08-04 by the upgrade described above, and kept here rather than moved to Closed
@@ -106,6 +75,61 @@ after the first dependency install.
   is recorded above rather than inferred from the upgrade having succeeded.
 
 ## Closed
+
+### GHSA-8j4g-w8fx-2239 and three more, hono, MODERATE and LOW
+
+Closed 2026-08-08 by `npm install hono@4.12.34 -w @throughline/api`. The acceptance in
+`scripts/accepted-advisories.json` was DELETED rather than extended, which the gate enforces anyway:
+an acceptance matching nothing fails as `stale_acceptance`.
+
+There is ONE copy of hono in the tree, hoisted, and `@hono/node-server@2.0.12` declares `hono: ^4`
+and resolves to it. An earlier version of this line said the upgrade "resolved 4.12.34 for both the
+direct dependency and the copy under `@hono/node-server`", which implied a nested install that does
+not exist: `package-lock.json` has exactly one `node_modules/hono` entry. The effect is the same and
+the description was wrong, which is the kind of sentence this file exists to keep honest.
+
+The cooldown was checked rather than assumed, because the handoff that scheduled this work carried
+an arithmetic error the time before. Read from the registry on 2026-08-08T10:57Z: 4.12.34 was
+published 2026-08-03T02:36:40Z and `.npmrc` sets `min-release-age=3` days, so it cleared
+2026-08-06T02:36Z. It was NOT bypassed.
+
+- **`latest` was 4.13.1 by the time this ran, not 4.13.0 as the handoff said, and 4.13.1 was itself
+  still inside the cooldown** (published 2026-08-07T06:45Z, clears 2026-08-10T06:45Z). Pinning
+  4.12.34 was therefore both the smallest step that fixes the finding and the only installable one.
+  This is the case the "pinned, never `@latest`" rule exists for.
+- The upgrade closed THREE more hono advisories that had appeared since 2026-08-05 and were sitting
+  below the gate's HIGH threshold as notes: `memo()` retaining SSR output across requests
+  (MODERATE, cross-user data disclosure), the Proxy Helper not stripping headers named in
+  `Connection` (LOW), and an algorithmic-complexity DoS in the Language middleware (MODERATE). None
+  of those middlewares is imported here, but they are fixed rather than reasoned about now.
+- **The `no-hono-cors-middleware` rule in `.dependency-cruiser.cjs` STAYS.** A matched allowlist is
+  a stronger position than a patched reflector: `apps/api/src/http/cors.ts` matches an exact `Set`
+  of origins with no regular expression in it, and without the rule the import returns the first
+  time somebody reaches for the obvious middleware. The rule was proven failable by planting that
+  import and watching it fire by name.
+
+### GHSA-5p4m-2wfm-xmqj js-yaml HIGH and GHSA-2v37-7h3g-55p8 nanoid HIGH
+
+Found 2026-08-08 by the advisories gate, NOT by the handoff, which knew about neither: both
+advisories were published after the previous session ended, and both were unaccepted HIGHs, so
+`gate:advisories` failed on three problems rather than the one that was expected. Closed the same
+day by `npm update js-yaml nanoid`, resolved 4.3.1 and 3.3.17.
+
+- Neither needed an `overrides` entry, checked before reaching for one: `astro@7.1.6` and
+  `@astrojs/internal-helpers@0.10.2` both declare `js-yaml: ^4.3.0` and `postcss@8.5.25` declares
+  `nanoid: ^3.3.16`, so the caret ranges already permitted the fixed versions and a lockfile update
+  was enough. An override that duplicates a range the parent already allows is a permanent
+  instruction recording a temporary fact.
+- Cooldown checked for both: js-yaml 4.3.1 published 2026-07-31T17:39Z, nanoid 3.3.17 published
+  2026-08-03T10:39Z. Both outside the three day window on 2026-08-08.
+- Reachability, stated rather than implied: both are BUILD AND TEST tooling, neither is in the
+  Lambda runtime path. js-yaml arrives through `astro`, so it runs when the site is built; nanoid
+  arrives through `vitest -> vite -> postcss`, so it runs when the suite runs. That lowers the
+  urgency and does not remove the finding, because both execute on a developer machine and in CI.
+- **`npm install`'s own closing line said `found 0 vulnerabilities` while both were still installed
+  and both still had open HIGH advisories.** That summary is not the gate and was not treated as
+  one: `npm audit` run immediately afterwards reported all three. A zero from a command whose main
+  job was something else is unknown, not clean.
 
 ### GHSA-frvp-7c67-39w9, @hono/node-server, MEDIUM
 

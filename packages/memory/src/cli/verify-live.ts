@@ -152,6 +152,56 @@ async function main(): Promise<void> {
       !afterSupersede.memories.some((m) => m.memory.id === outage.id),
     );
 
+    // LISTING, AGAINST REAL ROWS. This file's own header says every claim the project makes about
+    // its memory layer is exercised here, and the README said `verify:live` covers listing end to
+    // end. Neither was true: `repository.list` was never called, so the listing SQL - the newest
+    // statement in the package, and the one behind the archive page - had never run against
+    // CockroachDB at all. A reviewer caught the README claiming it. The claim is made true here
+    // rather than narrowed, because the untested path was the point of the sentence.
+    console.log('\n  Listing returns rows and a receipt, with no ranking in it');
+    const listed = await repository.list({ workspaceId: WORKSPACE });
+    console.log(`    coverage:  ${listed.receipt.coverage}`);
+    console.log(`    returned:  ${listed.receipt.returned}  bound:${listed.receipt.limit}`);
+    console.log(`    narrative: ${listed.receipt.coverageReason}`);
+
+    check('the listing ran rather than reporting it could not', listed.receipt.coverage !== 'UNKNOWN');
+    check('it returned the rows written here', listed.memories.length >= 4, `(${listed.memories.length})`);
+    check('the receipt counts what it actually returned', listed.receipt.returned === listed.memories.length);
+    check('the receipt reports the bound it applied', listed.receipt.limit > 0);
+    check('the receipt names no total, because nobody counted the archive', !('total' in listed.receipt));
+    // THE ARCHIVE SHOWS HISTORY AND RECALL DOES NOT, which is the difference the /memory page is for.
+    // The same superseded row asserted absent from recall above has to be PRESENT here.
+    check(
+      'a superseded memory is listed rather than excluded, unlike in recall',
+      listed.memories.some((one) => one.id === outage.id),
+    );
+    check(
+      'the superseded row still points at its replacement',
+      listed.memories.find((one) => one.id === outage.id)?.supersededBy === replacement.id,
+    );
+
+    const onlyResolutions = await repository.list({ workspaceId: WORKSPACE, kinds: ['resolution'] });
+    check(
+      'a kind filter narrows the listing to that kind',
+      onlyResolutions.memories.length > 0 && onlyResolutions.memories.every((one) => one.kind === 'resolution'),
+      `(${onlyResolutions.memories.length} row(s))`,
+    );
+    check(
+      'the receipt reports the filter that was applied, not the one that was asked for',
+      onlyResolutions.receipt.kinds.length === 1 && onlyResolutions.receipt.kinds[0] === 'resolution',
+    );
+
+    // A bound smaller than the archive is the only way a reader learns more rows exist: there is no
+    // total anywhere, so PARTIAL is the signal, and it is measured by asking for one row more.
+    const bounded = await repository.list({ workspaceId: WORKSPACE, limit: 2 });
+    check('a bound of two returns two rows', bounded.memories.length === 2);
+    check('coverage is PARTIAL when the bound cut the listing short', bounded.receipt.coverage === 'PARTIAL');
+    check('the receipt reports the bound rather than the archive size', bounded.receipt.limit === 2);
+    check(
+      'the partial narrative never reads as an empty result',
+      !/found nothing|no rows/i.test(bounded.receipt.coverageReason),
+    );
+
     console.log('\n  Eviction refuses to eat the newest memory');
     const eviction = await repository.evict(WORKSPACE, 2);
     check('nothing was evicted', eviction.evicted.length === 0);

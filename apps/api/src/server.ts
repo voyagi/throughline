@@ -1,9 +1,15 @@
 import { Hono } from 'hono';
 import type { Context, MiddlewareHandler } from 'hono';
 import { z } from 'zod';
-import type { AgentTurnResponse, HealthResponse, StatusResponse } from '@throughline/contract';
-import type { Capabilities, Database, MemoryRepository } from '@throughline/memory';
-import { toLamps, toRecallEvent } from './http/contract.ts';
+import type {
+  AgentTurnResponse,
+  HealthResponse,
+  MemoryListResponse,
+  StatusResponse,
+} from '@throughline/contract';
+import { MEMORY_KINDS } from '@throughline/memory';
+import type { Capabilities, Database, MemoryKind, MemoryRepository } from '@throughline/memory';
+import { toLamps, toMemoryListReceipt, toMemoryRow, toRecallEvent } from './http/contract.ts';
 import { runAgentTurn, type ChatModel } from './agent/loop.ts';
 import { verifyMemory } from './mcp-verifier.ts';
 import { McpError, type McpClient } from './mcp-client.ts';
@@ -49,6 +55,48 @@ export const SERVER_NAME = 'throughline-api';
  * stopped distinguishing clients.
  */
 export const UNKNOWN_CLIENT = 'unknown-client';
+
+/**
+ * The kinds a `?kind=` filter may name, as a Set because the check runs per query parameter.
+ *
+ * Derived from `MEMORY_KINDS` rather than written out again. A hand-copied list of a union's members
+ * is the thing this repository has already watched silently lose one: `ExclusionRule` shipped a
+ * mirror missing `candidate_cap_reached`, and only a compile-time equality assertion caught it.
+ */
+const KNOWN_KINDS = new Set<string>(MEMORY_KINDS);
+
+/**
+ * How much of a caller's own text the unknown-kind refusal quotes back.
+ *
+ * Naming the kind that was refused is worth having: a filter that silently did nothing is the failure
+ * this refusal exists to prevent, and "one of your kinds is wrong" without saying which is barely
+ * better. Quoting an unbounded number of unbounded strings is a different thing, so both are capped.
+ * Five is enough to see the mistake; there are only five kinds in total.
+ */
+const MAX_REFLECTED_KINDS = 5;
+const MAX_REFLECTED_KIND_LENGTH = 40;
+
+/**
+ * Truncate a caller's text for quoting back, by CODE POINT rather than by UTF-16 unit.
+ *
+ * `slice(0, 40)` counts UTF-16 units, so a character outside the basic plane sitting on the boundary
+ * is cut in half and a lone surrogate goes into the response. Measured by a review: a lone `d83d`
+ * reached the reflected field. `JSON.stringify` escapes it, so the wire stayed valid JSON and nothing
+ * broke, which is exactly why it would have sat there indefinitely.
+ *
+ * The same trap as `MAX_BODY_BYTES` being compared against `text.length` at `:167`, which is NOT
+ * fixed and is DEFERRED rather than recorded anywhere: a JavaScript string index is not a character.
+ * Stated as a deferral because an earlier version of this comment said "it is in the backlog", a
+ * review went looking, and there is no backlog in this repository. The comment further down this
+ * same file records the identical mistake being caught in an earlier round, which is the part worth
+ * noticing: naming a record that does not exist is a habit here, not an accident.
+ */
+function truncateForReflection(value: string): string {
+  const points = [...value];
+  return points.length > MAX_REFLECTED_KIND_LENGTH
+    ? `${points.slice(0, MAX_REFLECTED_KIND_LENGTH).join('')}…`
+    : value;
+}
 
 const turnSchema = z.object({
   message: z.string().min(1, 'a message is required').max(4_000, 'that message is too long'),
@@ -298,6 +346,93 @@ export function createApp(deps: ServerDependencies): Hono {
       server: SERVER_NAME,
       observedAt: capabilities.observedAt.toISOString(),
       lamps: toLamps(capabilities, deps.verificationChannelConfigured),
+    };
+    return c.json(response);
+  });
+
+  // THE ARCHIVE, BROWSABLE, and the page this feeds is the one a sceptic opens to check that the
+  // console is not a recording. So the shape of this route matters more than its size.
+  //
+  // Bounded by `policy.listCap` and not by the query string. `?limit=` is a display preference that
+  // gets clamped in the memory layer, so the worst a caller can ask for is the cap. Unbounded, this
+  // would be a way to make somebody else's database build an arbitrarily large result with no
+  // credentials, which is the shape of problem the daily ceiling exists for.
+  //
+  // The workspace is NOT read from the request, here as everywhere. A public archive whose caller
+  // names the workspace is an access control decision in a query string.
+  //
+  // Rate limited, and it shares the bucket with everything else. That is a KNOWN cost rather than an
+  // oversight: a page view spends a token a visitor might rather spend on a question. The fix is a
+  // looser bucket for reads and it is deliberately not done here, because it changes `/status` too.
+  // Stated as a deferral rather than as a record somewhere else: an earlier version of this comment
+  // said it was "recorded in the backlog", and a review went looking and found no such record.
+  //
+  // NO DAILY CEILING. That ceiling exists to bound the model bill and this route calls no model. It
+  // runs exactly one SELECT with a LIMIT.
+  app.get('/memories', limited, async (c) => {
+    // A REFUSAL AND NOT A SILENT DROP for an unknown kind. Ignoring it would answer a question
+    // nobody asked: a caller filtering for a kind this API does not have would get the whole archive
+    // back and no indication that their filter did nothing.
+    // DEDUPED FIRST, which bounds the 200 path as well as the 400 one. An earlier version capped only
+    // the refusal and its comment claimed the reflection was "capped in both directions"; a review
+    // measured `?kind=resolution` repeated a thousand times coming back as a thousand entries in
+    // `receipt.kinds` on a perfectly successful 200, and travelling into the SQL as a thousand-element
+    // array. A repeated kind means nothing that the kind alone does not, so the set IS the filter.
+    // There are five kinds in total, so this bounds the whole parameter at five either way.
+    const requested = [...new Set(c.req.queries('kind') ?? [])];
+
+    // BOUNDED BEFORE ANYTHING IS ECHOED. This is the first route in the API to put caller text in a
+    // response body at all, every other failure sentence being a literal from `failures.ts`, so the
+    // refusal is capped in both directions: at most this many names come back, and each is truncated.
+    // Without it a 2 KB query string produced a 4.2 KB response.
+    const unknownKinds = requested
+      .filter((kind) => !KNOWN_KINDS.has(kind))
+      .slice(0, MAX_REFLECTED_KINDS)
+      .map(truncateForReflection);
+
+    if (unknownKinds.length > 0) {
+      // `nosniff` because this body contains caller text. The content type is already
+      // `application/json` and no current browser sniffs that into HTML, so this is a second lock on
+      // a door that is shut rather than a fix for an open one.
+      c.header('X-Content-Type-Options', 'nosniff');
+      return c.json(
+        {
+          error: 'unknown_kind',
+          detail:
+            `This archive has no kind called ${unknownKinds.map((kind) => `"${kind}"`).join(', ')}. ` +
+            `The kinds are: ${MEMORY_KINDS.join(', ')}.`,
+          fields: unknownKinds,
+        },
+        400,
+      );
+    }
+
+    // Parsed, not validated, and the difference is deliberate. `Number('abc')` is NaN and
+    // `boundedLimit` treats every non-finite value as "no preference", so a malformed limit lands on
+    // the cap instead of failing a page. A typo in a display preference is not worth an error page,
+    // and unlike the kind filter a clamped limit is REPORTED back in the receipt, so nothing about
+    // it is silent.
+    const rawLimit = c.req.query('limit');
+
+    // ONE CLOCK READ FOR THE WHOLE RESPONSE. It used to be one per row plus one for the receipt, so a
+    // page of N rows was built from N+1 instants and `requestedAt` did not match the ages beside it.
+    // Harmless in practice and still wrong: `toMemoryRow`'s docblock says the caller decides what now
+    // means, and a caller reading the clock repeatedly has not decided.
+    const now = deps.now();
+    const page = await repository.list({
+      workspaceId,
+      kinds: requested as MemoryKind[],
+      ...(rawLimit === undefined ? {} : { limit: Number(rawLimit) }),
+      now,
+    });
+
+    const response: MemoryListResponse = {
+      server: SERVER_NAME,
+      // The receipt travels with the rows, always, mirroring the memory layer's own invariant all
+      // the way to the browser. A console cannot render an empty rack here without also having been
+      // handed the reason it is empty.
+      receipt: toMemoryListReceipt(page),
+      memories: page.memories.map((memory) => toMemoryRow(memory, now)),
     };
     return c.json(response);
   });

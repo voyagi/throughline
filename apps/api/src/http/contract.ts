@@ -1,11 +1,15 @@
-import { DEFAULT_POLICY, MS_PER_DAY } from '@throughline/memory';
+import { DEFAULT_POLICY, freshness, isStale, memoryState, MS_PER_DAY } from '@throughline/memory';
 import type {
   Capabilities,
   Coverage,
   CoverageCause,
   ExclusionRule,
+  ListFailureCause,
   MemoryKind,
+  MemoryPage,
   MemoryPolicy,
+  MemoryRecord,
+  MemoryState,
   Observation,
   RecallResult,
   RetrievalPath,
@@ -15,7 +19,11 @@ import type {
   CoverageCause as WireCoverageCause,
   ExclusionRule as WireExclusionRule,
   LampView,
+  ListFailureCause as WireListFailureCause,
   MemoryKind as WireMemoryKind,
+  MemoryListReceiptView,
+  MemoryRowView,
+  MemoryState as WireMemoryState,
   RecallEventView,
   RecalledMemoryView,
   RetrievalPath as WireRetrievalPath,
@@ -53,6 +61,8 @@ export type CoverageCauseAgrees = Expect<Equal<CoverageCause, WireCoverageCause>
 export type MemoryKindAgrees = Expect<Equal<MemoryKind, WireMemoryKind>>;
 export type RetrievalPathAgrees = Expect<Equal<RetrievalPath, WireRetrievalPath>>;
 export type ExclusionRuleAgrees = Expect<Equal<ExclusionRule, WireExclusionRule>>;
+export type MemoryStateAgrees = Expect<Equal<MemoryState, WireMemoryState>>;
+export type ListFailureCauseAgrees = Expect<Equal<ListFailureCause, WireListFailureCause>>;
 
 const wholeDaysBetween = (from: Date, to: Date): number =>
   Math.max(0, Math.floor((to.getTime() - from.getTime()) / MS_PER_DAY));
@@ -105,6 +115,72 @@ export function toRecallEvent(
         supersededBy: memory.supersededBy,
       };
     }),
+  };
+}
+
+/**
+ * One archive row, as the archive page reads it.
+ *
+ * `freshness` and `stale` are COMPUTED HERE rather than read off the row, because they are not
+ * stored: freshness is a function of the row's kind, its last confirmation and the instant you ask.
+ * That is exactly why they are honest on a listing where similarity is not. The clock is passed in
+ * so the caller decides what "now" means and a test can pin it.
+ *
+ * `state` comes from `memoryState` in the memory layer rather than from a comparison written here.
+ * The archive page needs the same three-way answer to choose a holder colour, and a second copy of
+ * the rule is how the two would disagree about whether a row that is both superseded and evicted is
+ * a chain link or a tombstone.
+ */
+export function toMemoryRow(
+  memory: MemoryRecord,
+  now: Date,
+  policy: MemoryPolicy = DEFAULT_POLICY,
+): MemoryRowView {
+  const freshnessValue = freshness(memory.kind, memory.lastConfirmedAt, now, policy);
+  return {
+    id: memory.id,
+    kind: memory.kind,
+    content: memory.content,
+    state: memoryState(memory),
+    freshness: freshnessValue,
+    stale: isStale(freshnessValue, policy),
+    ageDays: wholeDaysBetween(memory.createdAt, now),
+    halfLifeDays: policy.halfLifeDays[memory.kind],
+    confirmations: memory.confirmCount,
+    contradictions: memory.contradictCount,
+    assertedBy: memory.provenance.assertedBy,
+    incidentId: memory.provenance.incidentId,
+    supersededBy: memory.supersededBy,
+    createdAt: memory.createdAt.toISOString(),
+    validFrom: memory.validFrom.toISOString(),
+    validUntil: memory.validUntil === null ? null : memory.validUntil.toISOString(),
+    evictedAt: memory.evictedAt === null ? null : memory.evictedAt.toISOString(),
+    evictionReason: memory.evictionReason,
+  };
+}
+
+/**
+ * A listing's receipt, mapped whole.
+ *
+ * `workspaceId` IS ON THE MEMORY LAYER'S RECEIPT AND IS DELIBERATELY DROPPED HERE. Every route in
+ * this API fixes the workspace server side, so echoing it to an unauthenticated caller publishes an
+ * internal identifier and implies the caller could have chosen it. The same reasoning removed
+ * `capabilities.target` from `/status`.
+ *
+ * `coverageReason` IS forwarded, on the same terms as the recall receipt's: `runList` writes every
+ * one of its reasons from scratch and interpolates no caught error into any of them.
+ */
+export function toMemoryListReceipt(page: MemoryPage): MemoryListReceiptView {
+  const { receipt } = page;
+  return {
+    kinds: receipt.kinds,
+    limit: receipt.limit,
+    returned: receipt.returned,
+    coverage: receipt.coverage,
+    coverageReason: receipt.coverageReason,
+    coverageCause: receipt.coverageCause,
+    requestedAt: receipt.requestedAt.toISOString(),
+    elapsedMs: receipt.elapsedMs,
   };
 }
 

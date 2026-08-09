@@ -10,7 +10,14 @@
  * Nothing here throws. A thrown fetch would land in an error boundary and render as a blank pane,
  * which is the silent-absence failure this whole site exists to argue against.
  */
-import type { AgentTurnResponse, FailureResponse, StatusResponse } from './types.ts';
+import { isAgentTurnResponse, isMemoryListResponse, isStatusResponse } from './shapes.ts';
+import type {
+  AgentTurnResponse,
+  FailureResponse,
+  MemoryKind,
+  MemoryListResponse,
+  StatusResponse,
+} from './types.ts';
 
 /** The console's name for a failure body, whether the API wrote it or this file did. */
 export type ApiFailure = FailureResponse;
@@ -53,7 +60,30 @@ function asFailure(body: unknown, status: number): ApiFailure {
   };
 }
 
-async function call<T>(url: string, init: RequestInit, timeoutMs: number): Promise<ApiResult<T>> {
+/**
+ * What an endpoint requires of a 200 before this console will call it an answer.
+ *
+ * REQUIRED, not optional, and that is the fix rather than the checking itself. The defect a review
+ * found was a property of `call`: it returned `ok: true` for ANY 200 whose body parsed, so `{}`
+ * arrived as a success at all three endpoints. The first fix guarded ONE of them, which left the
+ * same hole at the other two and no reason a fourth endpoint would be any different. Making this a
+ * required argument means a new endpoint cannot be added without someone deciding what a usable
+ * answer looks like - an optional validator is a guard the next person silently skips.
+ *
+ * `unrecognised` is per endpoint because the sentence has to deny the specific wrong conclusion a
+ * reader would otherwise draw, and those differ: an empty archive, an unlit lamp, a missing answer.
+ */
+interface Expectation<T> {
+  readonly is: (body: unknown) => body is T;
+  readonly unrecognised: string;
+}
+
+async function call<T>(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+  expect: Expectation<T>,
+): Promise<ApiResult<T>> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -66,7 +96,10 @@ async function call<T>(url: string, init: RequestInit, timeoutMs: number): Promi
         failure: { error: 'unrecognised_response', detail: 'The API answered with a body this console could not read.' },
       };
     }
-    return { ok: true, value: body as T };
+    if (!expect.is(body)) {
+      return { ok: false, failure: { error: 'unrecognised_response', detail: expect.unrecognised } };
+    }
+    return { ok: true, value: body };
   } catch (error) {
     // The MESSAGE of a fetch failure is a browser string, not a server one, so it carries nothing
     // secret. It is still not shown: "TypeError: Failed to fetch" tells an operator less than the
@@ -94,11 +127,56 @@ export function postTurn(apiBase: string, message: string): Promise<ApiResult<Ag
       body: JSON.stringify({ message }),
     },
     TURN_TIMEOUT_MS,
+    {
+      is: isAgentTurnResponse,
+      unrecognised:
+        'The agent answered in a shape this console does not recognise, so there is no answer to ' +
+        'show and no receipt behind it. Nothing here says the memory is empty.',
+    },
   );
 }
 
 export function getStatus(apiBase: string): Promise<ApiResult<StatusResponse>> {
-  return call<StatusResponse>(`${apiBase}/status`, { method: 'GET' }, STATUS_TIMEOUT_MS);
+  return call<StatusResponse>(`${apiBase}/status`, { method: 'GET' }, STATUS_TIMEOUT_MS, {
+    is: isStatusResponse,
+    unrecognised:
+      'The status endpoint answered in a shape this console does not recognise, so no lamp here ' +
+      'has been measured. An unlit lamp is not an OK lamp.',
+  });
+}
+
+/**
+ * The archive, bounded and filtered.
+ *
+ * `kinds` is built with `URLSearchParams` rather than by joining strings, because a kind reaching the
+ * API unencoded is how a filter silently becomes a different filter. The API refuses a kind it does
+ * not know with a 400, which this returns as a named failure rather than as an empty archive.
+ *
+ * NO `limit` PARAMETER IS SENT. The bound is the API's to choose: it clamps whatever arrives to
+ * `policy.listCap` and reports the bound it applied in the receipt, so a console passing its own
+ * number would be stating a preference it cannot enforce and would have to be kept in step with a
+ * cap it does not own.
+ */
+export function getMemories(
+  apiBase: string,
+  kinds: readonly MemoryKind[] = [],
+): Promise<ApiResult<MemoryListResponse>> {
+  const params = new URLSearchParams();
+  for (const kind of kinds) params.append('kind', kind);
+  const query = params.toString();
+  return call<MemoryListResponse>(
+    `${apiBase}/memories${query === '' ? '' : `?${query}`}`,
+    { method: 'GET' },
+    STATUS_TIMEOUT_MS,
+    {
+      is: isMemoryListResponse,
+      // The sentence denies the conclusion a reader would otherwise draw from an empty rack, which
+      // is the specific reason it is written here and not once, generically, inside `call`.
+      unrecognised:
+        'The archive answered with a body this console does not recognise, so nothing here is a ' +
+        'result. It is not an empty archive.',
+    },
+  );
 }
 
 export { UNREACHABLE };

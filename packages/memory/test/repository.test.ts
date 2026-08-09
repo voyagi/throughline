@@ -3,6 +3,7 @@ import { formatVector, parseVector, rowToMemory, type MemoryRow } from '../src/r
 import { createRepository } from '../src/repository.ts';
 import { createLocalEmbedder, embedSync, type Embedder } from '../src/embeddings.ts';
 import { observed, type Capabilities } from '../src/types.ts';
+import { DEFAULT_POLICY } from '../src/policy.ts';
 import { createFakeDatabase, mentions, type Responder } from './fake-database.ts';
 
 const CAPABILITIES: Capabilities = {
@@ -307,8 +308,72 @@ describe('recall', () => {
     expect(evictionQuery).toContain('is_live');
   });
 
+});
+
+/**
+ * `remember`, under its own heading.
+ *
+ * These two lived under `describe('recall')`, which made the insert path look covered by a heading
+ * it has nothing to do with. (`scopes the eviction candidate query…` above is still there and is an
+ * `evict` test; it predates this branch and is left alone rather than swept up.)
+ */
+describe('remember', () => {
+  const embedder = createLocalEmbedder(8);
+
+  // THE INSERT PATH HAD NO TEST AT ALL, which is how an off-by-one planted in `insertSql` survived a
+  // fully green suite. It runs inside a transaction, and the fake database used to hand transactions
+  // an empty object, so every statement `remember` and `supersede` issue was invisible: unrecorded,
+  // unchecked, and never executed by any test.
+  it('writes the memory and its audit row in one transaction, with matching placeholders', async () => {
+    const db = createFakeDatabase((text) => {
+      if (mentions(text, 'insert into', 'returning')) return [row()];
+      return [];
+    });
+    const repository = createRepository({ db, embedder, schema: 'throughline', capabilities: CAPABILITIES });
+
+    const memory = await repository.remember({
+      workspaceId: 'demo',
+      kind: 'resolution',
+      content: 'rolling back the payment deploy fixed checkout latency',
+      provenance: { assertedBy: 'human:oncall-ana', incidentId: 'INC-1042', sourceRef: null },
+      embedding: embedSync('payment deploy', 8),
+    });
+
+    expect(memory.id).toBe('11111111-1111-1111-1111-111111111111');
+
+    const insert = db.queries.find((query) => mentions(query.text, 'insert into', 'memory', 'returning'));
+    const auditRow = db.queries.find((query) => mentions(query.text, 'insert into', 'memory_audit'));
+    expect(insert).toBeDefined();
+    expect(auditRow).toBeDefined();
+
+    // BOTH INSIDE THE TRANSACTION - and until `via` existed this fixture could not say that. A
+    // review moved the audit write back OUTSIDE `db.transaction`, which is exactly the defect the
+    // sentence used to describe, and the file stayed at 40/40 green: every statement went into one
+    // array with no record of which client issued it. The old assertions were two text `some()`
+    // checks and a count, all of which the defect satisfies. What is at stake is that a failing
+    // audit insert leaves a memory with no audit trail and a caller who retries into a duplicate.
+    expect(insert?.via).toBe('tx');
+    expect(auditRow?.via).toBe('tx');
+
+    // The audit row points AT the memory it audits and names the operation `memory_audit`'s CHECK
+    // constraint permits. Both were unasserted and both survived being changed: `memory_id` to null,
+    // and the operation to `evict`. `memory_id` is the second bind; the operation is a SQL literal
+    // in this statement rather than a parameter, so it is asserted in the text.
+    expect(auditRow?.values[1]).toBe(memory.id);
+    expect(auditRow?.text).toContain("'remember'");
+
+    // `createFakeDatabase` refuses a placeholder that does not match its parameters, so reaching this
+    // line at all is the assertion that the insert's eleven bind parameters line up.
+    expect(db.queries).toHaveLength(2);
+  });
+
   it('refuses a write with no provenance before it reaches the database', async () => {
-    const repository = build(respond([]));
+    const repository = createRepository({
+      db: createFakeDatabase(() => []),
+      embedder,
+      schema: 'throughline',
+      capabilities: CAPABILITIES,
+    });
     await expect(
       repository.remember({
         workspaceId: 'demo',
@@ -317,5 +382,206 @@ describe('recall', () => {
         provenance: { assertedBy: '  ', incidentId: null, sourceRef: null },
       }),
     ).rejects.toThrow(/needs provenance/i);
+  });
+});
+
+describe('list', () => {
+  const embedder = createLocalEmbedder(8);
+
+  /** Answers the listing statement with the given rows and nothing else. */
+  const listing =
+    (rows: MemoryRow[]): Responder =>
+    (text) => {
+      if (mentions(text, 'select', 'from', 'order by created_at desc')) return rows;
+      return [];
+    };
+
+  const build = (responder: Responder) => {
+    const db = createFakeDatabase(responder);
+    return {
+      db,
+      repository: createRepository({ db, embedder, schema: 'throughline', capabilities: CAPABILITIES }),
+    };
+  };
+
+  /** `count` rows with distinct ids, so a total ordering has something to order. */
+  const rows = (count: number): MemoryRow[] =>
+    Array.from({ length: count }, (_unused, index) =>
+      row({ id: `1111111${index}-1111-1111-1111-111111111111` }),
+    );
+
+  it('returns rows with a receipt, and the receipt reports the filter that was applied', async () => {
+    const { repository } = build(listing(rows(2)));
+    const page = await repository.list({ workspaceId: 'demo', kinds: ['resolution'] });
+
+    expect(page.memories).toHaveLength(2);
+    expect(page.receipt.returned).toBe(2);
+    expect(page.receipt.coverage).toBe('COVERED');
+    expect(page.receipt.coverageCause).toBeNull();
+    // Reported back so a reader of an EMPTY page can tell a filter nobody applied from one that
+    // excluded everything.
+    expect(page.receipt.kinds).toEqual(['resolution']);
+  });
+
+  it('reports PARTIAL only when a row beyond the bound actually exists', async () => {
+    // THE DISCRIMINATING CASE, and the reason the implementation asks for `limit + 1`. An archive
+    // holding EXACTLY the bound is COVERED: `returned === limit` is not evidence of more, and a
+    // version that inferred PARTIAL from it would call a complete archive truncated forever.
+    const exactly = build(listing(rows(3)));
+    const atBound = await exactly.repository.list({ workspaceId: 'demo', limit: 3 });
+    expect(atBound.memories).toHaveLength(3);
+    expect(atBound.receipt.coverage).toBe('COVERED');
+
+    // One more row exists, so the same bound is PARTIAL. The probe row is NOT returned.
+    const more = build(listing(rows(4)));
+    const overBound = await more.repository.list({ workspaceId: 'demo', limit: 3 });
+    expect(overBound.memories).toHaveLength(3);
+    expect(overBound.receipt.returned).toBe(3);
+    expect(overBound.receipt.coverage).toBe('PARTIAL');
+    // PARTIAL is a bound that was reached, NOT a stage that failed, so there is no cause.
+    expect(overBound.receipt.coverageCause).toBeNull();
+  });
+
+  it('asks the database for one row more than the bound', async () => {
+    const { db, repository } = build(listing(rows(1)));
+    await repository.list({ workspaceId: 'demo', limit: 5 });
+    // The bound is the LAST parameter on the unfiltered statement. Asserting the value rather than
+    // the SQL text, because the whole point is the number that reaches the database.
+    expect(db.queries[0]?.values.at(-1)).toBe(6);
+  });
+
+  it('clamps a caller bound to the policy cap and reports the bound it applied', async () => {
+    const { db, repository } = build(listing(rows(1)));
+    const page = await repository.list({ workspaceId: 'demo', limit: 100_000 });
+
+    expect(page.receipt.limit).toBe(DEFAULT_POLICY.listCap);
+    expect(db.queries[0]?.values.at(-1)).toBe(DEFAULT_POLICY.listCap + 1);
+  });
+
+  it.each([
+    ['a fraction', 2.7, 2],
+    ['zero', 0, DEFAULT_POLICY.listCap],
+    ['a negative', -5, DEFAULT_POLICY.listCap],
+    ['not a number at all', Number.NaN, DEFAULT_POLICY.listCap],
+    // THE THREE THAT FLOOR TO ZERO, and the case the first version of this table missed. `0.5` is
+    // finite and positive, so a guard that tested positivity BEFORE flooring let it through and
+    // produced a bound of 0: the probe still fetched one row, so the receipt reported PARTIAL with
+    // `returned: 0` and a reason claiming the archive holds more than 0 rows, and the page printed
+    // "no row in the archive matches it" beside it. Reachable from the public query string.
+    ['a fraction below one', 0.5, DEFAULT_POLICY.listCap],
+    ['a fraction very close to one', 0.999, DEFAULT_POLICY.listCap],
+    ['a tiny exponential', 1e-9, DEFAULT_POLICY.listCap],
+  ])('treats %s as a display preference rather than an error', async (_label, requested, expected) => {
+    // A malformed bound is a typo in a query string. Refusing the whole page over one would turn a
+    // typo into an outage, and the receipt reports what was actually applied either way.
+    const { repository } = build(listing([]));
+    const page = await repository.list({ workspaceId: 'demo', limit: requested });
+    expect(page.receipt.limit).toBe(expected);
+  });
+
+  it('includes tombstoned and superseded rows, because they are the point of the archive', async () => {
+    const { db, repository } = build(
+      listing([
+        row({ id: '11111111-1111-1111-1111-111111111111' }),
+        row({ id: '22222222-2222-2222-2222-222222222222', superseded_by: '11111111-1111-1111-1111-111111111111' }),
+        row({
+          id: '33333333-3333-3333-3333-333333333333',
+          evicted_at: new Date('2026-08-04T00:00:00Z'),
+          eviction_reason: 'evicted by the scheduled sweep',
+        }),
+      ]),
+    );
+    const page = await repository.list({ workspaceId: 'demo' });
+
+    expect(page.memories).toHaveLength(3);
+    // NO `is_live` FILTER. That column is `evicted_at IS NULL`, so filtering on it would drop every
+    // tombstone, and the tombstones are half of what this archive can show that a vector store
+    // cannot. Asserted on the statement, because a fixture returning three rows would pass anyway.
+    expect(db.texts()[0]).not.toContain('is_live');
+  });
+
+  it('orders newest first with a tiebreak, so a bounded page has a stable boundary', async () => {
+    const { db, repository } = build(listing(rows(1)));
+    await repository.list({ workspaceId: 'demo' });
+
+    // Two rows written in one transaction share a `created_at`. Without the id tiebreak their
+    // relative order is whatever the storage engine returns, so the same request could reorder them
+    // and a PARTIAL page's boundary would move under the reader.
+    expect(mentions(db.texts()[0] ?? '', 'order by created_at desc, id desc')).toBe(true);
+  });
+
+  it('passes the kind filter to the database rather than filtering in memory', async () => {
+    const { db, repository } = build(listing(rows(1)));
+    await repository.list({ workspaceId: 'demo', kinds: ['resolution', 'runbook_fact'], limit: 1 });
+
+    expect(mentions(db.texts()[0] ?? '', 'kind = any($2::text[])')).toBe(true);
+    expect(db.queries[0]?.values[1]).toEqual(['resolution', 'runbook_fact']);
+    // THE BOUND'S POSITION, asserted because the filtered branch numbers it `$3` while the unfiltered
+    // one numbers it `$2`, and the docblock on `listStatement` rests its whole design on that not
+    // being got wrong. `createFakeDatabase` now refuses a placeholder mismatch outright, which is the
+    // broad guard; this is the narrow one that names the value.
+    expect(db.queries[0]?.values.at(-1)).toBe(2);
+    expect(mentions(db.texts()[0] ?? '', 'limit $3')).toBe(true);
+  });
+
+  it('sends no kind filter at all when none was asked for', async () => {
+    const { db, repository } = build(listing(rows(1)));
+    await repository.list({ workspaceId: 'demo' });
+
+    // An empty array must not become `kind = ANY('{}')`, which matches nothing and would turn "every
+    // kind" into "no kinds" - an empty archive that reads as COVERED.
+    //
+    // Asserted on the PREDICATE and not on the word: `kind` is one of the selected columns, so
+    // `not.toContain('kind')` fails against the correct statement. Only one parameter is bound,
+    // which is the second half of the same claim.
+    expect(mentions(db.texts()[0] ?? '', 'kind = any')).toBe(false);
+    expect(db.queries[0]?.values).toHaveLength(1 + 1);
+  });
+
+  it('reports UNKNOWN when the listing query fails, and never an empty archive', async () => {
+    // The whole argument of the product, applied to its own archive page. An empty list here would
+    // read as "there is nothing", which is a different and far more dangerous claim.
+    const { repository } = build(() => {
+      throw new Error('relation "throughline.memory" does not exist');
+    });
+    const page = await repository.list({ workspaceId: 'demo' });
+
+    expect(page.memories).toEqual([]);
+    expect(page.receipt.coverage).toBe('UNKNOWN');
+    expect(page.receipt.coverageCause).toBe('listing_query_failed');
+    // The thrown message is NOT read. It carries a schema and table name, and this reason reaches a
+    // public page.
+    expect(page.receipt.coverageReason).not.toContain('throughline.memory');
+  });
+
+  it('reports UNKNOWN when a row cannot be read, rather than a shorter archive', async () => {
+    // `rowToMemory` throws on a kind the code does not know, which means the database CHECK and
+    // MEMORY_KINDS have diverged. Dropping the row would hide a real schema divergence behind a
+    // page that merely looked a bit short.
+    const { repository } = build(listing([row(), row({ kind: 'wishful_thinking' })]));
+    const page = await repository.list({ workspaceId: 'demo' });
+
+    expect(page.memories).toEqual([]);
+    expect(page.receipt.coverage).toBe('UNKNOWN');
+    expect(page.receipt.coverageCause).toBe('row_unreadable');
+  });
+
+  it('never parses the probe row, so a malformed row beyond the bound cannot fail the page', async () => {
+    // The probe exists only to answer "is there more". Mapping before slicing would parse it, and a
+    // broken row sitting one past the bound would take down a listing that did not need it.
+    const { repository } = build(listing([row(), row({ kind: 'wishful_thinking' })]));
+    const page = await repository.list({ workspaceId: 'demo', limit: 1 });
+
+    expect(page.memories).toHaveLength(1);
+    expect(page.receipt.coverage).toBe('PARTIAL');
+  });
+
+  it('writes no audit row, because a page view is not an auditable event', async () => {
+    const { db, repository } = build(listing(rows(1)));
+    await repository.list({ workspaceId: 'demo' });
+
+    // `memory_audit` has a CHECK listing the operations it permits, so a row per page view would
+    // need a migration and would grow the audit table with the least interesting fact in the system.
+    expect(db.texts().some((text) => mentions(text, 'insert into'))).toBe(false);
   });
 });

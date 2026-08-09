@@ -85,11 +85,11 @@ string on any page from its letterforms alone.**
 
 | Voice | Family | Source and licence | Job |
 |---|---|---|---|
-| SIGNAGE | Big Shoulders | Google Fonts, OFL | Board headers, bay labels, page titles, buttons. Always caps. Names places, makes claims. |
-| STAMP | Big Shoulders Stencil | Google Fonts, OFL | Stamped states only: WITHDRAWN, PROTECTED, COCKED, SUPERSEDED. Stencil is how you mark equipment, not how you talk. |
-| READING | Petrona | Google Fonts, OFL, variable 100-900 with a true italic | All running prose. The long read on /how-it-works, bay notes, captions. |
-| INSTRUMENT | B612 Mono | Google Fonts, OFL 1.1 | Machine truth only: queries, counts, paths, elapsed times, verdicts, identifiers. |
-| HAND | Caveat | Google Fonts, OFL | Human annotation only. Capped at 19px. Never a heading, never system output. |
+| SIGNAGE | Big Shoulders | Self-hosted woff2, OFL 1.1, variable 100-900 | Board headers, bay labels, page titles, buttons. Always caps. Names places, makes claims. |
+| STAMP | Big Shoulders Stencil | Self-hosted woff2, OFL 1.1, variable 100-900 | Stamped states only: WITHDRAWN, PROTECTED, COCKED, SUPERSEDED. Stencil is how you mark equipment, not how you talk. |
+| READING | Petrona | Self-hosted woff2, OFL 1.1, variable 300-800 as shipped, with a true italic | All running prose. The long read on /how-it-works, bay notes, captions. |
+| INSTRUMENT | B612 Mono | Self-hosted woff2, OFL 1.1, three static cuts: 400, 700, 400 italic | Machine truth only: queries, counts, paths, elapsed times, verdicts, identifiers. |
+| HAND | Caveat | Self-hosted woff2, OFL 1.1, variable 400-700 | Human annotation only. Capped at 19px. Never a heading, never system output. Declared and used by nothing today, deliberately. |
 
 B612 was commissioned by Airbus with ENAC and Universite de Toulouse III and designed for aircraft
 cockpit screens. It is not a font that looks aeronautical; it is the aeronautical font, and it is
@@ -103,8 +103,23 @@ signage or reading, so they take Big Shoulders or Petrona. This is the single ru
 site out of the banned code-editor look. The first render of these mockups broke it in five places,
 which is why the rule now names its allowed places rather than gesturing at them.
 
-Every family was verified live on 2026-08-03 by requesting the Google Fonts CSS2 API and checking
-for @font-face blocks, and confirmed to sit under `ofl/` in the google/fonts repository.
+**None of them is loaded from a CDN, and that is a privacy decision rather than a performance one.**
+A stylesheet link to fonts.googleapis.com hands the visitor's IP address, User-Agent and Referer to
+a third party before a word of the page is legible, on a site that is EU-facing and whose whole
+argument is that you can audit where something came from. The two preconnect hints went with it: a
+preconnect fetches nothing and leaks the address anyway, which is the entire point of it.
+
+The binaries live in `apps/web/public/fonts` and the declarations in `apps/web/src/styles/fonts.css`.
+Each family was verified live on 2026-08-03 by requesting the Google Fonts CSS2 API, and the files
+themselves were taken from fonts.gstatic.com on 2026-08-08 for the exact axis the site requested,
+then checked for the `wOF2` magic number and a self-declared length matching the bytes on disk. Each
+family's upstream OFL.txt sits beside the binaries it governs, taken from the `ofl/` tree of
+google/fonts. Of the 19 @font-face blocks Google serves for these five, the 13 shipped are `latin`
+and `latin-ext`; the `vietnamese` and `cyrillic` subsets are not carried, because the site is
+lang="en" and a character outside those ranges falls through to the next family in the stack.
+
+`scripts/check-third-party.mjs` keeps it that way. It reads the built output on every run of
+`npm run gate` and fails on any construct that would make a browser fetch from another host.
 
 ### The semantic slant, grafted from Direction A
 

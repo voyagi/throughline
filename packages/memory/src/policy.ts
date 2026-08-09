@@ -56,6 +56,21 @@ export interface MemoryPolicy {
   readonly candidateCap: number;
 
   /**
+   * The most rows one listing will return, whatever a caller asks for.
+   *
+   * A CEILING RATHER THAN A DEFAULT, and the difference matters because this one is reachable from
+   * the public internet. `GET /memories` takes its bound from a query string, so without a clamp
+   * here `?limit=100000` is a way to make somebody else's database build a very large result set
+   * with no credentials, which is the same shape of problem the daily ceiling exists for.
+   *
+   * Fifty because the archive page racks strips a human reads, and a page nobody scrolls to the
+   * bottom of is not more honest than a bounded one that says it was bounded. Reaching it produces
+   * PARTIAL coverage rather than a silently truncated list, which is the whole reason the bound is
+   * reported rather than just applied.
+   */
+  readonly listCap: number;
+
+  /**
    * No memory can be evicted before this much time has passed, at any score.
    *
    * This exists because value-based eviction ranks by usage, a memory written four minutes ago
@@ -85,6 +100,7 @@ export const DEFAULT_POLICY: MemoryPolicy = {
   staleFloor: 0.5,
   similarityFloor: 0.6,
   candidateCap: 200,
+  listCap: 50,
   graceWindowMs: 24 * 60 * 60 * 1000,
   weights: {
     similarity: 0.6,

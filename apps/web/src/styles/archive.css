@@ -1,0 +1,53 @@
+/* =============================================================
+   THROUGHLINE - /memory, the archive.
+
+   Only what the archive adds on top of board.css: the kind
+   filter, and the extra strip row a tombstone earns.
+
+   NO NEW COLOUR TOKENS AND NO NEW COLOUR PAIRS. Every rule here
+   reuses a (foreground, background) pair that
+   scripts/check-contrast.mjs already checks against WCAG AA in
+   both watches: --chalk-dim on --rail for a resting chip, and
+   --ink on --buff for the pressed one, which is exactly the
+   .btn pair from console.css. Inventing a shade here would add
+   an unmeasured claim to the one page whose whole argument is
+   that its claims are measured.
+   ============================================================= */
+
+.archive{display:block}
+
+/* The kind filter. Chips rather than a <select>, because the current filter has to be readable
+   without opening anything: this page is read over someone's shoulder in a screenshot. */
+.filters{display:flex;flex-wrap:wrap;gap:8px;padding:0 0 16px}
+
+.chip{
+  background:var(--rail);
+  color:var(--chalk-dim);
+  border:1px solid var(--rail-line);
+  font-family:"Big Shoulders",sans-serif;
+  font-weight:600;
+  font-size:13px;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+  padding:6px 13px;
+  cursor:pointer;
+}
+
+/* The pressed chip is PAPER, matching every other "this is the active record" surface on the site,
+   so the state is carried by the surface and not only by a colour. `aria-pressed` carries it for a
+   screen reader, and the weight change carries it for anyone who cannot separate the two greens. */
+.chip.on{
+  background:var(--buff);
+  color:var(--ink);
+  border-color:var(--buff-line);
+  font-weight:700;
+}
+
+/* Tombstone and superseded rows already dim through `.retired` in board.css. What is added here is
+   the extra full-width row a tombstone gets for its date and reason, which no other strip has. */
+.strip.retired .row.r-main:last-child .say{overflow-wrap:anywhere}
+
+@media (max-width:640px){
+  .filters{gap:6px}
+  .chip{font-size:12px;padding:5px 10px}
+}

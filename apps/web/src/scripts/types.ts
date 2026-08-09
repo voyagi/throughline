@@ -19,6 +19,7 @@
 
 export type {
   AgentTurnResponse,
+  BudgetView,
   Coverage,
   CoverageCause,
   ExclusionRule,
@@ -27,7 +28,12 @@ export type {
   HealthResponse,
   LampState,
   LampView,
+  ListFailureCause,
   MemoryKind,
+  MemoryListReceiptView,
+  MemoryListResponse,
+  MemoryRowView,
+  MemoryState,
   RecallEventView,
   RecallReceiptView,
   RecalledMemoryView,

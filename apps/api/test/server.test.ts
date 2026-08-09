@@ -8,7 +8,10 @@ import {
   unknown,
   type Capabilities,
   type Embedder,
+  type MemoryKind,
+  type MemoryPage,
 } from '@throughline/memory';
+import type { MemoryListResponse } from '@throughline/contract';
 import { createFakeDatabase, mentions } from '../../../packages/memory/test/fake-database.ts';
 import type { ChatModel, ChatReply } from '../src/agent/loop.ts';
 import { createScriptedChatModel } from '../src/agent/local-model.ts';
@@ -16,10 +19,66 @@ import { McpError, type McpClient } from '../src/mcp-client.ts';
 import type { DemoBudget } from '../src/http/demo-budget.ts';
 import { loadDemoLimits } from '../src/http/limits.ts';
 import { createApp, SERVER_NAME, UNKNOWN_CLIENT, type ServerDependencies } from '../src/server.ts';
-import { fakeRepository, MEMORY_ID_A, memoryRecord } from './agent-fixtures.ts';
+import {
+  fakeRepository,
+  MEMORY_ID_A,
+  MEMORY_ID_B,
+  MEMORY_ID_C,
+  memoryPage,
+  memoryRecord,
+} from './agent-fixtures.ts';
 
 const ORIGIN = 'https://throughline.example';
 const POISON = 'arn:aws:sts::123456789012:assumed-role/throughline-admin/session';
+
+/**
+ * The marker every capability probe reason carries in the `/status` leak controls below.
+ *
+ * A reason is written from scratch in `capability.ts`, so this is about internal IDENTIFIERS rather
+ * than about a driver's words: schema and table names, a column type, an embedder id. A public
+ * status page taking no credentials has no reason to name any of them.
+ */
+const PROBE_REASON_MARKER = 'INTERNAL-throughline.memory-not-for-a-public-body';
+
+/**
+ * One case per site where a probe reason could reach a lamp's `detail`, with the lamp each degrades.
+ *
+ * Four sites, and a fixture that degrades everything at once reaches only two of them, because
+ * `describeIndex` and `describeEmbedding` both return at their FIRST unknown. Reaching the later
+ * branches requires the earlier observation to have succeeded, which is why these are separate
+ * cases rather than one fixture with every field unknown.
+ */
+const PROBE_LEAK_CASES: readonly {
+  readonly label: string;
+  readonly lamp: string;
+  readonly degraded: Partial<Capabilities>;
+}[] = [
+  {
+    label: 'the query plan could not be read',
+    lamp: 'Vector index',
+    degraded: { annPlanUsesIndex: unknown(`could not read the query plan for ${PROBE_REASON_MARKER}`) },
+  },
+  {
+    // The shape Cloud Basic actually produces: EXPLAIN answers, and listing indexes is refused
+    // because `crdb_internal` and `information_schema` are not readable there.
+    label: 'the planner reports no index and listing them was refused',
+    lamp: 'Vector index',
+    degraded: {
+      annPlanUsesIndex: observed(false),
+      vectorIndex: unknown(`could not list indexes on ${PROBE_REASON_MARKER}`),
+    },
+  },
+  {
+    label: 'the embedding column could not be inspected',
+    lamp: 'Embeddings',
+    degraded: { vectorColumnDimensions: unknown(`could not inspect the column on ${PROBE_REASON_MARKER}`) },
+  },
+  {
+    label: 'the embedder could not be measured',
+    lamp: 'Embeddings',
+    degraded: { embedderDimensions: unknown(`could not measure the embedder for ${PROBE_REASON_MARKER}`) },
+  },
+];
 
 /** A cluster where everything was observed and everything agrees. The healthy baseline. */
 const CAPABILITIES: Capabilities = {
@@ -573,21 +632,29 @@ describe('the HTTP surface', () => {
     // reaching the same public body through a lamp's `detail`, on the degraded paths only, which
     // is why the first test could not see it: it drove a healthy cluster where no reason is
     // rendered at all.
-    it('never publishes internal schema or table names through a lamp detail', async () => {
+    //
+    // THE THIRD ROUND IS THIS TABLE, and it exists because the single-fixture version of this
+    // control was measured to cover ONE of the four sites it was believed to cover. Restoring the
+    // `exists.reason` interpolation in `describeIndex` left the whole 37-test suite green: that
+    // branch is unreachable when the plan read is unknown, and the one fixture set it unknown.
+    // Restoring `plannerUses.reason` was invisible for a different reason, that the reason it
+    // leaks does not happen to contain a schema name, and `embedder.reason` is unreachable
+    // whenever the column is the thing that could not be read.
+    //
+    // So the assertion was a fact about which WORDS a fixture chose rather than about the code. A
+    // marker in EVERY reason, and one case per interpolation site, is a fact about the code.
+    it.each(PROBE_LEAK_CASES)('never publishes a probe reason when $label', async ({ lamp, degraded }) => {
       const { app } = build({
-        probeCapabilities: () =>
-          Promise.resolve({
-            ...CAPABILITIES,
-            vectorIndex: unknown('could not list indexes on throughline.memory'),
-            annPlanUsesIndex: unknown('the query plan could not be read'),
-            vectorColumnDimensions: unknown('could not inspect the embedding column on throughline.memory'),
-          }),
+        probeCapabilities: () => Promise.resolve({ ...CAPABILITIES, ...degraded }),
       });
 
       const raw = await (await app.request('/status')).text();
-      expect(raw).not.toContain('throughline.memory');
-      // The lamps must still be UNLIT rather than absent: hiding the reason must not hide the state.
-      expect(raw).toContain('UNKNOWN');
+      expect(raw).not.toContain(PROBE_REASON_MARKER);
+      // UNLIT rather than absent, asserted on the lamp this case actually degrades. A substring
+      // check for 'UNKNOWN' anywhere in the body cannot fail here: the MCP lamp is UNKNOWN in
+      // every one of these fixtures, so it would pass while the degraded lamp had vanished.
+      const body = JSON.parse(raw) as { lamps: { name: string; state: string }[] };
+      expect(body.lamps.find((one) => one.name === lamp)?.state).toBe('UNKNOWN');
     });
 
     // One GET runs six statements against the cluster and the rail is on every page. Without a
@@ -655,6 +722,322 @@ describe('the HTTP surface', () => {
         };
         expect(body.lamps.find((lamp) => lamp.name === 'MCP transport')?.state).not.toBe('OK');
       }
+    });
+  });
+
+  describe('the memories endpoint', () => {
+    const listing = (page: MemoryPage) => build({ repository: fakeRepository({ list: () => Promise.resolve(page) }) });
+
+    const get = (app: ReturnType<typeof build>['app'], query = '') => app.request(`/memories${query}`);
+
+    it('returns rows and the receipt that says whether the listing ran', async () => {
+      const { app } = listing(memoryPage({ memories: [memoryRecord({})] }));
+      const response = await get(app);
+      expect(response.status).toBe(200);
+
+      const body = (await response.json()) as MemoryListResponse;
+      expect(body.server).toBe(SERVER_NAME);
+      expect(body.memories).toHaveLength(1);
+      expect(body.receipt.coverage).toBe('COVERED');
+      expect(body.receipt.returned).toBe(1);
+    });
+
+    // THE POINT OF THE WHOLE ROUTE. An archive page that renders an empty rack for a failed query is
+    // the exact failure this product is an argument against, so the receipt has to reach the browser
+    // alongside the rows and never instead of them.
+    it('hands back UNKNOWN with a cause rather than an empty archive', async () => {
+      const { app } = listing(memoryPage({ coverage: 'UNKNOWN' }));
+      const body = (await (await get(app)).json()) as MemoryListResponse;
+
+      expect(body.memories).toEqual([]);
+      expect(body.receipt.coverage).toBe('UNKNOWN');
+      expect(body.receipt.coverageCause).toBe('listing_query_failed');
+    });
+
+    // A LISTED ROW HAS NO SIMILARITY AND NO SCORE, because no query ran and nothing ranked it.
+    // Reusing `RecalledMemoryView` and sending zeros would have been the easy move and would have
+    // put two invented numbers on the one page that exists to be checked.
+    it('publishes no similarity and no score on a row nothing ranked', async () => {
+      const { app } = listing(memoryPage({ memories: [memoryRecord({})] }));
+      const raw = await (await get(app)).text();
+
+      expect(raw).not.toContain('similarity');
+      expect(raw).not.toContain('score');
+      // The numbers that ARE honest here travel: both are pure time decay, no query involved.
+      const body = JSON.parse(raw) as MemoryListResponse;
+      expect(body.memories[0]).toHaveProperty('freshness');
+      expect(body.memories[0]).toHaveProperty('stale');
+    });
+
+    it('labels a current row, a superseded one and a tombstone differently', async () => {
+      const { app } = listing(
+        memoryPage({
+          memories: [
+            memoryRecord({ id: MEMORY_ID_A }),
+            memoryRecord({ id: MEMORY_ID_B, supersededBy: MEMORY_ID_A }),
+            memoryRecord({
+              id: MEMORY_ID_C,
+              evictedAt: new Date('2026-08-04T00:00:00Z'),
+              evictionReason: 'evicted by the scheduled sweep',
+            }),
+          ],
+        }),
+      );
+      const body = (await (await get(app)).json()) as MemoryListResponse;
+
+      expect(body.memories.map((one) => one.state)).toEqual(['current', 'superseded', 'tombstoned']);
+      // The chain link keeps its pointer, which is what makes a chain renderable at all.
+      expect(body.memories[1]?.supersededBy).toBe(MEMORY_ID_A);
+      expect(body.memories[2]?.evictionReason).toBe('evicted by the scheduled sweep');
+    });
+
+    // A row can be BOTH, and the archive page gates its whole tombstone row on the label, so getting
+    // the precedence wrong does not merely misstamp a strip: the eviction date and reason disappear
+    // from the page. Reachable in production, because the sweep does not exclude superseded rows.
+    it('keeps every field on a row that was superseded and then evicted', async () => {
+      const { app } = listing(
+        memoryPage({
+          memories: [
+            memoryRecord({
+              id: MEMORY_ID_B,
+              supersededBy: MEMORY_ID_A,
+              evictedAt: new Date('2026-08-04T00:00:00Z'),
+              evictionReason: 'evicted by the scheduled sweep',
+            }),
+          ],
+        }),
+      );
+      const body = (await (await get(app)).json()) as MemoryListResponse;
+      const row = body.memories[0];
+
+      expect(row?.state).toBe('tombstoned');
+      // The label is a HEADLINE, not the whole history. Both halves still travel, so a reader who
+      // needs the other one has it.
+      expect(row?.supersededBy).toBe(MEMORY_ID_A);
+      expect(row?.evictedAt).toBe('2026-08-04T00:00:00.000Z');
+      expect(row?.evictionReason).toBe('evicted by the scheduled sweep');
+    });
+
+    it('passes a kind filter through to the repository', async () => {
+      const seen: (readonly MemoryKind[] | undefined)[] = [];
+      const { app } = build({
+        repository: fakeRepository({
+          list: (query) => {
+            seen.push(query.kinds);
+            return Promise.resolve(memoryPage({ kinds: query.kinds ?? [] }));
+          },
+        }),
+      });
+
+      await get(app, '?kind=resolution&kind=runbook_fact');
+      expect(seen[0]).toEqual(['resolution', 'runbook_fact']);
+    });
+
+    // A REFUSAL AND NOT A SILENT DROP. Ignoring an unknown kind answers a question nobody asked: the
+    // caller gets the whole archive and no sign that their filter did nothing at all.
+    it('refuses an unknown kind instead of quietly ignoring the filter', async () => {
+      const { app } = build({
+        repository: fakeRepository({ list: () => Promise.reject(new Error('list must not be reached')) }),
+      });
+      const response = await get(app, '?kind=wishful_thinking');
+
+      expect(response.status).toBe(400);
+      const body = (await response.json()) as { error: string; fields?: readonly string[] };
+      expect(body.error).toBe('unknown_kind');
+      expect(body.fields).toEqual(['wishful_thinking']);
+    });
+
+    // THE FIRST ROUTE IN THIS API TO PUT CALLER TEXT IN A RESPONSE BODY, so the reflection is capped
+    // in both directions. Measured before capping: a 2,060-byte query produced a 4,261-byte response,
+    // and a thousand repeated parameters came back a thousand times.
+    it('caps how much of a caller kind it quotes back, and how many', async () => {
+      const { app } = build({
+        repository: fakeRepository({ list: () => Promise.reject(new Error('list must not be reached')) }),
+      });
+      const long = 'z'.repeat(500);
+      const many = Array.from({ length: 40 }, (_unused, index) => `kind=nope${index}`).join('&');
+      const response = await get(app, `?kind=${long}&${many}`);
+
+      expect(response.status).toBe(400);
+      const raw = await response.text();
+      const body = JSON.parse(raw) as { fields?: readonly string[] };
+      expect(body.fields?.length).toBeLessThanOrEqual(5);
+      // Truncated rather than dropped, so the caller can still see which name was wrong.
+      expect(raw).not.toContain(long);
+      expect(body.fields?.[0]?.length).toBeLessThanOrEqual(41);
+      // A second lock on a shut door: the content type is already JSON, which no browser sniffs.
+      expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
+    });
+
+    // THE CLAIM THAT HAD NO CONTROL. `694957e`'s message said six fixes each landed "with a control
+    // watched firing by name". A review restored the pre-fix `value.slice(0, 40)` and all 57 tests in
+    // this file stayed green; nothing anywhere mentioned a surrogate. Five of the six were true.
+    //
+    // `slice` counts UTF-16 units. An astral character whose pair occupies units 39 and 40 is cut in
+    // half by a slice at 40, so a LONE HIGH SURROGATE goes into the response body. `JSON.stringify`
+    // escapes it to `\uD83D`, so the wire stays valid JSON and nothing visibly breaks - which is
+    // exactly why it would have sat there indefinitely.
+    it('truncates a caller kind by code point, so no half a character reaches the response', async () => {
+      const { app } = build({
+        repository: fakeRepository({ list: () => Promise.reject(new Error('list must not be reached')) }),
+      });
+      // 39 ASCII, then an astral character occupying units 39 and 40, then enough to force a cut:
+      // 45 code points against 46 UTF-16 units, so both the old rule and the new one truncate.
+      const kind = `${'z'.repeat(39)}\u{1F600}abcde`;
+      const response = await get(app, `?kind=${encodeURIComponent(kind)}`);
+
+      expect(response.status).toBe(400);
+      const body = (await response.json()) as { fields?: readonly string[] };
+      const reflected = body.fields?.[0] ?? '';
+
+      // It really was truncated, so what follows is an assertion about a cut string rather than an
+      // untouched one that would pass whatever the rule did.
+      expect(reflected.endsWith('…')).toBe(true);
+      // A high surrogate with no low after it, or a low with no high before it. Deliberately NOT a
+      // `u`-flagged pattern: this has to see UTF-16 units, which is the unit the defect is in.
+      expect(reflected).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+      // And the character survived WHOLE rather than being dropped to dodge the problem.
+      expect(reflected).toBe(`${'z'.repeat(39)}\u{1F600}…`);
+    });
+
+    it('reads the clock once for the whole response, not once per row', async () => {
+      // It used to be N+1, so a page of rows was built from as many instants and `requestedAt` did
+      // not match the ages printed beside it. Harmless in practice and still wrong, and the first fix
+      // landed with nothing watching it: re-planting the per-row read left the suite green.
+      let reads = 0;
+      const { app } = build({
+        now: () => {
+          reads += 1;
+          return new Date('2026-08-05T12:00:00Z');
+        },
+        repository: fakeRepository({
+          list: () =>
+            Promise.resolve(
+              memoryPage({ memories: [memoryRecord({ id: MEMORY_ID_A }), memoryRecord({ id: MEMORY_ID_B })] }),
+            ),
+        }),
+      });
+
+      await get(app);
+      // One for the rate limiter, one for the response. Never one per row.
+      expect(reads).toBe(2);
+    });
+
+    it('collapses a repeated kind rather than echoing it back and sending it to the database', async () => {
+      // Measured before this: `?kind=resolution` a thousand times came back as a thousand entries in
+      // `receipt.kinds` on a perfectly successful 200, and travelled into the SQL as a thousand
+      // element array. A repeated kind means nothing the kind alone does not.
+      const seen: (readonly MemoryKind[] | undefined)[] = [];
+      const { app } = build({
+        repository: fakeRepository({
+          list: (query) => {
+            seen.push(query.kinds);
+            return Promise.resolve(memoryPage({ kinds: query.kinds ?? [] }));
+          },
+        }),
+      });
+
+      const many = Array.from({ length: 1_000 }, () => 'kind=resolution').join('&');
+      const response = await get(app, `?${many}`);
+
+      expect(response.status).toBe(200);
+      expect(seen[0]).toEqual(['resolution']);
+      const body = (await response.json()) as MemoryListResponse;
+      expect(body.receipt.kinds).toEqual(['resolution']);
+    });
+
+    it('refuses an unknown kind even when a valid one travels with it', async () => {
+      // The filter is a conjunction of the caller's intentions. Honouring the half it understood
+      // would answer a narrower question than the one asked, silently.
+      const { app } = build({
+        repository: fakeRepository({ list: () => Promise.reject(new Error('list must not be reached')) }),
+      });
+      expect((await get(app, '?kind=resolution&kind=nonsense')).status).toBe(400);
+    });
+
+    it('forwards a numeric limit and lets the memory layer clamp it', async () => {
+      const seen: (number | undefined)[] = [];
+      const { app } = build({
+        repository: fakeRepository({
+          list: (query) => {
+            seen.push(query.limit);
+            return Promise.resolve(memoryPage({}));
+          },
+        }),
+      });
+
+      await get(app, '?limit=7');
+      expect(seen[0]).toBe(7);
+    });
+
+    it('leaves the limit unset when the caller did not ask for one', async () => {
+      // `exactOptionalPropertyTypes` is on, so this is a conditional spread rather than
+      // `limit: undefined`. The difference is visible here: `boundedLimit` reads an ABSENT bound as
+      // "no preference" and would read an explicit `undefined` the same way, but the repository's own
+      // signature says the property is optional and the route should not invent it.
+      const seen: { hasLimit: boolean }[] = [];
+      const { app } = build({
+        repository: fakeRepository({
+          list: (query) => {
+            seen.push({ hasLimit: 'limit' in query });
+            return Promise.resolve(memoryPage({}));
+          },
+        }),
+      });
+
+      await get(app);
+      expect(seen[0]?.hasLimit).toBe(false);
+    });
+
+    // THE WORKSPACE IS SERVER SIDE ON EVERY ROUTE, and this one takes a query string, which is
+    // exactly where that rule gets quietly broken. A caller naming the workspace is an access
+    // control decision in a URL.
+    it('ignores a workspace in the query string and uses the configured one', async () => {
+      const seen: string[] = [];
+      const { app } = build({
+        workspaceId: 'demo',
+        repository: fakeRepository({
+          list: (query) => {
+            seen.push(query.workspaceId);
+            return Promise.resolve(memoryPage({}));
+          },
+        }),
+      });
+
+      await get(app, '?workspaceId=someone-elses&workspace=someone-elses');
+      expect(seen).toEqual(['demo']);
+    });
+
+    it('never publishes the workspace id in the response', async () => {
+      // The memory layer's own receipt carries it and the mapper drops it, for the reason
+      // `capabilities.target` was dropped from /status: it is an internal identifier and an
+      // unauthenticated caller gains nothing from it.
+      const { app } = listing(memoryPage({ memories: [memoryRecord({})] }));
+      const raw = await (await get(app)).text();
+
+      expect(raw).not.toContain('workspaceId');
+      expect(raw).not.toContain('demo');
+    });
+
+    it('is rate limited like every other route that costs the database something', async () => {
+      const { app } = listing(memoryPage({}));
+      const statuses: number[] = [];
+      for (let i = 0; i < 4; i += 1) statuses.push((await get(app)).status);
+
+      // The limit is 3 per minute in these fixtures.
+      expect(statuses).toEqual([200, 200, 200, 429]);
+    });
+
+    it('spends no model budget, because it calls no model', async () => {
+      // The daily ceiling exists to bound the model bill. This route runs one SELECT, so claiming
+      // against that ceiling would refuse a page view once the demo had answered enough questions.
+      const budget = budgetStub(false);
+      const { app } = build({
+        budget,
+        repository: fakeRepository({ list: () => Promise.resolve(memoryPage({})) }),
+      });
+
+      expect((await get(app)).status).toBe(200);
     });
   });
 

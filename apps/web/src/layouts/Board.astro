@@ -17,6 +17,7 @@
  * light from a real probe. If it does not, they stay unlit, which is the correct answer and not a
  * broken page.
  */
+import '../styles/fonts.css';
 import '../styles/board.css';
 import Annunciator from '../islands/Annunciator.tsx';
 import SourceStrip from '../components/SourceStrip.astro';
@@ -88,13 +89,6 @@ const canonical = new URL(Astro.url.pathname, Astro.site ?? Astro.url).href;
     <meta name="theme-color" content="#131f19" media="(prefers-color-scheme: dark)" />
 
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Big+Shoulders:wght@100..900&family=Big+Shoulders+Stencil:wght@100..900&family=Petrona:ital,wght@0,300..800;1,300..800&family=B612+Mono:ital,wght@0,400;0,700;1,400&family=Caveat:wght@400..700&display=swap"
-      rel="stylesheet"
-    />
 
     {
       jsonLd && (

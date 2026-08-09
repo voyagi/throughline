@@ -12,7 +12,9 @@ import type {
   CoverageCause,
   Exclusion,
   ExclusionRule,
+  ListFailureCause,
   MemoryKind,
+  MemoryPage,
   MemoryRecord,
   Provenance,
   RecallResult,
@@ -52,6 +54,30 @@ export interface RecallQuery {
   readonly now?: Date;
 }
 
+/**
+ * Browse the archive, bounded and filtered, with no query text and therefore no ranking.
+ *
+ * NOT A RECALL WITH AN EMPTY QUERY, and the distinction is why this is a separate method rather than
+ * an option on `RecallQuery`. A recall embeds text, walks a vector index and produces a similarity
+ * for every row it returns. There is no query here, so there is no similarity to produce, and the
+ * page this feeds must not print one: a number invented to fill a column is the exact failure the
+ * missing workspace total on `RecallReceipt` was refused for.
+ */
+export interface ListQuery {
+  readonly workspaceId: string;
+  /**
+   * Which kinds to include. Omit, or pass an empty array, for every kind.
+   *
+   * A kind the caller repeats is harmless and a kind nobody knows cannot arrive: the type is the
+   * union, and the HTTP surface validates a query string against `MEMORY_KINDS` before it gets here.
+   */
+  readonly kinds?: readonly MemoryKind[];
+  /** Clamped to `policy.listCap`. The receipt reports the bound that was actually applied. */
+  readonly limit?: number;
+  /** Reference instant for decay. Injected so a test can pin an exact freshness. */
+  readonly now?: Date;
+}
+
 export interface EvictionOutcome {
   readonly plan: EvictionPlan;
   readonly evicted: readonly string[];
@@ -68,6 +94,7 @@ export interface RepositoryOptions {
 export interface MemoryRepository {
   remember(input: RememberInput): Promise<MemoryRecord>;
   recall(query: RecallQuery): Promise<RecallResult>;
+  list(query: ListQuery): Promise<MemoryPage>;
   supersede(previousId: string, input: RememberInput): Promise<{
     previous: MemoryRecord;
     replacement: MemoryRecord;
@@ -126,6 +153,10 @@ export function createRepository(options: RepositoryOptions): MemoryRepository {
 
     async recall(query: RecallQuery): Promise<RecallResult> {
       return runRecall({ db, embedder, capabilities, policy, table, audit }, query);
+    },
+
+    async list(query: ListQuery): Promise<MemoryPage> {
+      return runList({ db, policy, table }, query);
     },
 
     async supersede(previousId, input) {
@@ -480,6 +511,188 @@ async function runRecall(context: RecallContext, query: RecallQuery): Promise<Re
     });
 
   return result;
+}
+
+interface ListContext {
+  readonly db: Database;
+  readonly policy: MemoryPolicy;
+  readonly table: string;
+}
+
+/**
+ * One listing, with a receipt, and no ranking anywhere in it.
+ *
+ * Built on the same discipline as `runRecall` and for the same reason: every stage that can fail has
+ * its own `catch` returning a receipt whose `coverageCause` is a VALUE, so a caller learns which
+ * stage stopped without any caught error's message being interpolated into anything. This page is
+ * rendered into a public HTML page, so that is a security boundary rather than a style.
+ *
+ * NO AUDIT ROW IS WRITTEN. A read that changes nothing and names nobody is not an auditable event,
+ * and `memory_audit`'s CHECK constraint lists the operations it permits: adding a row per page view
+ * would need a migration and would grow the audit table with the least interesting fact in the
+ * system. `recall` audits because it is the model's own tool use; this is a person paging a screen.
+ */
+async function runList(context: ListContext, query: ListQuery): Promise<MemoryPage> {
+  const { db, policy, table } = context;
+  const now = query.now ?? new Date();
+  const startedAt = Date.now();
+  const kinds = query.kinds ?? [];
+  const limit = boundedLimit(query.limit, policy.listCap);
+
+  // ONE MORE THAN THE BOUND, so PARTIAL is measured rather than inferred. `returned === limit` is
+  // not evidence that more exist: an archive holding exactly `limit` rows would be reported as
+  // truncated forever, and a page claiming there is more behind it when there is not is the same
+  // class of lie as a page claiming there is nothing when it could not look.
+  const probe = limit + 1;
+
+  let rows: MemoryRow[];
+  try {
+    const statement = listStatement(table, query.workspaceId, kinds, probe);
+    rows = await db.query<MemoryRow>(statement.sql, statement.params);
+  } catch {
+    return emptyUnknownPage(
+      query.workspaceId,
+      kinds,
+      limit,
+      now,
+      startedAt,
+      'the archive query failed, so no rows were read and this page cannot say the archive is empty',
+      'listing_query_failed',
+    );
+  }
+
+  const more = rows.length > limit;
+
+  let memories: MemoryRecord[];
+  try {
+    // Sliced BEFORE mapping, so the extra probe row is never parsed and never returned. Mapping
+    // first and slicing after would do the same work and then throw it away, and a malformed row
+    // sitting in the probe position would fail a listing that did not need it.
+    memories = rows.slice(0, limit).map(rowToMemory);
+  } catch {
+    // `rowToMemory` throws when a row's kind is not one this code knows, which means the database
+    // CHECK and MEMORY_KINDS have diverged. A shorter archive would hide that; UNKNOWN reports it.
+    return emptyUnknownPage(
+      query.workspaceId,
+      kinds,
+      limit,
+      now,
+      startedAt,
+      'a row could not be read, so this page would be missing rows without being able to say which',
+      'row_unreadable',
+    );
+  }
+
+  return {
+    memories,
+    receipt: {
+      workspaceId: query.workspaceId,
+      requestedAt: now,
+      elapsedMs: Date.now() - startedAt,
+      kinds,
+      limit,
+      returned: memories.length,
+      coverage: more ? 'PARTIAL' : 'COVERED',
+      coverageReason: more
+        ? `the archive holds more than ${limit} rows matching this filter, so this page is the ` +
+          'newest of them and not all of them'
+        : 'every row matching this filter fitted inside the bound',
+      // Nothing stopped this listing. A COVERED empty archive has no cause, and PARTIAL is a bound
+      // that was reached rather than a stage that failed.
+      coverageCause: null,
+    },
+  };
+}
+
+/**
+ * The listing statement and its parameters, produced together.
+ *
+ * ONE FUNCTION RETURNING BOTH, deliberately, because the two shapes need different parameter
+ * numbering and a builder that returned only SQL would leave the caller to number a `$n` list that
+ * shifts when the filter is absent. `candidateSql` below can safely return a string alone: its two
+ * branches differ by a WHERE clause with no parameter in it. This one does not have that luxury, and
+ * an off-by-one in bind parameters is a runtime error on a public route.
+ *
+ * That risk is now GUARDED rather than merely explained. A review planted `LIMIT $3` -> `LIMIT $2`
+ * here and the whole suite stayed green, because the test double recorded a statement's text and its
+ * values and compared neither. `createFakeDatabase` now refuses a placeholder mismatch the way a real
+ * driver would, and the filtered branch's bound has its position asserted by name.
+ *
+ * TOMBSTONED AND SUPERSEDED ROWS ARE INCLUDED, and there is no `is_live` filter here on purpose.
+ * They are the two things this archive can show that a plain vector store cannot, so excluding them
+ * would remove the page's entire argument. `memoryState` labels each row and the caller renders the
+ * difference.
+ *
+ * `created_at DESC, id DESC` rather than `created_at DESC` alone. The tiebreak makes the order
+ * TOTAL: two rows written in the same transaction share a timestamp, and without it their relative
+ * order is whatever the storage engine feels like, so the same request could return them in a
+ * different order each time and a PARTIAL page's boundary would move under the reader.
+ */
+function listStatement(
+  table: string,
+  workspaceId: string,
+  kinds: readonly MemoryKind[],
+  limit: number,
+): { sql: string; params: unknown[] } {
+  const select = `SELECT ${MEMORY_COLUMNS} FROM ${table} WHERE workspace_id = $1`;
+  const order = 'ORDER BY created_at DESC, id DESC';
+
+  if (kinds.length === 0) {
+    return { sql: `${select} ${order} LIMIT $2`, params: [workspaceId, limit] };
+  }
+  return {
+    sql: `${select} AND kind = ANY($2::TEXT[]) ${order} LIMIT $3`,
+    params: [workspaceId, [...kinds], limit],
+  };
+}
+
+/**
+ * Clamp a caller's bound into something this route will actually run.
+ *
+ * Every rejected input becomes the CAP rather than an error, because the bound is a display
+ * preference and refusing a whole page over a bad query string would turn a typo into an outage.
+ * `?limit=abc` is `NaN` and lands on the cap rather than on a `LIMIT NaN` the driver would reject.
+ *
+ * THE FLOOR HAPPENS BEFORE THE POSITIVE TEST, and the order is the whole correctness of this
+ * function. The first version tested `requested <= 0` first, so `?limit=0.5` passed the guard as a
+ * positive number and then floored to ZERO. A bound of zero is not a smaller page, it is a
+ * self-contradicting one: the probe still fetches one row, `rows.length > limit` is `1 > 0`, and the
+ * receipt reports PARTIAL with `returned: 0` while claiming "the archive holds more than 0 rows".
+ * A review reproduced that from the public query string against a twelve-row archive, and the page
+ * rendered "no row in the archive matches it" on the same strip. Anything that does not floor to a
+ * positive integer is therefore "no preference", exactly like zero and like a negative.
+ */
+function boundedLimit(requested: number | undefined, cap: number): number {
+  if (requested === undefined || !Number.isFinite(requested)) return cap;
+  const whole = Math.floor(requested);
+  if (whole <= 0) return cap;
+  return Math.min(whole, cap);
+}
+
+/** A page that could not be read, with the receipt saying so. Never an empty array on its own. */
+function emptyUnknownPage(
+  workspaceId: string,
+  kinds: readonly MemoryKind[],
+  limit: number,
+  now: Date,
+  startedAt: number,
+  reason: string,
+  cause: ListFailureCause,
+): MemoryPage {
+  return {
+    memories: [],
+    receipt: {
+      workspaceId,
+      requestedAt: now,
+      elapsedMs: Date.now() - startedAt,
+      kinds,
+      limit,
+      returned: 0,
+      coverage: 'UNKNOWN',
+      coverageReason: reason,
+      coverageCause: cause,
+    },
+  };
 }
 
 /**

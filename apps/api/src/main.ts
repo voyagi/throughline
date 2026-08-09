@@ -13,7 +13,7 @@ import { createChatModel } from './agent/local-model.ts';
 import { databaseNameOf } from './cli/live-channels.ts';
 import { createMcpClient, loadMcpConfig } from './mcp-client.ts';
 import { createDemoBudget } from './http/demo-budget.ts';
-import { loadDemoLimits } from './http/limits.ts';
+import { loadDemoLimits, originPolicyWarning } from './http/limits.ts';
 import { clientAddressFrom } from './http/rate-limit.ts';
 import { createApp, SERVER_NAME } from './server.ts';
 
@@ -124,6 +124,10 @@ async function main(): Promise<void> {
       `[boot] ${limits.ratePerMinute}/minute per client, ${limits.maxAgentCallsPerDay}/day total, ` +
         `origins: ${limits.allowedOrigins.length > 0 ? limits.allowedOrigins.join(', ') : 'none'}`,
     );
+    // Printed AFTER the origins line rather than in place of it, so the fact and the consequence sit
+    // together. The decision itself is in `originPolicyWarning`, where a test can reach it.
+    const warning = originPolicyWarning(limits);
+    if (warning !== null) console.log(`[boot] ${warning}`);
   });
 }
 

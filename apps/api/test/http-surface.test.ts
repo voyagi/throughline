@@ -13,7 +13,7 @@ import {
   FAILURE_RULES,
   MalformedJsonError,
 } from '../src/http/failures.ts';
-import { loadDemoLimits, LimitsError, parseOrigins } from '../src/http/limits.ts';
+import { loadDemoLimits, LimitsError, originPolicyWarning, parseOrigins } from '../src/http/limits.ts';
 import { clientAddressFrom, createRateLimiter } from '../src/http/rate-limit.ts';
 
 /** A string shaped like the thing that must never reach a caller. */
@@ -77,6 +77,30 @@ describe('the CORS allowlist', () => {
       'https://throughline.example',
     ]);
     expect(parseOrigins('')).toEqual([]);
+  });
+
+  // FOUND BY LOADING THE CONSOLE IN A BROWSER FOR THE FIRST TIME, which is the only place it could
+  // have been found. An empty allowlist is legal and correct for a deployment with no browser
+  // client, so it must not be an error - but it is also what this repository's own README produces,
+  // because `.env.example` never mentions CORS_ALLOWED_ORIGINS. Every page then loads and the
+  // console says it could not reach the API, with the word `none` at the end of a boot line as the
+  // only clue.
+  describe('what boot says about an empty allowlist', () => {
+    it('says nothing when an origin is configured', () => {
+      expect(originPolicyWarning(loadDemoLimits({ CORS_ALLOWED_ORIGINS: 'https://a.example' }))).toBeNull();
+    });
+
+    it('names the variable, the consequence and the fix when none is', () => {
+      const warning = originPolicyWarning(loadDemoLimits({}));
+      expect(warning).toContain('CORS_ALLOWED_ORIGINS');
+      // The consequence, so a reader connects the boot line to what they are seeing on screen.
+      expect(warning).toContain('could not be reached');
+      // BOTH loopback spellings. A browser treats them as different origins, `npm run dev:web`
+      // serves 127.0.0.1, and an allowlist holding only `localhost` never matches it. That exact
+      // mistake was in this project's own notes until somebody tried it.
+      expect(warning).toContain('http://127.0.0.1:4321');
+      expect(warning).toContain('http://localhost:4321');
+    });
   });
 
   const allowed = new Set(['https://throughline.example']);
