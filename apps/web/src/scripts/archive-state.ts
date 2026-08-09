@@ -1,4 +1,4 @@
-import { UNREACHABLE } from './api.ts';
+import { UNREACHABLE, UNRECOGNISED } from './api.ts';
 import type { FailureResponse, MemoryListReceiptView } from './types.ts';
 
 /**
@@ -34,7 +34,14 @@ export type ListingState =
   | { readonly kind: 'asking' }
   /** The API could not be reached. Says nothing about what the archive holds. */
   | { readonly kind: 'unreachable'; readonly failure: FailureResponse }
-  /** The API ANSWERED and refused: rate limited, an unknown kind, an internal error. */
+  /**
+   * The request came back and no result can be read out of it. TWO EVENTS, not one: the API
+   * refusing in words this console can read (rate limited, an unknown kind, an internal error), and
+   * an answer this console cannot read a result out of at all, which carries `UNRECOGNISED` and may
+   * be any status. `Archive.tsx` words the slip for both without claiming which one happened,
+   * because the second case does not say. This comment named only the first and was the claim the
+   * slip was corrected for.
+   */
   | { readonly kind: 'refused'; readonly failure: FailureResponse }
   /** The API answered and reported that the listing could not be completed. */
   | { readonly kind: 'unknown'; readonly receipt: MemoryListReceiptView }
@@ -97,8 +104,24 @@ export function describeListing(input: ListingInput): ListingState {
     return {
       kind: 'refused',
       failure: {
-        error: 'unrecognised_response',
+        error: UNRECOGNISED,
         detail: 'The archive answered in a shape this console cannot read, so nothing here is a result.',
+      },
+    };
+  }
+
+  // A RECEIPT THAT DISAGREES WITH THE ROWS BESIDE IT IS NOT A STATE OF THE ARCHIVE. Reading one as
+  // though it were is how this page ends up arguing with itself, in public, on the screen a sceptic
+  // opens to check the rest. `receiptContradiction` enumerates the ways, field by printed field.
+  const contradiction = receiptContradiction(input.receipt, input.rowCount);
+  if (contradiction !== null) {
+    return {
+      kind: 'refused',
+      failure: {
+        error: UNRECOGNISED,
+        detail:
+          `The archive answered with a receipt that contradicts the rows beside it: ${contradiction}. ` +
+          'Nothing here is a result.',
       },
     };
   }
@@ -106,6 +129,91 @@ export function describeListing(input: ListingInput): ListingState {
   if (input.receipt.coverage === 'UNKNOWN') return { kind: 'unknown', receipt: input.receipt };
   if (input.rowCount === 0) return { kind: 'empty', receipt: input.receipt };
   return { kind: 'rows', receipt: input.receipt };
+}
+
+/** `1 row` or `N rows`, so a contradiction reads as a sentence rather than as a bare count. */
+const rowsPhrase = (count: number): string => (count === 1 ? '1 row' : `${count} rows`);
+
+/**
+ * Which way a receipt and the rows beside it disagree, as a phrase, or null when they agree.
+ *
+ * WHY A BODY CAN BE REFUSED FOR WHAT IT MEANS RATHER THAN FOR ITS TYPES. `shapes.ts` checks one
+ * field at a time, by design, so it accepts a body whose fields are each valid and jointly
+ * impossible. This page prints five receipt fields, and a body can make any of them argue with what
+ * is on screen beside it.
+ *
+ * THE LIST BELOW IS THE ENUMERATION, NOT A SAMPLE, and the difference is the whole reason this
+ * paragraph is written this way. The first version of this function closed three cases and called
+ * them "the three ways it can happen". A review counted the printed fields and found two more, one
+ * of which was the same defect the function was written to close, one row-count short: `PARTIAL`
+ * with SOME rows but fewer than the bound. Closing an instance and naming it a class is this
+ * repository's most expensive recurring mistake.
+ *
+ *   0. A bound below one, or a fractional one. The `Bound` cell prints it, and a listing that could
+ *      hold no row cannot support any sentence about what matched.
+ *   1. UNKNOWN carrying rows. The slip says the archive could not be read, while rows sit racked
+ *      under it as though they were the archive.
+ *   2. A cause without UNKNOWN. `coverageCause` names the stage that STOPPED a listing, and the
+ *      producer sets one only alongside UNKNOWN. COVERED with a cause prints "the listing completed
+ *      and no row in the archive matches" with "stopped by the archive query did not complete" six
+ *      lines above it, which is the absence claim contradicted in the same breath.
+ *   3. PARTIAL whose rows are not exactly the bound. PARTIAL is measured by asking for one row more
+ *      than the bound, so a PARTIAL page always carries EXACTLY `limit` rows. Anything else prints
+ *      the tag "the archive holds more than {limit} matching rows, so these are the newest of them"
+ *      over a rack that is not the newest `limit` of anything. Zero rows is the loudest instance and
+ *      was the only one the first version caught.
+ *   4. More rows than the bound. Only reachable under COVERED once 1 and 3 are settled, and the
+ *      `Bound` cell is printed directly beside the rack it contradicts.
+ *   5. `returned` disagreeing with the rows. The receipt strip prints `receipt.returned` while the
+ *      rack renders the array, so a body where those differ prints a count that argues with the
+ *      strips below it.
+ *
+ * `kinds` is deliberately NOT here: a receipt whose filter disagrees with a row's kind is pinned as
+ * intended behaviour by `archive-island.test.ts`, because the page's job there is to show what
+ * arrived rather than to hide it. `coverageReason` is free text and not machine-checkable, and
+ * `requestedAt` and `elapsedMs` are not printed at all.
+ *
+ * NONE OF THESE IS REACHABLE FROM THIS PROJECT'S OWN API, and each was read rather than assumed.
+ * `runList` reaches UNKNOWN only through `emptyUnknownPage`, which hardcodes `memories: []`,
+ * `returned: 0` and the only non-null cause in the file. Its success path hardcodes `coverageCause:
+ * null` and sets PARTIAL from `rows.length > limit`, where `memories` is `rows.slice(0, limit)`, so
+ * PARTIAL always carries exactly `limit` rows and `boundedLimit` now floors that bound to at least
+ * one. `returned` is `memories.length` at the source, copied field for field by
+ * `toMemoryListReceipt` and mapped one for one by the `/memories` handler. So this guard cannot fire
+ * on a conforming answer: everything that reaches it came from something that is not this API.
+ *
+ * REFUSED RATHER THAN REPAIRED. The tempting alternative is to keep the more cautious half and
+ * render that, but there is no honest way to pick: a receipt that contradicts its own rows gives no
+ * reason to believe either half of itself. `unrecognised_response` is the verdict this file already
+ * returns for a settled answer carrying no receipt, and it says the one true thing available, which
+ * is that nothing on the screen is a result.
+ */
+function receiptContradiction(receipt: MemoryListReceiptView, rowCount: number): string | null {
+  // FIRST, because the two rules that DO compare against this bound, PARTIAL-not-the-bound and
+  // too-many-rows, are meaningless rather than false when it is not a whole number of rows. (The
+  // first version of this comment said every rule below compares against it. Two of the five do.)
+  if (!Number.isInteger(receipt.limit) || receipt.limit < 1) {
+    return `it reports a bound of ${receipt.limit}, which is not a number of rows a listing could return`;
+  }
+  if (receipt.coverage === 'UNKNOWN' && rowCount > 0) {
+    return `it says the listing could not be read, and ${rowsPhrase(rowCount)} arrived with it`;
+  }
+  if (receipt.coverageCause !== null && receipt.coverage !== 'UNKNOWN') {
+    return `it names a stage that stopped the listing and still reports ${receipt.coverage}`;
+  }
+  if (receipt.coverage === 'PARTIAL' && rowCount !== receipt.limit) {
+    return (
+      `it says the archive holds more than the bound of ${receipt.limit}, and ` +
+      `${rowsPhrase(rowCount)} arrived with it rather than the bound`
+    );
+  }
+  if (rowCount > receipt.limit) {
+    return `it reports a bound of ${receipt.limit}, and ${rowsPhrase(rowCount)} arrived with it`;
+  }
+  if (receipt.returned !== rowCount) {
+    return `it counts ${rowsPhrase(receipt.returned)}, and ${rowsPhrase(rowCount)} arrived with it`;
+  }
+  return null;
 }
 
 /**

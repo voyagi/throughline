@@ -11,8 +11,8 @@
       "id": "GHSA-rgw5-rvv9-x895",
       "package": "brace-expansion",
       "severity": "high",
-      "reason": "Bundled inside aws-cdk-lib, which names minimatch in bundleDependencies, so npm never re-resolves it and an overrides entry cannot reach it. Measured: adding the override left the nested copy at 5.0.8. No released aws-cdk-lib bundles the fixed 5.0.9 yet. Reachable only at synthesis time on a developer machine or in CI, never in Lambda and never in the request path, over glob patterns this repository wrote itself.",
-      "recheckAfter": "2026-08-11"
+      "reason": "Bundled inside aws-cdk-lib, which names minimatch in bundleDependencies, so npm never re-resolves it and an overrides entry cannot reach it. Measured 2026-08-04, with the repeat recipe in docs/security-notes.md: adding the override left the nested copy at 5.0.8. Re-checked 2026-08-09 and nothing moved: the newest published aws-cdk-lib is still 2.263.0, which is the version the ^2.263.0 range in infra/package.json resolves to, the installed bundled copy is still 5.0.8, the committed lockfile still marks that path inBundle, and npm audit fix declines it in its own words as a bundled dependency of aws-cdk-lib@2.263.0 that cannot be fixed automatically. Reachable only at synthesis time on a developer machine or in CI, never in Lambda and never in the request path, over glob patterns this repository wrote itself.",
+      "recheckAfter": "2026-09-09"
     }
   ]
 }

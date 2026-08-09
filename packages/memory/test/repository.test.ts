@@ -3,7 +3,7 @@ import { formatVector, parseVector, rowToMemory, type MemoryRow } from '../src/r
 import { createRepository } from '../src/repository.ts';
 import { createLocalEmbedder, embedSync, type Embedder } from '../src/embeddings.ts';
 import { observed, type Capabilities } from '../src/types.ts';
-import { DEFAULT_POLICY } from '../src/policy.ts';
+import { DEFAULT_POLICY, type MemoryPolicy } from '../src/policy.ts';
 import { createFakeDatabase, mentions, type Responder } from './fake-database.ts';
 
 const CAPABILITIES: Capabilities = {
@@ -396,11 +396,19 @@ describe('list', () => {
       return [];
     };
 
-  const build = (responder: Responder) => {
+  const build = (responder: Responder, policy?: MemoryPolicy) => {
     const db = createFakeDatabase(responder);
     return {
       db,
-      repository: createRepository({ db, embedder, schema: 'throughline', capabilities: CAPABILITIES }),
+      // Spread rather than `policy` as a plain property: `exactOptionalPropertyTypes` is on, so an
+      // explicit `undefined` for an optional property does not compile.
+      repository: createRepository({
+        db,
+        embedder,
+        schema: 'throughline',
+        capabilities: CAPABILITIES,
+        ...(policy === undefined ? {} : { policy }),
+      }),
     };
   };
 
@@ -456,6 +464,62 @@ describe('list', () => {
 
     expect(page.receipt.limit).toBe(DEFAULT_POLICY.listCap);
     expect(db.queries[0]?.values.at(-1)).toBe(DEFAULT_POLICY.listCap + 1);
+  });
+
+  // THE CAP ITSELF, which the clamp above took on trust. Two of `boundedLimit`'s three paths
+  // returned `cap` verbatim and the third returned it whenever the caller asked for more, so the
+  // same self-contradicting bound of zero came straight back in through the policy: `policy` is
+  // public on `createRepository`, the probe still fetches one row, `rows.length > 0` holds, and the
+  // receipt reported PARTIAL with `returned: 0` while its own reason claimed the archive holds more
+  // than 0 rows. No caller OVERRIDES `listCap` (one of the seven non-test call sites does pass a
+  // policy, spreading `DEFAULT_POLICY` and changing `graceWindowMs`), which is exactly what made
+  // this an accident of who calls the function rather than a property of it.
+  //
+  // Both sentences above were wrong in the first version of this comment, in the same two ways the
+  // source docblock was, and were corrected there while this copy stood six lines from an edit. A
+  // comment is not re-driven by anything, so a second copy of a claim is a second thing to get wrong.
+  it.each([
+    ['zero', 0],
+    ['a negative', -10],
+    ['a fraction below one', 0.5],
+    // ALL THREE NON-FINITE VALUES, because the arm takes three and the first version of this table
+    // named one. `Infinity` is the likeliest of them to be written on purpose, as the natural
+    // spelling of "unbounded", and it used to reach the driver as `LIMIT Infinity`.
+    ['not a number at all', Number.NaN],
+    ['infinity', Number.POSITIVE_INFINITY],
+    ['negative infinity', Number.NEGATIVE_INFINITY],
+  ])('floors a listCap of %s to a bound that can hold a row', async (_label, listCap) => {
+    const { db, repository } = build(listing(rows(4)), { ...DEFAULT_POLICY, listCap });
+    const page = await repository.list({ workspaceId: 'demo' });
+
+    expect(page.receipt.limit).toBe(1);
+    expect(db.queries[0]?.values.at(-1)).toBe(2);
+    // The invariant, stated as the thing that must never travel: PARTIAL with an empty page. The
+    // archive really does hold more than this bound, so PARTIAL is the honest verdict here, and it
+    // now arrives with the row that makes the sentence true.
+    expect(page.memories).toHaveLength(1);
+    expect(page.receipt.returned).toBe(1);
+    expect(page.receipt.coverage).toBe('PARTIAL');
+  });
+
+  it('floors a fractional listCap rather than handing the driver a fraction', async () => {
+    // Separate from the table above because the expectation is different in kind: this one pins the
+    // `Math.floor`, which a bare `Math.max(1, cap)` would pass while still sending 7.9 to the driver.
+    const { db, repository } = build(listing(rows(1)), { ...DEFAULT_POLICY, listCap: 7.9 });
+    const page = await repository.list({ workspaceId: 'demo' });
+
+    expect(page.receipt.limit).toBe(7);
+    expect(db.queries[0]?.values.at(-1)).toBe(8);
+  });
+
+  it('still reports a COVERED empty archive under a floored cap', async () => {
+    // The floor must not turn an empty archive into a truncated one. Nothing was there, the bound
+    // was never reached, and COVERED with no rows is the page's one honest absence claim.
+    const { repository } = build(listing([]), { ...DEFAULT_POLICY, listCap: 0 });
+    const page = await repository.list({ workspaceId: 'demo' });
+
+    expect(page.memories).toHaveLength(0);
+    expect(page.receipt.coverage).toBe('COVERED');
   });
 
   it.each([

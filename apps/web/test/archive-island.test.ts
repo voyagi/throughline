@@ -51,11 +51,18 @@ import type {
  * it was wrong again at 42, where a newly added test asserting UNLIT values passed against an
  * unhydrated page, because unlit IS the pre-hydration state.
  *
- * Measured now, at 42: removing `cancelAnimationFrame` reddens **42 of 42**. Every test in this
- * file depends on hydration having happened. ANY TEST ADDED BELOW MUST BE RE-MEASURED AGAINST THAT
- * MUTATION, and the giveaway is a test whose expected values a dead page also produces: an
- * absence, an unlit class, or the word NOT ASKED. Give it a post-effect anchor, then re-measure
- * and correct this number.
+ * Re-measured on 2026-08-09 THREE TIMES IN ONE SITTING, which is the whole argument for the rule
+ * rather than the number. The contradiction tests took the file from 42 to 44 and it measured
+ * **44 of 44**; the first review of that commit added a test and it measured **45 of 45**; the
+ * second review found a defect in that test's own fix, which added another, and it measured
+ * **46 of 46**. A number written once and left alone would have been wrong twice inside an hour,
+ * after being wrong twice before that. Removing `cancelAnimationFrame` reddens 46 of 46: every test
+ * in this file depends on hydration having happened.
+ *
+ * ANY TEST ADDED BELOW MUST BE RE-MEASURED AGAINST THAT MUTATION, and the giveaway is a test whose
+ * expected values a dead page also produces: an absence, an unlit class, or the word NOT ASKED. All
+ * five of the new ones assert an absence somewhere and were given a post-effect anchor for exactly
+ * that reason. Give the next one an anchor too, then re-measure and correct this number.
  *
  * Two things defend against that, and the second is the one that would survive a rewrite:
  *
@@ -409,6 +416,25 @@ function holderClass(strip: HTMLElement): string {
 const slip = (container: HTMLElement): HTMLElement | null => container.querySelector('.empty');
 
 /**
+ * The WHOLE slip's words, where an absent slip is a failure rather than an empty string.
+ *
+ * THE FOURTH TIME THIS FILE HAS MET THE SAME SHAPE, and the first three are documented above in
+ * `cellClass`, `slipDetail` and `stripAt`. `words()` is `(node?.textContent ?? '')`, so
+ * `words(slip(container))` yields `''` when there is no slip at all, and every `.not.toContain(...)`
+ * written against it passes on a page that never rendered one. The commit that closed the third
+ * instance opened this one on its own new test, which is this repository's defect shape exactly: a
+ * fix that closes an instance and leaves the category.
+ *
+ * A test that means to assert the slip is ABSENT still uses `slip` directly and expects null, which
+ * is the honest way to say it.
+ */
+function slipWords(container: HTMLElement): string {
+  const found = slip(container);
+  if (found === null) throw new Error('there is no slip on this page to read');
+  return words(found);
+}
+
+/**
  * The slip's FIRST paragraph.
  *
  * THIS EXISTS BECAUSE THE WHOLE-SLIP READ WAS TOO COARSE TO TELL TWO STATES APART. Every refusal
@@ -474,7 +500,7 @@ describe('the archive island, hydrated', () => {
     // The distinction this cell exists for: "asking" is not "none yet", and neither is a number.
     expect(cellText(strip, 'Rows shown')).toBe('asking');
     expect(cellClass(strip, 'Rows shown')).toContain('doubt');
-    expect(words(slip(container))).toContain('The archive has been asked and has not answered yet');
+    expect(slipWords(container)).toContain('The archive has been asked and has not answered yet');
   });
 
   it('racks one strip per row and prints the content of each', async () => {
@@ -643,7 +669,7 @@ describe('the archive island, hydrated', () => {
 
     expect(strips(container)).toHaveLength(0);
     // The one state where an empty rack IS the answer, and it has to say so in its own words.
-    expect(words(slip(container))).toContain('the listing completed and no row in the archive matches');
+    expect(slipWords(container)).toContain('the listing completed and no row in the archive matches');
     expect(cellText(receiptStrip(container), 'Verdict')).toBe('COVERED');
     // The COLOUR is a claim somebody earned by measuring, so it is asserted rather than assumed.
     // A mutant that broke the COVERED arm of `verdictClass` survived until this line existed.
@@ -655,7 +681,7 @@ describe('the archive island, hydrated', () => {
     answers(listing([], { coverage: 'COVERED', returned: 0, kinds: ['runbook_fact'] }));
     const container = await mountAndSettle();
 
-    expect(words(slip(container))).toContain('no row in the archive matches the kind RUNBOOK FACT');
+    expect(slipWords(container)).toContain('no row in the archive matches the kind RUNBOOK FACT');
   });
 
   it('refuses to call an incomplete listing an empty archive', async () => {
@@ -669,7 +695,7 @@ describe('the archive island, hydrated', () => {
     );
     const container = await mountAndSettle();
 
-    const text = words(slip(container));
+    const text = slipWords(container);
     expect(text).toContain('could not read the archive');
     expect(text).toContain('the archive query did not complete');
     // The whole point of the state: an empty rack under UNKNOWN would mean nothing at all.
@@ -681,11 +707,113 @@ describe('the archive island, hydrated', () => {
     expect(cellClass(receiptStrip(container), 'Verdict')).toBe('verdict v-unk');
   });
 
-  it('names the stage that stopped a listing in the Why cell', async () => {
+  // THE THREE BODIES THAT MADE THIS PAGE ARGUE WITH ITSELF. Each is a receipt that contradicts the
+  // rows delivered beside it, so there is no honest sentence left to print about the archive and the
+  // page says that instead. `describeListing` makes the decision and `archive-state.test.ts` pins it;
+  // these three assert the page a visitor is actually handed, which is the half that used to rack
+  // rows under a slip denying it could read them.
+  //
+  // EVERY ASSERTION OF AN ABSENCE HERE CARRIES A POST-EFFECT ANCHOR, per this file's header: an
+  // unhydrated page racks no strips either, so `toHaveLength(0)` alone would pass against markup
+  // nobody hydrated. The anchor is the verdict word, which exists only after a fetch has landed.
+  it('racks nothing and refuses when UNKNOWN arrives carrying rows', async () => {
     answers(
-      listing([row()], {
-        coverage: 'PARTIAL',
-        coverageReason: 'the bound was reached',
+      listing([row({ content: 'a row delivered with a listing that could not be read' })], {
+        coverage: 'UNKNOWN',
+        returned: 1,
+        coverageCause: 'listing_query_failed',
+      }),
+    );
+    const container = await mountAndSettle();
+
+    expect(cellText(receiptStrip(container), 'Verdict')).toBe('UNRECOGNISED_RESPONSE');
+    expect(strips(container)).toHaveLength(0);
+    expect(words(container)).not.toContain('a row delivered with a listing that could not be read');
+    expect(slipDetail(container)).toContain('it says the listing could not be read');
+  });
+
+  it('refuses PARTIAL carrying no rows rather than printing the completed-listing sentence', async () => {
+    answers(listing([], { coverage: 'PARTIAL', returned: 0 }));
+    const container = await mountAndSettle();
+
+    expect(cellText(receiptStrip(container), 'Verdict')).toBe('UNRECOGNISED_RESPONSE');
+    // The one sentence on this page that asserts an absence, which a listing stopped at a bound has
+    // not established. This body used to produce it.
+    //
+    // `slipWords` RATHER THAN `words(slip(...))`, because that form returns `''` when there is no
+    // slip at all and every `.not.toContain` against it then passes vacuously. This file has found
+    // that falsy-sentinel shape three times already, in `cellClass`, in `slipDetail` and in
+    // `stripAt`, and the fourth was written here by the commit closing the third.
+    expect(slipWords(container)).not.toContain('the listing completed and no row in the archive matches');
+    expect(slipDetail(container)).toContain('holds more than the bound of 50');
+    // Carried from the test this replaces, which asserted the same fixture rendered a PARTIAL
+    // verdict and no tag. The tag says "the archive holds more than N matching rows, so these are
+    // the newest of them", and there is no "these" to point at.
+    expect(container.querySelector('.tag')).toBeNull();
+  });
+
+  it('refuses a receipt whose count disagrees with the rows it delivered', async () => {
+    // The Rows shown cell prints `receipt.returned` while the rack renders the array, so this body
+    // would have printed 9 directly above a rack holding a single strip.
+    answers(listing([row()], { returned: 9 }));
+    const container = await mountAndSettle();
+
+    expect(cellText(receiptStrip(container), 'Verdict')).toBe('UNRECOGNISED_RESPONSE');
+    expect(cellText(receiptStrip(container), 'Rows shown')).toBe('none yet');
+    expect(strips(container)).toHaveLength(0);
+    expect(slipDetail(container)).toContain('it counts 9 rows, and 1 row arrived with it');
+  });
+
+  it('does not claim the API refused a body it answered normally', async () => {
+    // The `refused` state covers two different events and the slip used to describe only one. A 200
+    // carrying a self-contradicting body is this console declining to read a result out of an
+    // answer the API gave normally, and "The API answered and refused" is false about it, on the
+    // page whose whole argument is that those must be kept apart.
+    answers(listing([], { coverage: 'PARTIAL', returned: 0 }));
+    const container = await mountAndSettle();
+
+    const text = slipWords(container);
+    expect(text).toContain('THIS CONSOLE COULD NOT READ THE ANSWER');
+    expect(text).toContain('could not read a result out of that answer');
+    expect(text).not.toContain('The API answered and refused');
+    // The claim that survives in both wordings, because it is the one that matters here.
+    expect(text).toContain('Nothing here says the archive is empty');
+  });
+
+  it('does not deny that the API refused when the refusal itself was unreadable', async () => {
+    // THE SIBLING OF THE TEST ABOVE, and the one its first version broke. `UNRECOGNISED` does NOT
+    // imply a 200: `asFailure` mints it for any non-2xx whose body is not `{error, detail}`, so a
+    // 429 from a gateway or a 502 carrying HTML reaches the same arm. The branch written to stop
+    // the page claiming the API refused a 200 then told a rate-limited visitor the API had not
+    // refused, which is the identical false sentence pointing the other way.
+    answers({ message: 'Too Many Requests' }, 429);
+    const container = await mountAndSettle();
+
+    const text = slipWords(container);
+    expect(cellText(receiptStrip(container), 'Verdict')).toBe('UNRECOGNISED_RESPONSE');
+    // The status the console DOES know is printed, and it is a refusal.
+    expect(text).toContain('The API answered 429 in a shape this console does not recognise');
+    // What it must not do is tell this visitor that nobody refused them.
+    expect(text).not.toContain('this console refused the answer');
+    expect(text).toContain('Nothing here says the archive is empty');
+  });
+
+  it('names the stage that stopped a listing in the Why cell', async () => {
+    // UNKNOWN WITH NO ROWS, which is the only shape that carries a cause. This fixture used to be
+    // PARTIAL with a row, and the producer sets `coverageCause` in exactly one place,
+    // `emptyUnknownPage`, which always reports UNKNOWN with an empty page. A cause beside any other
+    // verdict is now refused as a contradiction, so the fixture was corrected to the body a real
+    // stopped listing sends rather than the guard being loosened to keep an impossible one green.
+    //
+    // THE REASON IS THE ONE THE PRODUCER PAIRS WITH THIS CAUSE, which the first correction got
+    // wrong: it kept "the bound was reached" beside `row_unreadable`, a pairing `runList` never
+    // sends, because `coverageReason` is free text nothing checks. Half-correcting a fixture leaves
+    // it impossible in a way no guard can catch.
+    answers(
+      listing([], {
+        coverage: 'UNKNOWN',
+        returned: 0,
+        coverageReason: 'a row could not be read, so this page would be missing rows without being able to say which',
         coverageCause: 'row_unreadable',
       }),
     );
@@ -693,7 +821,8 @@ describe('the archive island, hydrated', () => {
 
     // The cause is a CODE on the wire and a sentence in the browser, so the page owns the wording.
     expect(cellText(receiptStrip(container), 'Why')).toBe(
-      'the bound was reached · stopped by a row could not be read, so rows would be missing without being named',
+      'a row could not be read, so this page would be missing rows without being able to say which · ' +
+        'stopped by a row could not be read, so rows would be missing without being named',
     );
   });
 
@@ -716,7 +845,7 @@ describe('the archive island, hydrated', () => {
     expect(cellClass(strip, 'Verdict')).toBe('verdict v-unk');
     expect(cellText(strip, 'Rows shown')).toBe('none yet');
     expect(cellText(strip, 'Bound')).toBe('unknown');
-    const text = words(slip(container));
+    const text = slipWords(container);
     expect(text).toContain('The demo allows three questions a minute.');
     expect(text).toContain('The API answered and refused');
     expect(text).not.toContain('could not be reached');
@@ -733,7 +862,7 @@ describe('the archive island, hydrated', () => {
     expect(slipDetail(container)).toBe(
       'The API could not be reached from this browser. Nothing here says the memory is empty.',
     );
-    expect(words(slip(container))).toContain('Nothing here says the archive is empty');
+    expect(slipWords(container)).toContain('Nothing here says the archive is empty');
   });
 
   it('refuses a 200 whose body the console cannot read rather than racking it', async () => {
@@ -743,15 +872,21 @@ describe('the archive island, hydrated', () => {
     const container = await mountAndSettle();
 
     expect(cellText(receiptStrip(container), 'Verdict')).toBe('UNRECOGNISED_RESPONSE');
-    expect(words(slip(container))).toContain('does not recognise');
+    expect(slipWords(container)).toContain('does not recognise');
     expect(strips(container)).toHaveLength(0);
   });
 
-  it('tags a bounded listing that returned rows, and leaves a covered one untagged', async () => {
-    answers(listing([row()], { coverage: 'PARTIAL', limit: 50 }));
+  // Named for the half it asserts. It used to promise "and leaves a covered one untagged" as well,
+  // which is the test immediately below it.
+  it('tags a bounded listing that returned rows', async () => {
+    // THE BOUND EQUALS THE ROW COUNT, because PARTIAL is measured by asking for one row more than
+    // the bound, so a bounded page carries exactly `limit` rows. This fixture was one row under a
+    // bound of fifty, which pinned the tag "the archive holds more than 50 matching rows" over a
+    // rack holding one: the contradiction this commit exists to stop, asserted as correct.
+    answers(listing([row({ id: 'row-one' }), row({ id: 'row-two' })], { coverage: 'PARTIAL', limit: 2 }));
     const container = await mountAndSettle();
 
-    expect(words(container.querySelector('.tag'))).toContain('the archive holds more than 50 matching rows');
+    expect(words(container.querySelector('.tag'))).toContain('the archive holds more than 2 matching rows');
     expect(cellClass(receiptStrip(container), 'Verdict')).toBe('verdict v-par');
   });
 
@@ -762,27 +897,6 @@ describe('the archive island, hydrated', () => {
     // The verdict is asserted alongside the absence ON PURPOSE. An unhydrated page has no tag
     // either, so the absence alone would pass against markup nobody hydrated.
     expect(cellText(receiptStrip(container), 'Verdict')).toBe('COVERED');
-    expect(container.querySelector('.tag')).toBeNull();
-  });
-
-  it('does not tag a bounded listing that returned no rows', async () => {
-    // PARTIAL with nothing racked would tag "these are the newest of them" over an empty rack.
-    //
-    // THIS FIXTURE IS NOT PRODUCIBLE BY THE TRUSTED API, and the test says so rather than implying
-    // otherwise. `repository.ts` `runList` sets `coverage = more ? 'PARTIAL' : 'COVERED'` where
-    // `more` means the probe row came back, so a PARTIAL listing always racked exactly `limit`
-    // rows. Only a non-conforming API produces this, which is precisely what `shapes.ts` exists to
-    // handle, so the `rows.length > 0` half of the tag guard is worth keeping and worth pinning.
-    //
-    // The slip rendered UNDER this fixture is a known contradiction and is NOT asserted here,
-    // because asserting it would cement it: `describeListing` routes any non-UNKNOWN listing with
-    // no rows to `empty`, which prints "the listing completed and no row in the archive matches",
-    // and under PARTIAL the listing did not complete. That is a production question, recorded for
-    // its own unit rather than blessed by a test written to cover something else.
-    answers(listing([], { coverage: 'PARTIAL', returned: 0 }));
-    const container = await mountAndSettle();
-
-    expect(cellText(receiptStrip(container), 'Verdict')).toBe('PARTIAL');
     expect(container.querySelector('.tag')).toBeNull();
   });
 
@@ -910,7 +1024,9 @@ describe('the archive island, hydrated', () => {
   });
 
   it('marks the Why cell as doubt unless the listing was covered', async () => {
-    answers(listing([row()], { coverage: 'PARTIAL', coverageReason: 'the bound was reached' }));
+    // A bound of one with one row, for the same reason as the tag test above: PARTIAL carries
+    // exactly `limit` rows, and the default bound of fifty made this a body no listing can send.
+    answers(listing([row()], { coverage: 'PARTIAL', limit: 1, coverageReason: 'the bound was reached' }));
     const container = await mountAndSettle();
 
     expect(cellClass(receiptStrip(container), 'Why')).toBe('say doubt');
@@ -936,7 +1052,7 @@ describe('the archive island, hydrated', () => {
     );
     const container = await mountAndSettle();
 
-    const text = words(slip(container));
+    const text = slipWords(container);
     expect(text).toContain('an unnamed stage failed');
     expect(text).not.toContain('quota_exhausted');
   });

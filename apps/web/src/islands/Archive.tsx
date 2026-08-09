@@ -1,6 +1,6 @@
 import type { ComponentChildren } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
-import { getMemories, type ApiFailure } from '../scripts/api.ts';
+import { getMemories, UNRECOGNISED, type ApiFailure } from '../scripts/api.ts';
 import {
   describeListing,
   isUnlit,
@@ -358,8 +358,7 @@ function StateSlip({ state }: { readonly state: ListingState }) {
         <Slip title="Asked, waiting" verdict="VERDICT: NOT BACK YET.">
           <p>
             The archive has been asked and has not answered yet. Nothing has gone wrong and nothing
-            here is a result: the rows below, if any, are from the previous answer and are cleared
-            before a new one arrives.
+            here is a result.
           </p>
         </Slip>
       );
@@ -375,16 +374,41 @@ function StateSlip({ state }: { readonly state: ListingState }) {
         </Slip>
       );
 
-    case 'refused':
+    // TWO SENTENCES UNDER ONE STATE, because the state covers two genuinely different events. A
+    // body that names its own error is the API refusing in words this console can read.
+    // `UNRECOGNISED` is everything else, and the important thing about it is what it does NOT say.
+    //
+    // THE FIRST VERSION OF THIS BRANCH ASSERTED IT MEANT A 200, AND THAT WAS WRONG. `api.ts` mints
+    // `UNRECOGNISED` at three sites and one of them sits on the `!response.ok` path, so a 429 from
+    // a gateway or a 502 carrying HTML arrives here too. The branch written to stop this page
+    // telling a visitor the API had refused a 200 it answered normally went on to tell a
+    // rate-limited visitor that the API had NOT refused: the same false sentence pointing the other
+    // way, opened by the edit that closed it, which is this repository's recurring defect committed
+    // against its own fix.
+    //
+    // So NEITHER arm names who refused unless the answer named it. The console cannot tell them
+    // apart, the detail line above already prints the status when there was one, and the claim both
+    // arms keep is the only one that matters here: nothing on this screen says the archive is empty.
+    case 'refused': {
+      const unreadable = state.failure.error === UNRECOGNISED;
       return (
-        <Slip title="Refusal slip" verdict={`THE API REFUSED: ${state.failure.error.toUpperCase()}.`}>
+        <Slip
+          title="Refusal slip"
+          verdict={
+            unreadable
+              ? 'THIS CONSOLE COULD NOT READ THE ANSWER. VERDICT: UNKNOWN.'
+              : `THE API REFUSED: ${state.failure.error.toUpperCase()}.`
+          }
+        >
           <p>{state.failure.detail}</p>
           <p>
-            The API answered and refused, which is a different thing from not answering: the archive
-            was reachable. Nothing here says it is empty.
+            {unreadable
+              ? 'The archive was reachable and it answered. This console could not read a result out of that answer, which is a fact about the response and not about the memory. Nothing here says the archive is empty.'
+              : 'The API answered and refused, which is a different thing from not answering: the archive was reachable. Nothing here says it is empty.'}
           </p>
         </Slip>
       );
+    }
 
     case 'unknown':
       return (
@@ -478,13 +502,26 @@ export default function Archive({ apiBase }: Props) {
           <ReceiptStrip state={state} pressed={kind} />
         </div>
 
-        {rows.map((memory) => (
-          <ArchiveStrip key={memory.id} memory={memory} />
-        ))}
+        {/* THE RACK IS DRAWN IN ONE STATE, which is structural rather than tidy. This mapped the
+            response's rows under EVERY state, so a slip reading "the archive could not be read" had
+            that same response's rows racked directly above it, and the only thing standing between
+            the page and that contradiction was a chain of reasoning across three files. `rows` is
+            the one state whose meaning is that the listing ran and returned these, so it is the one
+            state entitled to draw them. */}
+        {state.kind === 'rows'
+          ? rows.map((memory) => <ArchiveStrip key={memory.id} memory={memory} />)
+          : null}
 
         <StateSlip state={state} />
 
-        {receipt !== null && receipt.coverage === 'PARTIAL' && rows.length > 0 && (
+        {/* THE `rows.length > 0` CONJUNCT IS GONE, removed rather than kept as belt and braces,
+            because it became impossible to falsify. A receipt reaches this line in three states
+            only: `unknown` carries UNKNOWN coverage, `empty` now always carries COVERED, since
+            PARTIAL with no rows is refused as a self-contradicting body before any state is named,
+            and `rows` is by definition the state that has rows. So PARTIAL here means `rows`, and
+            `rows` means at least one. A conjunct that cannot be made false reads as a guard while
+            guaranteeing nothing, and this repository counts the mutants that survive. */}
+        {receipt !== null && receipt.coverage === 'PARTIAL' && (
           <div>
             <span class="tag">
               Bounded &middot; the archive holds more than {receipt.limit} matching rows, so these are

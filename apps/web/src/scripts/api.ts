@@ -36,6 +36,22 @@ const STATUS_TIMEOUT_MS = 8_000;
 /** The console branches on `error`, never on the sentence, so unreachable gets a code of its own. */
 const UNREACHABLE = 'api_unreachable';
 
+/**
+ * The code for an answer this console could not read a result out of, whatever its status was.
+ *
+ * IT SAYS NOTHING ABOUT WHETHER THE API REFUSED, and that is the whole point of the wording. It is
+ * minted at three sites in this file: an unparseable body on a 200, a 200 whose shape the endpoint's
+ * own guard rejects, and `asFailure`, which is reached from the `!response.ok` path whenever a
+ * non-2xx does not carry `{error, detail}`. That third site is why a reader must not infer a status
+ * from this code. `Archive.tsx` inferred one, and printed a sentence denying that the API had
+ * refused, over a 429.
+ *
+ * A CONSTANT RATHER THAN FIVE HAND-TYPED COPIES: three here and two in `archive-state.ts`, with
+ * `Archive.tsx` comparing against it. Two code paths that must agree on a string is the case this
+ * repository settles with one shared module, never with a comment asking for care.
+ */
+const UNRECOGNISED = 'unrecognised_response';
+
 function unreachable(detail: string): ApiFailure {
   return { error: UNREACHABLE, detail };
 }
@@ -55,7 +71,7 @@ function asFailure(body: unknown, status: number): ApiFailure {
     }
   }
   return {
-    error: 'unrecognised_response',
+    error: UNRECOGNISED,
     detail: `The API answered ${status} in a shape this console does not recognise.`,
   };
 }
@@ -93,11 +109,11 @@ async function call<T>(
     if (body === null) {
       return {
         ok: false,
-        failure: { error: 'unrecognised_response', detail: 'The API answered with a body this console could not read.' },
+        failure: { error: UNRECOGNISED, detail: 'The API answered with a body this console could not read.' },
       };
     }
     if (!expect.is(body)) {
-      return { ok: false, failure: { error: 'unrecognised_response', detail: expect.unrecognised } };
+      return { ok: false, failure: { error: UNRECOGNISED, detail: expect.unrecognised } };
     }
     return { ok: true, value: body };
   } catch (error) {
@@ -179,4 +195,4 @@ export function getMemories(
   );
 }
 
-export { UNREACHABLE };
+export { UNREACHABLE, UNRECOGNISED };

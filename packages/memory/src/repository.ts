@@ -661,12 +661,40 @@ function listStatement(
  * A review reproduced that from the public query string against a twelve-row archive, and the page
  * rendered "no row in the archive matches it" on the same strip. Anything that does not floor to a
  * positive integer is therefore "no preference", exactly like zero and like a negative.
+ *
+ * THE CAP IS FLOORED TOO, and that is not symmetry for its own sake. Two of the three paths below
+ * returned `cap` verbatim, and the third returned it whenever the caller asked for more, so the
+ * identical self-contradicting bound came straight back in through the policy: `createRepository`
+ * takes a public `policy`, and a `listCap` of 0 produced PARTIAL with no rows from the REAL
+ * repository rather than only from a hand-made response.
+ *
+ * NO CALLER SHIPS SUCH A CAP TODAY, and that was counted rather than asserted, because the first
+ * version of this paragraph asserted it and was wrong. It said `apps/api/src/main.ts` is the only
+ * non-test caller and passes no policy. There are SEVEN non-test call sites, and
+ * `packages/memory/src/cli/verify-live.ts` does pass a policy of its own, a zeroed `graceWindowMs`.
+ * What is true is the narrower thing this paragraph actually needed: not one of them OVERRIDES
+ * `listCap`. The word matters, and a second review caught it missing: that call site spreads
+ * `DEFAULT_POLICY`, so the policy it passes does carry a `listCap`, the default 50. That is also the
+ * point rather than a reassurance. It made "PARTIAL implies at least one row" an accident of who
+ * happens to call this function instead of a property of it, and an invariant that holds because of
+ * its callers is not an invariant.
+ *
+ * A CAP THAT IS NOT A FINITE NUMBER BECOMES 1, and all THREE values that reach that arm are named
+ * here, because the first version of this paragraph named one and a paragraph correcting an
+ * incomplete enumeration has no business being incomplete. `Math.max(1, Math.floor(N))` is NaN for
+ * NaN, and a NaN bound makes `rows.length > limit` false and `rows.slice(0, limit)` empty, so the
+ * receipt would report COVERED with no rows: this page's most confident sentence, produced from the
+ * least readable input it can be given. The arm also takes `Infinity`, the natural spelling of
+ * "unbounded" and not one, which previously reached the driver as `LIMIT Infinity`, and
+ * `-Infinity`, which is a bound below every row there could be. A bound of 1 that reports PARTIAL
+ * honestly is a smaller answer rather than a query the driver refuses.
  */
 function boundedLimit(requested: number | undefined, cap: number): number {
-  if (requested === undefined || !Number.isFinite(requested)) return cap;
+  const bound = Number.isFinite(cap) ? Math.max(1, Math.floor(cap)) : 1;
+  if (requested === undefined || !Number.isFinite(requested)) return bound;
   const whole = Math.floor(requested);
-  if (whole <= 0) return cap;
-  return Math.min(whole, cap);
+  if (whole <= 0) return bound;
+  return Math.min(whole, bound);
 }
 
 /** A page that could not be read, with the receipt saying so. Never an empty array on its own. */

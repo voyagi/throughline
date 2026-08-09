@@ -11,9 +11,9 @@ This is the successor to the finding below, and the shape of the change is worth
 the dated upgrade ran, it worked, and one HIGH remains. `aws-cdk-lib` 2.263.0 bundles
 brace-expansion 5.0.8, which closes CVE-2026-14257. A second advisory then landed on the same
 package: CVE-2026-69152 (GHSA-rgw5-rvv9-x895) covers 4.0.0 through 5.0.8 and is fixed in 5.0.9,
-which no released `aws-cdk-lib` bundles yet. An upgrade that closes a CVE and inherits its
-replacement is progress, not a clean result, and calling it clean would be the exact false claim
-this file exists to prevent.
+which the newest `aws-cdk-lib`, 2.263.0, still does not bundle. An upgrade that closes a CVE and
+inherits its replacement is progress, not a clean result, and calling it clean would be the exact
+false claim this file exists to prevent.
 
 - Measured 2026-08-04, not assumed. `npm install aws-cdk-lib@latest -w @throughline/infra`
   resolved to 2.263.0 (published 2026-07-31T16:53Z, 3.79 days old, so past the cooldown). The
@@ -40,7 +40,20 @@ this file exists to prevent.
 - Reachability is unchanged from the entry below: synthesis time only, never in Lambda, never in
   the request path, and every glob pattern reaching it is one this repo wrote.
 - Fix path: an `aws-cdk-lib` release that bundles minimatch with brace-expansion 5.0.9 or later.
-  Action, dated: re-check on or after **2026-08-11**, and record the outcome here either way.
+- Re-checked 2026-08-09, two days early, and the outcome is that nothing moved. `npm view
+  aws-cdk-lib version` is still 2.263.0, which is the version the `^2.263.0` range in
+  `infra/package.json` resolves to, so there is no release to take. The installed
+  `node_modules/aws-cdk-lib/node_modules/brace-expansion` is still 5.0.8 and the committed
+  lockfile still records that path as `"inBundle": true`. `npm audit --json` reports exactly one
+  finding, this one, high, with that bundled path as its only node. The strongest evidence is
+  npm's own refusal: `npm audit fix --dry-run` prints that 5.0.8 is a bundled dependency of
+  `aws-cdk-lib@2.263.0` and that it cannot be fixed automatically, then advises checking for
+  updates to `aws-cdk-lib`. Its summary line still says a fix is available, which is the
+  `fixAvailable: true` field in the report and is wrong for a bundled path. Read the warnings, not
+  the summary.
+- Action, dated: re-check on or after **2026-09-09**, and record the outcome here either way. That
+  is a month rather than the 90 day ceiling the gate allows, and it sits well clear of the
+  2026-08-16 submission so a recheck cannot land in the middle of it.
 
 ### CVE-2026-14257, brace-expansion 5.0.7, HIGH, bundled inside aws-cdk-lib, SUPERSEDED
 

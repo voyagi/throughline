@@ -5,6 +5,7 @@ import {
   receiptOf,
   verdictWord,
   type ListingInput,
+  type ListingState,
 } from '../src/scripts/archive-state.ts';
 import type { Coverage, MemoryListReceiptView } from '../src/scripts/types.ts';
 
@@ -22,9 +23,18 @@ import type { Coverage, MemoryListReceiptView } from '../src/scripts/types.ts';
  * the purest example of a control that cannot fail.
  */
 
+/**
+ * A receipt that is COHERENT BY CONSTRUCTION, so a test that wants an incoherent one has to say so.
+ *
+ * THE BOUND MOVES WITH THE COVERAGE, which is not decoration. PARTIAL means the bound was reached,
+ * and `runList` measures that by asking the database for one row more than the bound, so a PARTIAL
+ * page always carries EXACTLY `limit` rows. A PARTIAL fixture with `limit: 50` and two rows is a
+ * body the API cannot produce, and this file had one: building the default that way is precisely how
+ * a suite ends up pinning a body that only a broken server could send.
+ */
 const receipt = (coverage: Coverage, overrides: Partial<MemoryListReceiptView> = {}): MemoryListReceiptView => ({
   kinds: [],
-  limit: 50,
+  limit: coverage === 'PARTIAL' ? 2 : 50,
   returned: coverage === 'UNKNOWN' ? 0 : 2,
   coverage,
   coverageReason: 'every row matching this filter fitted inside the bound',
@@ -120,14 +130,12 @@ describe('describeListing', () => {
     expect(verdictWord(state)).toBe('COVERED');
   });
 
-  // A BOUND THAT WAS REACHED IS NOT A FAILURE. PARTIAL with rows is `rows`; PARTIAL with none is
-  // `empty`, which is the state a sub-1 `?limit=` used to produce before the clamp was fixed.
-  it.each([
-    ['PARTIAL with rows', 2, 'rows'],
-    ['PARTIAL with none', 0, 'empty'],
-  ])('treats %s as a completed listing', (_label, rowCount, expected) => {
-    const state = describeListing(input({ receipt: receipt('PARTIAL'), rowCount }));
-    expect(state.kind).toBe(expected);
+  // A BOUND THAT WAS REACHED IS NOT A FAILURE, so PARTIAL carrying rows is `rows`, exactly like any
+  // other listing that ran. PARTIAL carrying NONE used to be asserted here as `empty`; it is now a
+  // refusal, and the reason that row was deleted rather than edited is in the describe block below.
+  it('treats PARTIAL with rows as a completed listing', () => {
+    const state = describeListing(input({ receipt: receipt('PARTIAL'), rowCount: 2 }));
+    expect(state.kind).toBe('rows');
     expect(verdictWord(state)).toBe('PARTIAL');
   });
 
@@ -150,6 +158,140 @@ describe('describeListing', () => {
     // open. The static HTML, where nothing is pending and nothing has been asked, is still NOT ASKED.
     expect(describeListing(input({ pending: true, asked: false })).kind).toBe('asking');
     expect(describeListing(input({ pending: false, asked: false })).kind).toBe('not-asked');
+  });
+});
+
+/**
+ * THE THREE BODIES THAT CONTRADICT THEMSELVES, and why the row above was deleted rather than edited.
+ *
+ * `['PARTIAL with none', 0, 'empty']` was asserted in this file under a comment calling it a
+ * completed listing. It pinned the page's most confident sentence, "the listing completed and no row
+ * in the archive matches", onto a receipt that says the listing stopped at a bound before it
+ * finished. An assertion over a false sentence is not coverage. It is the false sentence with a
+ * guard posted on it, and the next person to correct the page meets a green test telling them not to.
+ *
+ * None of the three is reachable from this project's own API. That was read rather than assumed, and
+ * the reading is written out in `receiptContradiction`. All three are reachable through `shapes.ts`,
+ * which checks one field at a time and so accepts a body whose fields are each valid and jointly
+ * impossible.
+ */
+describe('describeListing on a body that contradicts itself', () => {
+  /** The detail a refusal carries, or null. Keeps the narrowing out of every assertion below. */
+  const refusalDetail = (state: ListingState): string | null =>
+    state.kind === 'refused' ? state.failure.detail : null;
+
+  // Was `unknown`, which draws no rack of its own while the island racked the response's rows above
+  // it anyway: a slip reading "it could not read the archive" with the archive apparently under it.
+  it('refuses UNKNOWN carrying rows rather than seating them under a slip that says it could not look', () => {
+    const state = describeListing(input({ receipt: receipt('UNKNOWN', { returned: 2 }), rowCount: 2 }));
+
+    expect(state.kind).toBe('refused');
+    expect(verdictWord(state)).toBe('UNRECOGNISED_RESPONSE');
+    expect(refusalDetail(state)).toContain('could not be read');
+    expect(refusalDetail(state)).toContain('2 rows arrived');
+  });
+
+  // Was `empty`, whose slip is the one sentence on this page that asserts an absence.
+  it('refuses PARTIAL carrying no rows rather than calling it a completed listing', () => {
+    const state = describeListing(input({ receipt: receipt('PARTIAL', { returned: 0 }), rowCount: 0 }));
+
+    expect(state.kind).toBe('refused');
+    expect(refusalDetail(state)).toContain('holds more than the bound of 2');
+  });
+
+  // THE INSTANCE THE FIRST VERSION OF THIS GUARD MISSED, and it is the same defect one row-count
+  // over. PARTIAL is measured by asking for one row more than the bound, so a PARTIAL page carries
+  // exactly `limit` rows; zero was merely its loudest case. A review found this by counting the
+  // receipt fields the page PRINTS rather than the cases the guard already handled.
+  it.each([
+    ['one row under a bound of two', 1],
+    ['three rows under a bound of two', 3],
+  ])('refuses PARTIAL carrying %s rather than the bound itself', (_label, rowCount) => {
+    const state = describeListing(input({ receipt: receipt('PARTIAL', { returned: rowCount }), rowCount }));
+
+    expect(state.kind).toBe('refused');
+    // The tag this stops: "the archive holds more than 2 matching rows, so these are the newest of
+    // them", printed over a rack that is not the newest two of anything.
+    expect(refusalDetail(state)).toContain('rather than the bound');
+  });
+
+  it('refuses a cause that names a stage without the verdict that stage produces', () => {
+    // `coverageCause` is set by exactly one producer, `emptyUnknownPage`, which always reports
+    // UNKNOWN. COVERED with a cause prints the page's absence sentence directly under a Why cell
+    // reading "stopped by the archive query did not complete".
+    const state = describeListing(
+      input({ receipt: receipt('COVERED', { returned: 0, coverageCause: 'listing_query_failed' }), rowCount: 0 }),
+    );
+
+    expect(state.kind).toBe('refused');
+    expect(refusalDetail(state)).toContain('names a stage that stopped the listing');
+  });
+
+  it.each([
+    ['zero', 0],
+    ['a negative', -1],
+    ['a fraction', 2.5],
+  ])('refuses a bound of %s, which is not a number of rows', (_label, limit) => {
+    // The producer floors this now, so it can only arrive from somewhere else. A listing that could
+    // hold no row cannot support the sentence that no row matched, which is what a bound of zero
+    // used to print: `empty`, beside a Bound cell reading "0 rows".
+    const state = describeListing(input({ receipt: receipt('COVERED', { limit, returned: 0 }), rowCount: 0 }));
+
+    expect(state.kind).toBe('refused');
+    expect(refusalDetail(state)).toContain('not a number of rows');
+  });
+
+  it('refuses more rows than the bound allowed', () => {
+    const state = describeListing(input({ receipt: receipt('COVERED', { limit: 2, returned: 3 }), rowCount: 3 }));
+
+    expect(state.kind).toBe('refused');
+    // The TAIL, not the prefix. "reports a bound of 2" is also how the bound-validity rule above
+    // opens, so asserting that alone would pass on either message and discriminate neither.
+    expect(refusalDetail(state)).toContain('a bound of 2, and 3 rows arrived with it');
+  });
+
+  // The sibling neither of the two descriptions above covers. `ReceiptStrip` prints
+  // `receipt.returned` in the Rows shown cell while the rack renders the array underneath it, so a
+  // body where those two disagree prints a count that argues with the strips directly below it.
+  it('refuses a receipt whose count disagrees with the rows the rack would draw', () => {
+    const state = describeListing(input({ receipt: receipt('COVERED', { returned: 7 }), rowCount: 2 }));
+
+    expect(state.kind).toBe('refused');
+    expect(refusalDetail(state)).toContain('counts 7 rows');
+    expect(refusalDetail(state)).toContain('2 rows arrived');
+  });
+
+  it('names the contradiction it actually found rather than any of the others', () => {
+    // One generic sentence would leave a reader unable to tell which of the three arrived, and a
+    // `.toContain` against a shared phrase would pass for all three while distinguishing none.
+    const unknownWithRows = refusalDetail(
+      describeListing(input({ receipt: receipt('UNKNOWN', { returned: 2 }), rowCount: 2 })),
+    );
+    const partialWithNone = refusalDetail(
+      describeListing(input({ receipt: receipt('PARTIAL', { returned: 0 }), rowCount: 0 })),
+    );
+
+    // BOTH PHRASES ARE ONES PRODUCTION ACTUALLY EMITS, which a review had to point out: the first
+    // version of this assertion tested for "more rows than the bound", a phrase deleted from the
+    // guard in the same commit, so it could not fail by finding the wrong message.
+    expect(unknownWithRows).not.toContain('holds more than the bound of');
+    expect(partialWithNone).not.toContain('could not be read');
+  });
+
+  // THE FOUR CELLS THIS GUARD LEAVES ALONE, of three coverages by two row cases, enumerated rather
+  // than sampled. A guard that refuses a real answer is a worse defect than the one it closes.
+  //
+  // The PARTIAL row carries a bound EQUAL to its row count, which is what makes it a body the API
+  // can actually produce. An earlier version of this table called all four "coherent" while giving
+  // PARTIAL two rows under a bound of fifty, which no listing can return: the label claimed more
+  // than the fixtures did.
+  it.each([
+    ['COVERED with no rows', receipt('COVERED', { returned: 0 }), 0, 'empty'],
+    ['COVERED with rows', receipt('COVERED', { returned: 2 }), 2, 'rows'],
+    ['PARTIAL with rows', receipt('PARTIAL', { returned: 2 }), 2, 'rows'],
+    ['UNKNOWN with no rows', receipt('UNKNOWN', { returned: 0 }), 0, 'unknown'],
+  ])('leaves %s alone', (_label, given, rowCount, expected) => {
+    expect(describeListing(input({ receipt: given, rowCount })).kind).toBe(expected);
   });
 });
 
