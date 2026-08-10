@@ -1,6 +1,7 @@
 import { UNRECOGNISED } from './api.ts';
 import {
   internal,
+  isCount,
   malformed,
   rack,
   type Contradiction,
@@ -80,20 +81,22 @@ export function readRecall(event: RecallEventView): RecallStrip {
 const OPENING: Readonly<Record<ContradictionKind, string>> = {
   malformed: 'This search answered with a receipt carrying a value that is not a measurement: ',
   internal: 'This search answered with a receipt whose own fields disagree: ',
-  rack: 'This search answered with a receipt that disagrees with the strips beside it: ',
+  // "WITH WHAT ARRIVED" RATHER THAN "WITH THE STRIPS BESIDE IT", because a rack rule fires on a
+  // receipt carrying nine memories when NOTHING arrived, and there are no strips beside that one.
+  rack: 'This search answered with a receipt that disagrees with what arrived with it: ',
 };
 
 /** `1 memory` or `N memories`, so a contradiction reads as a sentence rather than as a bare count. */
 const memoriesPhrase = (count: number): string => (count === 1 ? '1 memory' : `${count} memories`);
 
 /**
- * A count of things, which is what `returned` and `candidatesConsidered` claim to be.
+ * Its twin, and it was missing while half the same sentence already had one.
  *
- * TWO FIELDS, and this said four. Of the seven the console prints, four are strings and `elapsedMs`
- * is a duration handled on its own line below. A wrong count in a file whose argument is that the
- * fields were counted rather than recalled is the argument failing on itself.
+ * Rule 4 printed `it returned 3 memories out of 1 candidates examined`: the half built by
+ * `memoriesPhrase` agreed with itself and the half interpolated raw did not.
  */
-const isCount = (value: number): boolean => Number.isInteger(value) && value >= 0;
+const candidatesPhrase = (count: number): string =>
+  count === 1 ? '1 candidate examined' : `${count} candidates examined`;
 
 /**
  * Which way a receipt and what arrived with it disagree, as a phrase, or null when they agree.
@@ -119,20 +122,26 @@ const isCount = (value: number): boolean => Number.isInteger(value) && value >= 
  *      is a real measurement, where a fractional row is not.
  *   3. `returned` disagreeing with the rack. The span prints the count while the rack renders the
  *      array, so a body where those differ prints a number that argues with the strips below it.
- *      This is the console's version of the archive's rule 5 and it was the reported defect.
+ *      This is the console's version of the archive's rule 6 and it was the reported defect. (It
+ *      said rule 5, which was right until a rule was inserted into that file and every reference
+ *      inside it was renumbered. The one reference living in THIS file was left pointing at the old
+ *      number, which is the sibling-file half of the defect both guards exist for.)
  *   4. More returned than examined. A search cannot hand back rows it never looked at.
  *   5. UNKNOWN carrying memories. The verdict says the search produced no usable result while
- *      strips sit racked under it as though they were the answer. (This said the slip would read
- *      NO SEARCH RAN, which the same change made impossible on this rule's own inputs: rules 3 and
- *      4 have to pass before this one is reached, so a receipt firing it always reports more
- *      candidates than nothing, and the slip reads THE SEARCH DID NOT COMPLETE instead. A review
- *      caught the sentence describing a rendering its own commit had removed.)
+ *      strips sit racked under it as though they were the answer. THE SAME CORRECTION HAS NOW BEEN
+ *      MADE TWICE HERE, once to this note and once to the sentence a reader actually sees: rules 3
+ *      and 4 have to pass before this one is reached, so a receipt firing it always reports at least
+ *      one candidate examined, and neither the note nor the phrase may say the search did not run.
+ *      A correction to a comment does not correct the string beside it.
  *   6. A cause without UNKNOWN. `coverageCause` names the stage that STOPPED a search, and the
  *      producer sets one only alongside UNKNOWN. Under PARTIAL the slip prints "STOPPED BY the
  *      candidate query did not complete" six lines above "What is here is real but incomplete".
- *      Under COVERED no slip is drawn at all, because the board racks one only for a verdict that
- *      is not COVERED, so there the contradiction is between the receipt's own two fields and
- *      would reach the reader through the log span alone. The rule covers both.
+ *      Under COVERED no slip is drawn at all and the log span never prints the cause, so the reader
+ *      is shown one of the two contradicting fields and cannot see the contradiction: the rule is
+ *      what makes it visible rather than what describes it. (This claimed the pair would reach the
+ *      reader through the log span. It would not. The archive's twin note IS true of the archive,
+ *      whose Why cell prints the cause under every verdict, which is how one file's sentence went
+ *      wrong while its sibling's stayed right.)
  *   7. PARTIAL with nothing examined. PARTIAL is the verdict the slip words as real but incomplete,
  *      and there is nothing real in it. This is the print side of the unclamped candidate cap that
  *      `runRecall` was fixed for in the same change: a cap of 0 made `rows.length >= cap` true at
@@ -215,12 +224,19 @@ function receiptContradiction(
   }
   if (receipt.returned > receipt.candidatesConsidered) {
     return internal(
-      `it returned ${memoriesPhrase(receipt.returned)} out of ${receipt.candidatesConsidered} ` +
-        'candidates examined',
+      `it returned ${memoriesPhrase(receipt.returned)} out of ` +
+        candidatesPhrase(receipt.candidatesConsidered),
     );
   }
+  // NOT "IT SAYS THE SEARCH DID NOT RUN", which this said and which is false on every input that can
+  // reach it. Rules 3 and 4 have both passed here, so `returned === memoryCount > 0` and
+  // `candidatesConsidered >= returned >= 1`: every receipt firing this rule reports at least one
+  // candidate examined. The console's own test for a search that did not run is a path of `none` with
+  // nothing examined, which none of them satisfies, and the slip for exactly this receipt would read
+  // THE SEARCH DID NOT COMPLETE. The docblock above was corrected for this and the sentence a reader
+  // sees was not.
   if (receipt.coverage === 'UNKNOWN' && memoryCount > 0) {
-    return rack(`it says the search did not run, and ${memoriesPhrase(memoryCount)} arrived with it`);
+    return rack(`it reports no usable result, and ${memoriesPhrase(memoryCount)} arrived with it`);
   }
   if (receipt.coverageCause !== null && receipt.coverage !== 'UNKNOWN') {
     return internal(`it names a stage that stopped the search and still reports ${receipt.coverage}`);

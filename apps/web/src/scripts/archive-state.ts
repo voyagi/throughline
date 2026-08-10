@@ -1,6 +1,7 @@
 import { UNREACHABLE, UNRECOGNISED } from './api.ts';
 import {
   internal,
+  isCount,
   malformed,
   rack,
   type Contradiction,
@@ -144,20 +145,26 @@ const rowsPhrase = (count: number): string => (count === 1 ? '1 row' : `${count}
 /**
  * How each kind of refusal opens, so no sentence describes a comparison that did not happen.
  *
- * THIS PAGE TAUGHT THE CONSOLE THE LESSON AND HAD NOT LEARNED IT. One sentence was minted for all
- * six rules, saying the receipt contradicts the rows beside it. FOUR of the six read `rowCount`.
- * Rule 0 tests the bound on its own and rule 2 compares two receipt fields, so a listing refused
- * for a bound of 0, with no row on the page, told the reader its receipt contradicted rows that
- * were never there. The console's guard was written because the archive's fix stopped at the
- * archive, and then the console's own fix stopped at the console. Same defect, both directions,
- * one branch.
+ * THIS PAGE TAUGHT THE CONSOLE THE LESSON AND HAD NOT LEARNED IT. One sentence was minted for every
+ * rule, saying the receipt contradicts the rows beside it, where rules 0, 1 and 3 read no row at all.
+ * So a listing refused for a bound of 0, with no row on the page, told the reader its receipt
+ * contradicted rows that were never there. The console's guard was written because the archive's fix
+ * stopped at the archive, and then the console's own fix stopped at the console. Same defect, both
+ * directions, one branch. (No total is quoted here. The one that stood in this place said six and
+ * survived the change that made it seven, in a file whose subject is sentences nothing keeps true.)
  *
  * A table keyed by the union, so a fourth kind fails the build rather than borrowing a sentence.
  */
 const OPENING: Readonly<Record<ContradictionKind, string>> = {
   malformed: 'The archive answered with a receipt carrying a value that is not a measurement: ',
   internal: 'The archive answered with a receipt whose own fields disagree: ',
-  rack: 'The archive answered with a receipt that contradicts the rows beside it: ',
+  // "WHAT ARRIVED WITH IT" RATHER THAN "THE ROWS BESIDE IT". Counted at this commit: FOUR of the
+  // SEVEN rules are rack rules, and TWO of those four fire on a page where no row arrived, namely
+  // PARTIAL-not-the-bound (true at zero rows because rule 0 guarantees a bound of at least one) and
+  // returned-disagrees-with-the-rows. The other two test `rowCount > 0` or `rowCount > limit` and
+  // cannot. The old opening therefore named rows that were not there. (This comment first said four
+  // of six and three of four, written in the same change that made the total seven.)
+  rack: 'The archive answered with a receipt that contradicts what arrived with it: ',
 };
 
 /**
@@ -165,8 +172,11 @@ const OPENING: Readonly<Record<ContradictionKind, string>> = {
  *
  * WHY A BODY CAN BE REFUSED FOR WHAT IT MEANS RATHER THAN FOR ITS TYPES. `shapes.ts` checks one
  * field at a time, by design, so it accepts a body whose fields are each valid and jointly
- * impossible. This page prints five receipt fields, and a body can make any of them argue with what
- * is on screen beside it.
+ * impossible. This page prints SIX receipt fields, and a body can make any of them argue with what
+ * is on screen beside it. Named rather than counted, because the number was written as five and a
+ * review counted six, in the paragraph whose whole argument is that the fields were counted:
+ * `kinds`, `coverage`, `returned`, `limit`, `coverageReason` and `coverageCause`. Measured against
+ * `b43dc12` with a match-only grep for every `receipt.` read in `Archive.tsx`.
  *
  * THE LIST BELOW IS THE ENUMERATION, NOT A SAMPLE, and the difference is the whole reason this
  * paragraph is written this way. The first version of this function closed three cases and called
@@ -177,20 +187,26 @@ const OPENING: Readonly<Record<ContradictionKind, string>> = {
  *
  *   0. A bound below one, or a fractional one. The `Bound` cell prints it, and a listing that could
  *      hold no row cannot support any sentence about what matched.
- *   1. UNKNOWN carrying rows. The slip says the archive could not be read, while rows sit racked
+ *   1. `returned` is not a count. The `Rows shown` cell prints it. This rule was MISSING while the
+ *      console's twin had it from the start, so a receipt reporting minus one row fell through to
+ *      rule 6 and was refused for disagreeing with rows that had not arrived.
+ *   2. UNKNOWN carrying rows. The slip says the archive could not be read, while rows sit racked
  *      under it as though they were the archive.
- *   2. A cause without UNKNOWN. `coverageCause` names the stage that STOPPED a listing, and the
+ *   3. A cause without UNKNOWN. `coverageCause` names the stage that STOPPED a listing, and the
  *      producer sets one only alongside UNKNOWN. COVERED with a cause prints "the listing completed
  *      and no row in the archive matches" with "stopped by the archive query did not complete" six
- *      lines above it, which is the absence claim contradicted in the same breath.
- *   3. PARTIAL whose rows are not exactly the bound. PARTIAL is measured by asking for one row more
+ *      lines above it, which is the absence claim contradicted in the same breath. (True of THIS
+ *      page, and checked rather than assumed: the `Why` cell renders for every receipt, so the cause
+ *      is printed under COVERED here. The console's twin note said the same thing and was false
+ *      there, because that page prints the cause only inside a slip COVERED never draws.)
+ *   4. PARTIAL whose rows are not exactly the bound. PARTIAL is measured by asking for one row more
  *      than the bound, so a PARTIAL page always carries EXACTLY `limit` rows. Anything else prints
  *      the tag "the archive holds more than {limit} matching rows, so these are the newest of them"
  *      over a rack that is not the newest `limit` of anything. Zero rows is the loudest instance and
  *      was the only one the first version caught.
- *   4. More rows than the bound. Only reachable under COVERED once 1 and 3 are settled, and the
+ *   5. More rows than the bound. Only reachable under COVERED once 2 and 4 are settled, and the
  *      `Bound` cell is printed directly beside the rack it contradicts.
- *   5. `returned` disagreeing with the rows. The receipt strip prints `receipt.returned` while the
+ *   6. `returned` disagreeing with the rows. The receipt strip prints `receipt.returned` while the
  *      rack renders the array, so a body where those differ prints a count that argues with the
  *      strips below it.
  *
@@ -221,16 +237,25 @@ function receiptContradiction(
   receipt: MemoryListReceiptView,
   rowCount: number,
 ): Contradiction | null {
-  // THE KIND TRAVELS WITH THE PHRASE, because the sentence above is worded from it. Counted: ONE
-  // rule tests a field on its own, ONE compares two receipt fields, FOUR read `rowCount`.
+  // THE KIND TRAVELS WITH THE PHRASE, because the sentence above is worded from it. Counted at the
+  // commit that added rule 1: TWO rules test a field on its own, ONE compares two receipt fields,
+  // FOUR read `rowCount`.
   //
-  // FIRST, because the two rules that DO compare against this bound, PARTIAL-not-the-bound and
-  // too-many-rows, are meaningless rather than false when it is not a whole number of rows. (The
-  // first version of this comment said every rule below compares against it. Two of the five do.)
+  // THE TWO SINGLE FIELD RULES COME FIRST, because a comparison against a value that is not a value
+  // is meaningless rather than false. (An earlier version of this comment said every rule below
+  // compares against the bound. Two of them do.)
   if (!Number.isInteger(receipt.limit) || receipt.limit < 1) {
     return malformed(
       `it reports a bound of ${receipt.limit}, which is not a number of rows a listing could return`,
     );
+  }
+  // THE SIBLING THE CONSOLE HAD AND THIS PAGE DID NOT. `shapes.ts` accepts any finite `returned`, so
+  // a listing reporting minus one row reached rule 6 and was refused with the words "it counts -1
+  // rows, and 0 rows arrived with it": minus one printed as a number of rows, and a disagreement
+  // claimed with rows that were never there. The console has refused exactly this since its guard was
+  // written, and the predicate now lives in one module both import so they cannot drift on it.
+  if (!isCount(receipt.returned)) {
+    return malformed(`it reports ${receipt.returned} returned, which is not a number of rows`);
   }
   if (receipt.coverage === 'UNKNOWN' && rowCount > 0) {
     return rack(`it says the listing could not be read, and ${rowsPhrase(rowCount)} arrived with it`);

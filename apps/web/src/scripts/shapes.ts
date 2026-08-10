@@ -143,10 +143,13 @@ const LISTING_CHECKS: FieldChecks<MemoryListResponse> = {
  * A lamp's `state` is a string here, not the closed `LampState`, and that is a judgement worth
  * recording rather than an omission.
  *
- * `StatusBoard.classFor` sends every unrecognised state to the UNLIT class, so a state this console
- * does not know renders as doubt with its own word printed beside it. That is the safe direction and
- * it is the one this site prefers everywhere else. Refusing the whole status page because one lamp
- * came back with a word we do not recognise would turn a legible partial answer into no answer.
+ * `readLamp` in `status-state.ts` sends every unrecognised state to the UNLIT class, so a state this
+ * console does not know renders as doubt with its own word printed beside it, and this board says so
+ * in its own voice on the lamp. That is the safe direction and it is the one this site prefers
+ * everywhere else. Refusing the whole status page because one lamp came back with a word we do not
+ * recognise would turn a legible partial answer into no answer. (This named `StatusBoard.classFor`,
+ * which was deleted when both status surfaces moved onto one reading. The behaviour survived the
+ * move; the citation did not, and it is the citation `status-state.ts` points back at.)
  *
  * `coverage` gets the opposite treatment for the opposite reason: an unrecognised coverage does not
  * degrade to doubt, it degrades to `empty`, which is the page's most confident sentence.

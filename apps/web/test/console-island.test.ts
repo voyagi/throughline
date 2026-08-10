@@ -209,12 +209,32 @@ function verdictClasses(container: HTMLElement): string[] {
  * COVERED class. The claim under test is about the TURN's chip, so the assertion has to be too.
  */
 function turnChipClass(container: HTMLElement): string {
+  const chip = turnChip(container);
+  if (!chip.hasAttribute('class')) throw new Error('the TURN COVERAGE chip carries no class attribute');
+  return chip.getAttribute('class') ?? '';
+}
+
+/**
+ * The WHOLE sentence on the TURN COVERAGE chip.
+ *
+ * BECAUSE A NEGATIVE GUARDED IT AND THE NEGATIVE WENT DEAD. The chip's trailing clause has now been
+ * rewritten twice, and the assertion watching it forbade the PREVIOUS wording: the same commit that
+ * replaced `A REFUSED RECEIPT FED IT` left a `.not.toContain` for that exact string, which no
+ * production path can emit any more, while the clause that replaced it was asserted nowhere at all.
+ * A third rewrite would have passed unread. Pinned whole, so any rewrite fails until somebody reads
+ * it and decides it is true.
+ */
+function turnChipText(container: HTMLElement): string {
+  return (turnChip(container).textContent ?? '').replace(/\s+/gu, ' ').trim();
+}
+
+/** The one chip the turn's own verdict is printed on. Throws rather than returning nothing. */
+function turnChip(container: HTMLElement): Element {
   const chip = [...container.querySelectorAll('.log .verdict')].find((one) =>
     (one.textContent ?? '').includes('TURN COVERAGE'),
   );
   if (chip === undefined) throw new Error('the log has no TURN COVERAGE chip');
-  if (!chip.hasAttribute('class')) throw new Error('the TURN COVERAGE chip carries no class attribute');
-  return chip.getAttribute('class') ?? '';
+  return chip;
 }
 
 /**
@@ -325,9 +345,25 @@ describe('the console island, hydrated', () => {
     expect(boardWords(container)).toContain('RECEIPT REFUSED');
     expect(boardWords(container)).toContain('it counts 9 memories, and 1 memory arrived with it');
     expect(boardWords(container)).toContain('Nothing here says the memory is empty');
-    // THIS one really does disagree with the strips, so the rack wording is the true one here.
-    expect(boardWords(container)).toContain('disagrees with the strips beside it');
-    expect(logWords(container)).toContain('ITS COUNT DISAGREES WITH THE STRIPS');
+    // THIS one really does disagree with what arrived, so the rack wording is the true one here.
+    expect(boardWords(container)).toContain('disagrees with what arrived with it');
+    expect(logWords(container)).toContain('IT DISAGREES WITH WHAT ARRIVED');
+  });
+
+  it('does not blame the count on the rack rule whose count agrees exactly', async () => {
+    // THE SECOND RACK RULE, AND THE CHIP USED TO NAME THE ONE THING THAT WAS FINE ABOUT IT. An
+    // UNKNOWN verdict over memories that arrived is reached only after the count rule has passed, so
+    // `returned` matches the rack exactly and what disagrees is the verdict. The chip read ITS COUNT
+    // DISAGREES WITH THE STRIPS over a receipt whose count did not.
+    answers(turn([recall(2, { coverage: 'UNKNOWN' })]));
+    const container = await mountAndAsk('anything');
+
+    // The positive is the whole guard. A `not.toContain('it says the search did not run')` stood
+    // here and was vacuous the moment it was written, because the same commit removed that phrase
+    // from production: a negative watching a string its own change had deleted, which is the exact
+    // pattern this branch corrected twice elsewhere.
+    expect(boardWords(container)).toContain('it reports no usable result, and 2 memories arrived with it');
+    expect(logWords(container)).toContain('IT DISAGREES WITH WHAT ARRIVED');
   });
 
   it('prints none of a refused receipt numbers in the log either', async () => {
@@ -361,8 +397,13 @@ describe('the console island, hydrated', () => {
     expect(turnChipClass(container)).toBe('verdict v-unk');
     // On THIS turn every chip is unlit, because the only recall in it was refused.
     expect(verdictClasses(container)).not.toContain('verdict v-cov');
-    // It also may not claim HOW the API computed that value, on a body it just called foreign.
-    expect(logWords(container)).not.toContain('A REFUSED RECEIPT FED IT');
+    // AND THE WHOLE SENTENCE, because the clause that says what this board can see is the half that
+    // was wrong last time: it claimed HOW the API computed the value, on a body it had just called
+    // foreign. The negative that stood here forbade that dead wording and watched nothing.
+    expect(turnChipText(container)).toBe(
+      'TURN COVERAGE · REPORTED COVERED, NOT USABLE: A SEARCH IN THIS TURN HAS NO RECEIPT THIS ' +
+        'BOARD COULD READ',
+    );
   });
 
   it('still prints an UNKNOWN turn verdict beside a refused receipt', async () => {
@@ -483,9 +524,9 @@ describe('the console island, hydrated', () => {
     const container = await mountAndAsk('anything');
 
     expect(boardWords(container)).toContain('a receipt whose own fields disagree');
-    expect(boardWords(container)).not.toContain('disagrees with the strips beside it');
+    expect(boardWords(container)).not.toContain('disagrees with what arrived with it');
     expect(logWords(container)).toContain('ITS OWN FIELDS DISAGREE');
-    expect(logWords(container)).not.toContain('ITS COUNT DISAGREES WITH THE STRIPS');
+    expect(logWords(container)).not.toContain('IT DISAGREES WITH WHAT ARRIVED');
   });
 
   it('leaves the verbatim receipt record unfiltered, on purpose', async () => {

@@ -413,7 +413,20 @@ function holderClass(strip: HTMLElement): string {
   return classOf(asElement(holder), 'the strip holder');
 }
 
-const slip = (container: HTMLElement): HTMLElement | null => container.querySelector('.empty');
+/**
+ * The one slip on the page, or null when there is none.
+ *
+ * EXACTLY ONE OR NONE, ASSERTED HERE SO ALL THREE READERS INHERIT IT. The guard was added to
+ * `slipClosing` alone, which left `slipWords` and `slipDetail` taking the first match of two, and a
+ * fix that closes one instance and leaves its siblings is the shape this whole file documents. It is
+ * defensive rather than a live bug: `Archive.tsx` renders one `Slip` per state today. `Console.tsx`
+ * has three slip sites, which is why its twin asserts the same thing.
+ */
+function slip(container: HTMLElement): HTMLElement | null {
+  const found = [...container.querySelectorAll('.empty')];
+  if (found.length > 1) throw new Error(`this page has ${found.length} slips, so "the" slip is ambiguous`);
+  return found.length === 0 ? null : asElement(found[0]);
+}
 
 /**
  * The WHOLE slip's words, where an absent slip is a failure rather than an empty string.
@@ -456,7 +469,9 @@ function slipWords(container: HTMLElement): string {
  * hundred lines further down. A review counted it.
  */
 function slipDetail(container: HTMLElement): string {
-  const paragraph = container.querySelector('.slip p');
+  const found = slip(container);
+  if (found === null) throw new Error('there is no slip on this page to read a detail from');
+  const paragraph = found.querySelector('.slip p');
   if (paragraph === null) throw new Error('the slip has no paragraph to read a detail from');
   return words(paragraph);
 }
@@ -476,7 +491,12 @@ function slipDetail(container: HTMLElement): string {
  * THROWS, like `slipWords` and `slipDetail`, and for the reason documented on both.
  */
 function slipClosing(container: HTMLElement): string {
-  const paragraphs = elements(container, '.slip p');
+  // THE ONE SLIP, through the shared reader, which is where the exactly-one check now lives. It was
+  // added here alone and left `slipWords` and `slipDetail` taking the first match of two: a fix that
+  // closed one instance and left its siblings, in the file that documents that shape four times.
+  const found = slip(container);
+  if (found === null) throw new Error('there is no slip on this page to read a closing sentence from');
+  const paragraphs = elements(found, '.slip p');
   const last = paragraphs.at(-1);
   if (last === undefined) throw new Error('the slip has no paragraph to read a closing sentence from');
   return words(last);
@@ -815,10 +835,15 @@ describe('the archive island, hydrated', () => {
     const text = slipWords(container);
     expect(cellText(receiptStrip(container), 'Verdict')).toBe('UNRECOGNISED_RESPONSE');
     // The status the console DOES know is printed, and it is a refusal.
-    expect(text).toContain('The API answered 429 in a shape this console does not recognise');
-    // What it must not do is tell this visitor that nobody refused them.
-    expect(text).not.toContain('this console refused the answer');
-    // NOR THAT THE ARCHIVE WAS REACHED. This 429 is answered by rate-limit middleware before
+    // "SOMETHING ANSWERED", because this arm takes any non 2xx whose body is not a failure shape,
+    // and a 502 from a CDN reaches it without ever touching this product. The status code is the one
+    // thing the console does know and it is still printed.
+    expect(text).toContain('Something answered 429 in a shape this console does not recognise');
+    // The negative that stood here forbade "this console refused the answer", which no production
+    // path emits: a dead assertion sitting beside the live whole-paragraph pin that replaced it. It
+    // is deleted rather than reworded, because a negative guards a wording and the pin guards the
+    // claim.
+    // THE ARCHIVE MUST NOT BE REPORTED AS REACHED. This 429 is answered by rate-limit middleware before
     // `/memories` runs, and a 502 carrying HTML need not have reached this product at all, yet both
     // land on this arm. The arm that stopped naming WHO refused went on to name WHAT was reached.
     // Asserted WHOLE, for the reason given on the sibling test below.

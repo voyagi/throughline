@@ -75,7 +75,14 @@ function asFailure(body: unknown, status: number): ApiFailure {
   }
   return {
     error: UNRECOGNISED,
-    detail: `The API answered ${status} in a shape this console does not recognise.`,
+    // "SOMETHING ANSWERED", NOT "THE API ANSWERED", and the status code stays because that is the
+    // one thing this console does know. This arm is reached for ANY non 2xx whose body is not a
+    // failure shape, which includes a CDN 502 carrying HTML and a load balancer 503 that never
+    // reached this product at all, so naming the API as the answerer is a claim nobody earned. The
+    // archive was corrected once for naming WHO refused and once for naming WHAT was reached, and
+    // both status surfaces now word this state as something having answered. This is the string all
+    // three read, so it is fixed here rather than three times.
+    detail: `Something answered ${status} in a shape this console does not recognise.`,
   };
 }
 

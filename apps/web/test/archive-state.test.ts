@@ -215,8 +215,13 @@ describe('describeListing on a body that contradicts itself', () => {
 
     expect(state.kind).toBe('refused');
     expect(verdictWord(state)).toBe('UNRECOGNISED_RESPONSE');
-    expect(refusalDetail(state)).toContain('could not be read');
-    expect(refusalDetail(state)).toContain('2 rows arrived');
+    // THE RACK OPENING, PINNED WHOLE, and it was pinned NOWHERE until a planted change to it reddened
+    // nothing at all. Two `.not.toContain` assertions elsewhere in this file watch that the OTHER
+    // kinds do not borrow this sentence, which is not the same as anybody asserting what it says.
+    expect(refusalDetail(state)).toBe(
+      'The archive answered with a receipt that contradicts what arrived with it: it says the ' +
+        'listing could not be read, and 2 rows arrived with it. Nothing here is a result.',
+    );
   });
 
   // Was `empty`, whose slip is the one sentence on this page that asserts an absence.
@@ -255,7 +260,7 @@ describe('describeListing on a body that contradicts itself', () => {
     expect(refusalDetail(state)).toContain('names a stage that stopped the listing');
     // TWO RECEIPT FIELDS, and no row is involved, so the sentence may not blame the rows either.
     expect(refusalDetail(state)).toContain('a receipt whose own fields disagree');
-    expect(refusalDetail(state)).not.toContain('contradicts the rows beside it');
+    expect(refusalDetail(state)).not.toContain('contradicts what arrived with it');
   });
 
   it.each([
@@ -270,13 +275,31 @@ describe('describeListing on a body that contradicts itself', () => {
 
     expect(state.kind).toBe('refused');
     expect(refusalDetail(state)).toContain('not a number of rows');
-    // THE SENTENCE, not just the phrase inside it. This page minted one opening for all six rules,
-    // saying the receipt contradicts the rows beside it, and only four of the six read the row
-    // count. With `rowCount: 0` there is no row on the page for anything to contradict, so the
+    // THE SENTENCE, not just the phrase inside it. This page minted one opening for every rule,
+    // saying the receipt contradicts the rows beside it, where most of them do not read the row
+    // count at all. With `rowCount: 0` there is no row on the page for anything to contradict, so the
     // reader was told about a comparison that never happened. The console was graded HIGH for the
     // identical defect and fixed, and this file taught the console the lesson.
     expect(refusalDetail(state)).toContain('a receipt carrying a value that is not a measurement');
-    expect(refusalDetail(state)).not.toContain('contradicts the rows beside it');
+    expect(refusalDetail(state)).not.toContain('contradicts what arrived with it');
+  });
+
+  it.each([
+    ['a negative', -1],
+    ['a fraction', 2.5],
+  ])('refuses a returned count of %s, which is not a number of rows', (_label, returned) => {
+    // THE RULE THIS PAGE DID NOT HAVE while the console had it from the start. `shapes.ts` accepts
+    // any finite `returned` on purpose, so minus one reached the rule that compares the count with
+    // the rows and was refused with "it counts -1 rows, and 0 rows arrived with it": a disagreement
+    // claimed with rows that had not arrived, and minus one printed as a number of rows. Both pages
+    // now ask one shared predicate what a count is.
+    const state = describeListing(input({ receipt: receipt('COVERED', { returned }), rowCount: 0 }));
+
+    expect(state.kind).toBe('refused');
+    expect(refusalDetail(state)).toBe(
+      'The archive answered with a receipt carrying a value that is not a measurement: it reports ' +
+        `${returned} returned, which is not a number of rows. Nothing here is a result.`,
+    );
   });
 
   it('refuses more rows than the bound allowed', () => {

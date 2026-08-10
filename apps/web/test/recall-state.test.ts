@@ -161,15 +161,22 @@ describe('readRecall, on receipts that argue with what arrived', () => {
     );
   });
 
-  it('refuses more returned than were ever examined', () => {
+  it('refuses more returned than were ever examined, and counts the candidate in words', () => {
+    // HALF THIS SENTENCE PLURALISED AND HALF DID NOT: `memoriesPhrase` built the first half and the
+    // second was interpolated raw, so it read "out of 1 candidates examined".
     expect(refusalDetail(event(receipt('COVERED', { candidatesConsidered: 1, returned: 3 }), 3))).toContain(
-      'out of 1 candidates examined',
+      'it returned 3 memories out of 1 candidate examined',
     );
   });
 
-  it('refuses UNKNOWN carrying memories', () => {
-    // The slip says the search did not run while strips sit racked under it as though they were
-    // the answer, which is the exact confusion this product exists to remove.
+  it('refuses UNKNOWN carrying memories without claiming no search ran', () => {
+    // THE VERDICT SAYS NO USABLE RESULT while strips sit racked under it as though they were the
+    // answer, which is the exact confusion this product exists to remove.
+    //
+    // AND IT MAY NOT SAY THE SEARCH DID NOT RUN, which is what it used to say. Rules 3 and 4 have
+    // both passed by the time this one is reached, so `candidatesConsidered >= returned >= 1` on
+    // every input that can fire it: this fixture reports twelve examined. The console's own slip for
+    // this very receipt reads THE SEARCH DID NOT COMPLETE, because a search did run.
     //
     // BOTH OVERRIDES ARE LOAD BEARING, and the first two attempts at this fixture proved it by
     // failing. Left at the UNKNOWN defaults the count rule fires first, because `returned` is 0 and
@@ -177,8 +184,9 @@ describe('readRecall, on receipts that argue with what arrived', () => {
     // examined. Either would have passed a test naming a rule that need not exist. The reachable
     // shape of THIS contradiction is a receipt consistent in every other way that still says the
     // search never ran.
-    expect(refusalDetail(event(receipt('UNKNOWN', { returned: 2, candidatesConsidered: 12 }), 2))).toContain(
-      'it says the search did not run',
+    expect(refusalDetail(event(receipt('UNKNOWN', { returned: 2, candidatesConsidered: 12 }), 2))).toBe(
+      'This search answered with a receipt that disagrees with what arrived with it: it reports no ' +
+        'usable result, and 2 memories arrived with it. Nothing on this strip is a result.',
     );
   });
 
@@ -215,11 +223,20 @@ describe('readRecall, on receipts that argue with what arrived', () => {
       throw new Error('both of these receipts must be refused for this test to mean anything');
     }
 
+    // PINNED WHOLE, BOTH OF THEM. A negative guards a wording and not a claim, and the negative that
+    // stood here forbade "strips beside it", a phrase since removed from every opening in the file,
+    // which would have left it passing over any wording at all. The openings are the sentence a
+    // reader is given, so they are asserted as sentences.
     expect(againstRack.contradiction).toBe('rack');
-    expect(againstRack.failure.detail).toContain('disagrees with the strips beside it');
+    expect(againstRack.failure.detail).toBe(
+      'This search answered with a receipt that disagrees with what arrived with it: it counts 9 ' +
+        'memories, and 1 memory arrived with it. Nothing on this strip is a result.',
+    );
     expect(againstItself.contradiction).toBe('internal');
-    expect(againstItself.failure.detail).toContain('whose own fields disagree');
-    expect(againstItself.failure.detail).not.toContain('strips beside it');
+    expect(againstItself.failure.detail).toBe(
+      'This search answered with a receipt whose own fields disagree: it says the search was cut ' +
+        'short, and reports that no candidate was examined at all. Nothing on this strip is a result.',
+    );
   });
 
   it('separates a field that is not a measurement from two fields that disagree', () => {
@@ -234,7 +251,9 @@ describe('readRecall, on receipts that argue with what arrived', () => {
     expect(malformed.failure.detail).toContain('carrying a value that is not a measurement');
     expect(malformed.failure.detail).toContain('it reports -4 ms elapsed');
     expect(malformed.failure.detail).not.toContain('whose own fields disagree');
-    expect(malformed.failure.detail).not.toContain('strips beside it');
+    // A `not.toContain('strips beside it')` stood here and went dead in the same change that pinned
+    // its twin whole one test above, because that phrase left every opening in the file. Deleted
+    // rather than reworded: the positive on the line above already catches a reversion.
   });
 
   it('names the refusal with the code this console already uses for an unreadable answer', () => {

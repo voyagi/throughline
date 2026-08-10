@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'preact/hooks';
 import { getStatus } from '../scripts/api.ts';
-import type { LampState, StatusResponse } from '../scripts/types.ts';
+import type { ApiFailure } from '../scripts/api.ts';
+import { clockOf, describeStatus, type LampReading, type Silence } from '../scripts/status-state.ts';
+import type { StatusResponse } from '../scripts/types.ts';
 
 /**
  * The annunciator rail.
@@ -14,24 +16,46 @@ import type { LampState, StatusResponse } from '../scripts/types.ts';
  * If the API answers, the lamps light from a real probe. If it does not, they stay exactly as they
  * were and the rail says when it last tried. A rail that invented OK because it could not reach
  * the server would be the product's own headline failure, committed by the product's own chrome.
+ *
+ * THE RAIL IS ON FOUR OF THE FIVE PAGES, mounted by `Board.astro` wherever `rail` is not turned off,
+ * so a wrong lamp here is wrong nearly everywhere. It reads the same body as `StatusBoard.tsx`
+ * through the same `status-state.ts`, and no CAPABILITY lamp's class is derived here. The one class
+ * this file derives is the Last looked lamp's, which the module has no lamp reading for because it is
+ * this rail's own furniture rather than something the probe reported.
  */
-
-const PENDING: readonly { name: string; state: LampState; detail: string }[] = [
-  { name: 'Vector index', state: 'UNKNOWN', detail: 'Nobody has asked the cluster yet.' },
-  { name: 'Embeddings', state: 'UNKNOWN', detail: 'Nobody has asked the cluster yet.' },
-  { name: 'MCP transport', state: 'UNKNOWN', detail: 'Nobody has asked the cluster yet.' },
-];
-
-const classFor = (state: LampState) =>
-  state === 'OK' ? 'state s-ok' : state === 'DEGRADED' ? 'state s-deg' : 'state s-unk';
 
 interface Props {
   readonly apiBase: string;
 }
 
+/**
+ * What the timestamp means, in the five states it can be in.
+ *
+ * FIVE, AND THIS RAIL SPOKE THREE. It had one sentence for every attempt that did not produce a body,
+ * so a visitor whose request was refused by the demo's own daily ceiling was told the console could
+ * not reach the API, and a body that arrived and could not be read was told the same. Those are
+ * different facts about this product's own API, and this rail is the chrome that claims to keep such
+ * things apart.
+ */
+const SPOKEN: Readonly<Record<Silence, string>> = {
+  'nobody-looked': '. Nobody has probed the system from this page yet.',
+  unanswered:
+    '. The console tried to reach the API and could not, so the lamps above are still unlit.',
+  refused: '. The API answered and declined to report, so the lamps above are still unlit.',
+  // "SOMETHING ANSWERED" AND NOT "THE API ANSWERED", because on this arm nobody knows who answered.
+  // `UNRECOGNISED` is minted for any non 2xx whose body is not a failure shape, which includes a CDN
+  // 502 carrying HTML and a load balancer 503 that never reached this product at all. The archive was
+  // corrected for exactly this, and the board's closing paragraph already said "Something did
+  // answer" while the paragraph above it, minted by `api.ts`, still named the API. That string is
+  // shared by all three surfaces and is fixed at its source in the same change as this one.
+  unreadable:
+    '. Something answered in a shape this rail could not read, so the lamps above are still unlit.',
+};
+
 export default function Annunciator({ apiBase }: Props) {
   const [status, setStatus] = useState<StatusResponse | null>(null);
-  const [looked, setLooked] = useState<string | null>(null);
+  const [failure, setFailure] = useState<ApiFailure | null>(null);
+  const [looked, setLooked] = useState<Date | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -41,47 +65,49 @@ export default function Annunciator({ apiBase }: Props) {
       // "we looked and could not tell" is a different fact from "nobody looked", and the rail is
       // the one place on the site that has to keep those apart.
       if (result.ok) setStatus(result.value);
-      setLooked(new Date().toISOString());
+      else setFailure(result.failure);
+      setLooked(new Date());
     });
     return () => {
       live = false;
     };
   }, [apiBase]);
 
-  const lamps = status?.lamps ?? PENDING;
-  const observedAt = status?.observedAt ?? looked;
+  const view = describeStatus({ asked: looked !== null, failure, status });
+  const shown = view.kind === 'shown' ? view : null;
 
   return (
     <dl class="annunciator" aria-label="System capability" aria-live="polite">
-      {lamps.map((lamp) => (
+      {view.lamps.map((lamp) => (
         <div class="lamp" key={lamp.name}>
           <dt>{lamp.name}</dt>
           <dd>
-            <span class={classFor(lamp.state)}>{lamp.state}</span>
-            <span class="sr-only">. {lamp.detail}</span>
+            <span class={lamp.stateClass}>{lamp.state}</span>
+            <span class="sr-only">{spoken(lamp)}</span>
           </dd>
         </div>
       ))}
       <div class="lamp">
         <dt>Last looked</dt>
         <dd>
-          {/* Keyed off `status`, NOT off whether an attempt was made. The first version went green
-              the moment the fetch RESOLVED, which included resolving to a failure, so a console
-              that could not reach the API at all showed a lit lamp with a timestamp beside three
-              unlit ones. A lamp that reports the clock as a success is the same error this rail
-              exists to prevent, made by the rail. */}
-          <span class={status === null ? 'state s-unk' : 'state s-ok'}>
-            {observedAt === null ? 'NEVER' : observedAt.slice(11, 19) + 'Z'}
+          {/* Keyed off a READING, not off whether an attempt was made and not off whether a body
+              arrived. The first version went green the moment the fetch RESOLVED, which included
+              resolving to a failure, so a console that could not reach the API at all showed a lit
+              lamp with a timestamp beside three unlit ones. Keying it off the body alone had the
+              same fault one step further in: a body this rail cannot read is not a probe either. */}
+          <span class={shown === null ? 'state s-unk' : 'state s-ok'}>
+            {shown?.clock ?? (looked === null ? 'NEVER' : clockOf(looked))}
           </span>
           <span class="sr-only">
-            . {observedAt === null
-              ? 'Nobody has probed the system from this page yet.'
-              : status === null
-                ? 'The console tried to reach the API and could not, so the lamps above are still unlit.'
-                : 'These lamps were lit by a probe at that time.'}
+            {view.kind === 'shown' ? '. These lamps were lit by a probe at that time.' : SPOKEN[view.silence]}
           </span>
         </dd>
       </div>
     </dl>
   );
+}
+
+/** A lamp read aloud: its reason, and this rail's own remark when it has one. */
+function spoken(lamp: LampReading): string {
+  return lamp.note === null ? `. ${lamp.detail}` : `. ${lamp.detail} ${lamp.note}`;
 }

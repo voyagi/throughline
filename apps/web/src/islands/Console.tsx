@@ -84,7 +84,13 @@ const CAUSE: Readonly<Record<CoverageCause, string>> = {
 const REFUSED_CHIP: Readonly<Record<ContradictionKind, string>> = {
   malformed: 'A FIELD IS NOT A MEASUREMENT',
   internal: 'ITS OWN FIELDS DISAGREE',
-  rack: 'ITS COUNT DISAGREES WITH THE STRIPS',
+  // NOT "ITS COUNT DISAGREES WITH THE STRIPS", WHICH NAMED THE ONE THING THAT WAS PROVABLY FINE. Two
+  // rules carry this kind and they are different disagreements: one is the count against the rack,
+  // the other is an UNKNOWN verdict over memories that arrived, and that second one is reached ONLY
+  // after the count has been checked and agreed. So the chip asserted a disagreement the receipt did
+  // not have, on the rule where the count matches exactly. A table keyed by the union fixed a ternary
+  // that was short a case; this is the same fault one level up, in an arm that over-specifies.
+  rack: 'IT DISAGREES WITH WHAT ARRIVED',
 };
 
 const PATH_LABEL: Readonly<Record<string, string>> = {
