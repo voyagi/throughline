@@ -10,6 +10,7 @@
  * Nothing here throws. A thrown fetch would land in an error boundary and render as a blank pane,
  * which is the silent-absence failure this whole site exists to argue against.
  */
+import { isBlank } from './contradiction.ts';
 import { isAgentTurnResponse, isMemoryListResponse, isStatusResponse } from './shapes.ts';
 import type {
   AgentTurnResponse,
@@ -69,8 +70,57 @@ function unreachable(detail: string): ApiFailure {
 function asFailure(body: unknown, status: number): ApiFailure {
   if (typeof body === 'object' && body !== null && 'error' in body && 'detail' in body) {
     const candidate = body as { error: unknown; detail: unknown };
-    if (typeof candidate.error === 'string' && typeof candidate.detail === 'string') {
-      return body as ApiFailure;
+    // BOTH PRINTED FIELDS, counted rather than assumed, and the count was WRONG one commit ago.
+    // `FailureResponse` declares FIVE members at `packages/contract/src/index.ts`: `error`, `detail`
+    // and the optional `fields`, `limit` and `day`. A grep of `apps/web/src` for `failure.fields`,
+    // `failure.limit` and `failure.day` finds no surface reading any of the three, and nothing
+    // renders the object whole, so `error` and `detail` are the two that are printed. The first
+    // version of this guard took `detail` alone, which is this repository's whole recurring shape
+    // committed inside the fix for it. A blank `error` is printed uppercased as a verdict by three
+    // files (`Archive.tsx`, `archive-state.ts` and `Console.tsx`, which are two pages), so it drew
+    // `REFUSED:    .` at a reader.
+    //
+    // It falls through to `UNRECOGNISED` rather than being substituted, and the asymmetry with
+    // `detail` below is the point. A code is the thing every surface BRANCHES on, so an empty one is
+    // not a code that lost its sentence, it is a body that named no failure at all, and inventing
+    // one would put a value into the field surfaces switch on.
+    //
+    // A USABLE `detail` IS DISCARDED ON THIS PATH AND THAT IS DELIBERATE, which the sentence here
+    // used to deny by saying there was nothing to preserve. A body sending a blank code and a real
+    // reason loses the reason. Keeping it would print that reason under the `UNRECOGNISED` verdict,
+    // which reads THE ANSWER COULD NOT BE READ, directly above a sentence proving something in it
+    // was read. That is the same self-contradiction the slip guards exist to refuse, so the loss is
+    // the cheaper of the two.
+    if (
+      typeof candidate.error === 'string' &&
+      !isBlank(candidate.error) &&
+      typeof candidate.detail === 'string'
+    ) {
+      const failure = body as ApiFailure;
+      if (!isBlank(failure.detail)) return failure;
+      // A BLANK DETAIL IS A PRINTED FIELD WITH NOTHING IN IT, and every surface that draws a slip
+      // prints this one directly under its verdict. `StatusBoard.tsx` puts it under THE PROBE WAS
+      // REFUSED, so a body carrying `{"error":"rate_limited","detail":"   "}` drew a refusal with an
+      // empty first paragraph and the reader lost the only sentence saying why.
+      //
+      // THE CODE IS KEPT AND ONLY THE SENTENCE IS REPLACED. Falling through to `UNRECOGNISED` below
+      // would have been the easier edit and it would throw away `error`, which is the field all three
+      // surfaces branch on, so a rate limited visitor would be told the answer was unreadable instead
+      // of that they were refused. That is the misattribution `Archive.tsx` was corrected for twice.
+      //
+      // Fixed HERE rather than on the surfaces for the reason the `Something answered` sentence one
+      // arm down is fixed here: three surfaces read this function, and a guard written on one of them
+      // is a guard the other two do not have.
+      //
+      // THIS SENTENCE IS A VALUE A BODY CAN SEND, which is the shape that manufactured a collision
+      // on the lamp side of this branch. Checked rather than assumed: a grep of `apps/web/src` for
+      // `detail ===`, `detail ==` and `detail.includes` finds only the `typeof` test above, so every
+      // downstream branch reads `error` and none compares this string. The cost is attribution
+      // alone, and it is recorded here rather than left for the next reader to rediscover.
+      return {
+        ...failure,
+        detail: `Something answered ${status} with ${JSON.stringify(failure.error)} and gave no reason.`,
+      };
     }
   }
   return {

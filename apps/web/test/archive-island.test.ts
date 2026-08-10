@@ -889,6 +889,27 @@ describe('the archive island, hydrated', () => {
     expect(cellText(receiptStrip(container), 'Why')).toBe('every row fitted inside the bound');
   });
 
+  it('does not print a blank verdict when the refusal names no code at all', async () => {
+    // THE SURFACE THAT ACTUALLY SHOWS THE SYMPTOM. `asFailure` used to forward any string `error`,
+    // whitespace included, and this page prints it uppercased into a verdict, so a body carrying a
+    // blank code drew `REFUSED:    .` at a reader with nothing between the colon and the stop.
+    // `Archive.tsx:422` and `archive-state.ts:305` are two of the three sites that do this, and the
+    // fix was first pinned only on `/status`, whose board never prints the code at all: its verdict
+    // comes from a fixed table. A guard tested on the one surface that cannot show its symptom is
+    // the shape this branch keeps closing.
+    answers({ error: '   ', detail: 'The demo allows three questions a minute.' }, 429);
+    const container = await mountAndSettle();
+
+    // The unreadable verdict, not a refused one with a hole in it. A blank code is not a code that
+    // lost its sentence, it is a body that named no failure, so the page says the answer could not
+    // be read. The detail is discarded with it, deliberately, because printing a readable reason
+    // under this verdict would contradict it.
+    expect(cellText(receiptStrip(container), 'Verdict')).toBe('UNRECOGNISED_RESPONSE');
+    expect(slipWords(container)).toContain(
+      'Something answered 429 in a shape this console does not recognise.',
+    );
+  });
+
   it('reports the API error code as the verdict when the API answered and refused', async () => {
     answers({ error: 'rate_limited', detail: 'The demo allows three questions a minute.' }, 429);
     const container = await mountAndSettle();

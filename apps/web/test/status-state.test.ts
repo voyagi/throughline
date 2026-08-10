@@ -10,9 +10,16 @@ import type { LampView, StatusResponse } from '../src/scripts/types.ts';
  * value the function returned. The rendering half is `status-island.test.ts`, which mounts both
  * surfaces. The two files exist for different reasons rather than out of symmetry.
  *
- * EVERY SENTENCE A READER IS GIVEN IS PINNED WHOLE WITH `toBe`, never with a negative. A negative
- * guards a WORDING and not a CLAIM: two were added on the previous branch against substrings no
- * rendered string contains, and a third watched a phrase its own commit had deleted from production.
+ * NO ASSERTION HERE IS A NEGATIVE, and that is the part of this paragraph that has always been
+ * true. A negative guards a WORDING and not a CLAIM: two were added on the previous branch against
+ * substrings no rendered string contains, and a third watched a phrase its own commit had deleted
+ * from production. A fourth was added by the commit that quoted this rule and deleted in the next.
+ *
+ * MOST SENTENCES ARE PINNED WHOLE WITH `toBe` AND FOUR ARE NOT, which is what this said before and
+ * got wrong by saying every one. The four use `toContain` and all four assert the duplicate-name
+ * clause, where the surrounding sentence is already pinned whole by the test at the top of the
+ * second describe. Pinning the clause alone there keeps five cases readable as five values rather
+ * than as five copies of one paragraph.
  */
 
 const AT = '2026-08-09T20:04:05.123Z';
@@ -65,30 +72,43 @@ describe('a status body that argues with itself is not shown', () => {
   });
 
   it.each([
-    ['the thirtieth of February', '2026-02-30T20:04:05.123Z'],
-    ['the twenty ninth of a February that is not a leap year', '2025-02-29T00:00:00.000Z'],
-  ])('refuses a probe time naming %s, which the engine rolls forward', (_label, observedAt) => {
-    // MEASURED ON THIS ENGINE RATHER THAN ASSUMED. `Date.parse` returns NaN for a month above 12, a
-    // day above 31 and an hour above 24, so rule 0 catches those. A day that overflows its own month
-    // it accepts, and moves: the first of these parses to the second of March. The board prints
-    // `observedAt` verbatim and the rail prints a clock derived from the substituted instant, so one
-    // field is shown as two different days by two surfaces that both claim to report the probe.
+    ['the thirtieth of February', '2026-02-30T20:04:05.123Z', '2026-03-02T20:04:05.123Z'],
+    ['the twenty ninth of a February that is not a leap year', '2025-02-29T00:00:00.000Z', '2025-03-01T00:00:00.000Z'],
+    ['an hour of 24, which is the sibling the calendar check never looked at', '2026-08-09T24:00:00.000Z', '2026-08-10T00:00:00.000Z'],
+    ['an hour of 24 on the last day of the year, which moves the YEAR', '2026-12-31T24:00:00.000Z', '2027-01-01T00:00:00.000Z'],
+  ])('refuses a probe time naming %s, which the engine rolls forward', (_label, observedAt, reads) => {
+    // MEASURED ON THIS ENGINE RATHER THAN ASSUMED, node v22.22.0 at `f572c95`. `Date.parse` returns
+    // NaN for a month of 13, a day of 32 and an hour of 25, so rule 1 catches those, and the shape
+    // rule above it passes every one of them. What it ACCEPTS and moves is a day that
+    // overflows its own month and an hour of exactly 24. The third row here was SHOWN until this
+    // change: the old rule rebuilt the written date and never read the time, so `2026-08-09` was a
+    // day that exists and the value passed. The engine reads it as the tenth.
     const view = unlit(answered(body({ observedAt })));
 
+    // The instant the engine actually reads, pinned so the row's third column cannot go stale
+    // silently. This is the whole reason the value is refused.
+    expect(new Date(Date.parse(observedAt)).toISOString()).toBe(reads);
     expect(view.silence).toBe('unreadable');
     expect(view.failure?.detail).toBe(
       'The status endpoint answered with a body carrying a value that is not a measurement: it ' +
-        `reports "${observedAt}" as when the probe ran, which is not a day that exists. No lamp ` +
-        'here is lit from it.',
+        `reports "${observedAt}" as when the probe ran, which is not an instant that exists as ` +
+        'written. No lamp here is lit from it.',
     );
   });
 
-  it('still shows a real leap day, including one the naive check would have refused', () => {
-    // THE OVER-REFUSAL SIDE OF THE CALENDAR RULE, which is the half that costs a reader a real
-    // answer. 2024 and 2000 are leap years and 2000 is the one `Date.UTC` would have got wrong, by
-    // reading the year 0 as 1900.
-    expect(shown(answered(body({ observedAt: '2024-02-29T00:00:00.000Z' }))).clock).toBe('00:00:00Z');
-    expect(shown(answered(body({ observedAt: '2000-02-29T12:30:45.000Z' }))).clock).toBe('12:30:45Z');
+  it.each([
+    ['a leap day', '2024-02-29T00:00:00.000Z', '00:00:00Z'],
+    ['a century leap day', '2000-02-29T12:30:45.000Z', '12:30:45Z'],
+    ['a year the shape rule admits and nothing else here covers', '0000-02-29T00:00:00.000Z', '00:00:00Z'],
+    ['the last instant the shape rule admits', '9999-12-31T23:59:59.999Z', '23:59:59Z'],
+  ])('still shows %s, which is the half that costs a reader a real answer', (_label, observedAt, clock) => {
+    // THE OVER-REFUSAL SIDE, and it is what the round trip identity had to be measured against
+    // before it replaced the calendar arithmetic. The rule is now `toISOString` disagreeing with the
+    // string, so there is no year handling left in the module to get wrong: the old check rebuilt
+    // the date with `setUTCFullYear`, and the comment here used to say 2000 was the year `Date.UTC`
+    // would have got wrong. Measured: `Date.UTC(2000, 1, 29)` is correct. Only years 0 to 99 differ,
+    // which is why `0000-02-29` is in this list and 2000 alone was never a control for anything.
+    expect(shown(answered(body({ observedAt }))).clock).toBe(clock);
   });
 
   it.each([
@@ -145,9 +165,14 @@ describe('a status body that argues with itself is not shown', () => {
     // ITS OWN FIELDS DISAGREE, not a value that is not a measurement. Both names are perfectly good
     // values, and this is the one status rule that compares two of them, so the malformed opening
     // asserted no comparison had happened directly in front of a phrase reporting one.
+    // BOTH VALUES ARE NAMED EVEN WHEN THEY ARE IDENTICAL, and that is the case where the older
+    // sentence was true. It was false on every other pair, because the comparison is over a name
+    // this module derives and no single quoted value can stand for two lamps. One form that is true
+    // everywhere beats one that is true here and needs a sibling for each way two names can differ.
     expect(view.failure?.detail).toBe(
-      'The status endpoint answered with a body whose own fields disagree: it gives two different ' +
-        'lamps the same name, "Vector index". No lamp here is lit from it.',
+      'The status endpoint answered with a body whose own fields disagree: it sends two lamps a ' +
+        'reader cannot tell apart by name, "Vector index" and "Vector index". No lamp here is lit ' +
+        'from it.',
     );
   });
 
@@ -314,9 +339,12 @@ describe('a lamp is read once, so its class and its prose cannot disagree', () =
       ),
     );
 
-    // THE SECOND OCCURRENCE AS IT ARRIVED, trailing space and all, because that is the value being
-    // refused and the trimmed key it collided on is a string neither lamp carries.
-    expect(view.failure?.detail).toContain('it gives two different lamps the same name, "Vector index "');
+    // BOTH VALUES AS THEY ARRIVED, trailing space and all. Naming one of them was false here from
+    // the start: these two lamps do not have the same name, they have names a reader cannot tell
+    // apart, and the sentence now says which is which rather than picking one and claiming it twice.
+    expect(view.failure?.detail).toContain(
+      'it sends two lamps a reader cannot tell apart by name, "Vector index" and "Vector index "',
+    );
   });
 
   it('refuses two nameless lamps, because they print one heading over different text', () => {
@@ -329,8 +357,18 @@ describe('a lamp is read once, so its class and its prose cannot disagree', () =
       answered(body({ lamps: [lamp(' ', 'OK', 'One.'), lamp('  ', 'DEGRADED', 'Two.'), ...THREE] })),
     );
 
+    // BOTH NAMES AS THEY ARRIVED, one space and two, so the sentence is true of this body. Two
+    // earlier versions of it were false in opposite directions: one quoted the substitute and
+    // reported that the endpoint had sent `This lamp arrived with no name` twice, and the next
+    // quoted the second lamp's raw name and reported that it had sent two spaces twice. The
+    // comparison is over a name this file DERIVES, so no single quoted value can be true.
+    //
+    // The negative that stood here is deleted rather than reworded. It forbade the substitute, which
+    // the positive above already excludes, since the detail carries exactly one such phrase. This
+    // file's own docblock says every sentence is pinned whole and never with a negative, and adding
+    // one was that rule broken by the commit that quotes it.
     expect(view.failure?.detail).toContain(
-      'it gives two different lamps the same name, "This lamp arrived with no name"',
+      'it sends two lamps a reader cannot tell apart by name, " " and "  "',
     );
   });
 
@@ -350,7 +388,7 @@ describe('a lamp is read once, so its class and its prose cannot disagree', () =
     );
 
     expect(view.failure?.detail).toContain(
-      'it gives two different lamps the same name, "This lamp arrived with no name"',
+      'it sends two lamps a reader cannot tell apart by name, "   " and "This lamp arrived with no name"',
     );
   });
 
@@ -361,7 +399,9 @@ describe('a lamp is read once, so its class and its prose cannot disagree', () =
       ),
     );
 
-    expect(view.failure?.detail).toContain('it gives two different lamps the same name, "Vector index  "');
+    expect(view.failure?.detail).toContain(
+      'it sends two lamps a reader cannot tell apart by name, "  Vector index " and "Vector index  "',
+    );
   });
 
   it('reports the unknown state first when a lamp has neither a state nor a reason', () => {

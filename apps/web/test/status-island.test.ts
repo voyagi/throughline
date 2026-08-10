@@ -16,19 +16,27 @@ import type { LampView, StatusResponse } from '../src/scripts/types.ts';
  * measurement corrected the paragraph that stood here. The console's island file records that
  * removing `cancelAnimationFrame` reddens 0 of its tests, because the console fetches nothing on
  * mount. Both of these islands DO fetch from a mount effect, so the obvious sentence to write was
- * that the frame scheduler pair is load bearing here. HALF OF THAT IS FALSE. Re-measured at the 14
+ * that the frame scheduler pair is load bearing here. HALF OF THAT IS FALSE. Re-measured at the 17
  * tests this file now holds:
  *
- *   - removing `cancelAnimationFrame` reddens 14 OF 14;
- *   - removing `requestAnimationFrame` reddens 0 OF 14, because preact falls back to a timeout and
+ *   - removing `cancelAnimationFrame` reddens 17 OF 17;
+ *   - removing `requestAnimationFrame` reddens 0 OF 17, because preact falls back to a timeout and
  *     `settle` below drains timeouts. It is installed for correctness of description, not as a
  *     defence this file leans on.
  *
  * WHAT IT ACTUALLY RESTS ON IS THE ROUND TRIP, and each surface carries its own share, which is the
- * point of mounting both. Dropping the probe out of `StatusBoard` reddens 14 OF 14, with no survivor
+ * point of mounting both. Dropping the probe out of `StatusBoard` reddens 17 OF 17, with no survivor
  * at all: the one test that used to assert only on the rail now asserts the board's slip as well.
- * Dropping it out of `Annunciator` reddens 12 OF 14, and the two survivors are the two tests that
- * assert only on the board.
+ * Dropping it out of `Annunciator` reddens 15 OF 17, and the two survivors are the two tests that
+ * assert only on the board, `does not light a lamp claiming OK with no reason beside it` and
+ * `refuses a body carrying two lamps under one name`.
+ *
+ * ALL FOUR WERE RE-MEASURED TWICE IN ONE BRANCH, at 16 tests and again at 17, and the count was not
+ * what made them stale either time. The dead rail figure first moved because a new test was written
+ * asserting only the board, which would have made it a THIRD survivor until a rail assertion was
+ * added to it, and the same check on the next new test is why the survivor list is unchanged now.
+ * Naming the survivors here rather than counting them is what makes that checkable: a bare figure
+ * cannot tell a lost test from a gained one.
  *
  * EVERY ONE OF THOSE FOUR FIGURES HAS BEEN WRONG ONCE, and both ways it happened are recorded here
  * because both will happen again. The dead-rail figure was 7, under a sentence saying the survivors
@@ -297,7 +305,13 @@ describe('both status surfaces, hydrated from one body', () => {
     answers({ ...OK_BODY, observedAt: '2026-08-09T22:04:05+02:00' });
     const { board, rail } = await mountBoth();
 
-    expect(railWords(rail)).not.toContain('22:04:05Z');
+    // THE NEGATIVE THAT STOOD HERE IS DELETED RATHER THAN REWORDED. It read
+    // `expect(railWords(rail)).not.toContain('22:04:05Z')`, and once the body is refused the rail
+    // renders `clockOf` over the BROWSER's own clock, so the only way it could ever fail was the one
+    // second a day on which UTC reads 22:04:05. Nothing in production can put that string there from
+    // this body any more: the slice is gone and a refused body never reaches `clockOf`. A rail that
+    // never fetched at all passed it identically. This file says the rule 140 lines below, that the
+    // rail is asserted by its sentence rather than by the absence of a clock.
     expect(railWords(rail)).toContain(
       'This page asked, an answer came back, and it could not be read as one statement.',
     );
@@ -368,7 +382,14 @@ describe('both status surfaces, hydrated from one body', () => {
     expect(boardWords(board)).toContain(
       'This page asked and nothing answered, so nothing here has been measured.',
     );
-    expect(boardWords(board)).not.toContain('only that it could not ask');
+    // A SECOND VACUOUS NEGATIVE, DELETED IN THE SAME PASS AS THE FIRST. It forbade
+    // `only that it could not ask`, and a grep of `apps/web/src` at `766e3b3` finds that phrase in
+    // ZERO places. The count written here first said two, which was the count of the SHORTER
+    // neighbour `could not ask`, and both of those are comments in `StatusBoard.tsx`. Grepping a
+    // substring and reporting its count as the count for the string that matters is how a
+    // justification ends up wrong in the same pass that deletes something for being wrong. The
+    // assertion could never have fired, and the closing it was meant to guard is pinned whole with
+    // `toBe` four lines above.
     expect(railWords(rail)).toContain(
       'The console tried to reach the API and could not, so the lamps above are still unlit.',
     );
@@ -390,6 +411,54 @@ describe('both status surfaces, hydrated from one body', () => {
     expect(slip(board).detail).toBe('The demo allows 50 status probes a day.');
     expect(railWords(rail)).toContain(
       'The API answered and declined to report, so the lamps above are still unlit.',
+    );
+  });
+
+  it('says why a refusal gave no reason, rather than printing an empty paragraph under the verdict', async () => {
+    // THE SIBLING OF THE TEST ABOVE, and the sixth instance of the blank printed string. The board
+    // prints `view.failure.detail` directly under the verdict, and `asFailure` forwarded a wire
+    // `detail` verbatim whenever it was a string, whitespace included. So a refusal carrying no
+    // reason drew THE PROBE WAS REFUSED over an empty first paragraph, and the reader lost the only
+    // sentence saying why.
+    //
+    // THE CODE IS KEPT, which is the half worth pinning. Falling through to `unrecognised_response`
+    // would have been the smaller edit and it would have thrown away `error`, so this visitor would
+    // be told the answer was unreadable rather than that they were refused. The verdict below is
+    // what proves the code survived.
+    answers({ error: 'rate_limited', detail: '   ' }, 429);
+    const { board, rail } = await mountBoth();
+
+    expect(slip(board).verdict).toBe('THE PROBE WAS REFUSED. VERDICT: UNKNOWN.');
+    expect(slip(board).detail).toBe(
+      'Something answered 429 with "rate_limited" and gave no reason.',
+    );
+    // THE RAIL IS WHAT PROVES THE CODE SURVIVED. Both surfaces branch on `error`, so had this fallen
+    // through to `unrecognised_response` the rail would say the answer could not be read instead of
+    // that the API declined. Asserting only the board would have left this test surviving a dead
+    // rail, which is the shape a review already found twice in this file.
+    expect(railWords(rail)).toContain(
+      'The API answered and declined to report, so the lamps above are still unlit.',
+    );
+  });
+
+  it('treats a refusal that names no code at all as unreadable, rather than printing a blank verdict', async () => {
+    // THE SIBLING FIELD, and guarding only `detail` was this repository's whole recurring shape
+    // committed inside the fix for it. `FailureResponse` has two printed fields. A blank `error` is
+    // printed uppercased as a verdict by three surfaces, so it drew `REFUSED:    .` at a reader, and
+    // the substitution written for the blank `detail` would have quoted the blank code into its own
+    // sentence.
+    //
+    // IT FALLS THROUGH RATHER THAN BEING SUBSTITUTED, and the asymmetry with `detail` is deliberate.
+    // A code is what every surface branches on, so an empty one is not a code that lost its
+    // sentence, it is a body that named no failure. The verdict below is the proof: it is the
+    // unreadable one, not the refused one.
+    answers({ error: '   ', detail: '   ' }, 429);
+    const { board, rail } = await mountBoth();
+
+    expect(slip(board).verdict).toBe('THE ANSWER COULD NOT BE READ. VERDICT: UNKNOWN.');
+    expect(slip(board).detail).toBe('Something answered 429 in a shape this console does not recognise.');
+    expect(railWords(rail)).toContain(
+      'Something answered in a shape this rail could not read, so the lamps above are still unlit.',
     );
   });
 
@@ -429,9 +498,13 @@ describe('both status surfaces, hydrated from one body', () => {
   });
 
   it('refuses a probe time whose day the engine would silently move, before either surface shows it', async () => {
-    // THE TWO SURFACES WOULD DISAGREE ABOUT THE DAY. The board prints `observedAt` verbatim, so it
-    // would show the thirtieth of February in the class that means a measurement, while the rail
-    // would print a clock taken from the second of March.
+    // THE COMMENT THAT STOOD HERE IS CORRECTED, and it was the twin of one already corrected in
+    // `status-state.ts`. It said the two surfaces would disagree about the DAY, the board showing
+    // the thirtieth of February while the rail showed a clock taken from the second of March. Only
+    // the board prints a day at all, and a roll of the date never moves the time of day, so the rail
+    // would have printed `20:04:05Z` either way. The defect is the board alone presenting a calendar
+    // day that does not exist in the class that means a measurement. The hour case below is the one
+    // where the two surfaces really do print different characters.
     answers({ ...OK_BODY, observedAt: '2026-02-30T20:04:05.123Z' });
     const { board, rail } = await mountBoth();
 
@@ -447,8 +520,32 @@ describe('both status surfaces, hydrated from one body', () => {
     );
     expect(slip(board).detail).toBe(
       'The status endpoint answered with a body carrying a value that is not a measurement: it ' +
-        'reports "2026-02-30T20:04:05.123Z" as when the probe ran, which is not a day that exists. ' +
-        'No lamp here is lit from it.',
+        'reports "2026-02-30T20:04:05.123Z" as when the probe ran, which is not an instant that ' +
+        'exists as written. No lamp here is lit from it.',
+    );
+  });
+
+  it('refuses an hour of 24, which both surfaces showed until the rule stopped reading the date alone', async () => {
+    // THE SIBLING THE CALENDAR CHECK NEVER LOOKED AT, and it is the only form on which the two
+    // surfaces really did print different characters from one field. Measured on node v22.22.0 at
+    // `f572c95`: this string has the contract's exact shape, `Date.parse` accepts it, and the
+    // written date `2026-12-31` is a day that exists, so all three rules passed it. The engine reads
+    // it as `2027-01-01T00:00:00.000Z`. The board printed `2026-12-31T24:00:00.000Z` verbatim under
+    // LAST LOOKED in class `val`, and the rail lit its Last looked lamp `state s-ok` showing
+    // `00:00:00Z`, which is neither the hour written nor a year the reader was shown anywhere.
+    answers({ ...OK_BODY, observedAt: '2026-12-31T24:00:00.000Z' });
+    const { board, rail } = await mountBoth();
+
+    // The slip is the assertion that carries this test. The unlit lamps and the doubt class are
+    // states a board that never fetched also renders, so on their own they would pin nothing.
+    expect(slip(board).detail).toBe(
+      'The status endpoint answered with a body carrying a value that is not a measurement: it ' +
+        'reports "2026-12-31T24:00:00.000Z" as when the probe ran, which is not an instant that ' +
+        'exists as written. No lamp here is lit from it.',
+    );
+    expect(cell(board, 'Last looked')).toEqual({ value: 'tried, unreadable answer', className: 'val doubt' });
+    expect(railWords(rail)).toContain(
+      'This page asked, an answer came back, and it could not be read as one statement.',
     );
   });
 
@@ -492,8 +589,9 @@ describe('both status surfaces, hydrated from one body', () => {
 
     expect(boardLamps(board)).toEqual(['state s-unk', 'state s-unk', 'state s-unk']);
     expect(slip(board).detail).toBe(
-      'The status endpoint answered with a body whose own fields disagree: it gives two different ' +
-        'lamps the same name, "Vector index". No lamp here is lit from it.',
+      'The status endpoint answered with a body whose own fields disagree: it sends two lamps a ' +
+        'reader cannot tell apart by name, "Vector index" and "Vector index". No lamp here is lit ' +
+        'from it.',
     );
   });
 

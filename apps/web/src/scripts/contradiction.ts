@@ -79,3 +79,20 @@ export const rack = (phrase: string): Of<'rack'> => ({ kind: 'rack', phrase });
  * reach a page and this is where they are stopped.
  */
 export const isCount = (value: number): boolean => Number.isInteger(value) && value >= 0;
+
+/**
+ * Blank to a READER, so whitespace counts as nothing rather than as a value.
+ *
+ * HERE FOR THE REASON `isCount` IS HERE, and it arrived the same way: it lived in `status-state.ts`,
+ * where it guards `server`, a lamp's `detail` and a lamp's `name`, and then `api.ts` needed the same
+ * question about a failure's `detail` and, one commit later, about a failure's `error`. A predicate
+ * copied into a second file is the case this repository settles with one module rather than with a
+ * comment asking for care.
+ *
+ * FIVE CALLERS, and this list is the sort of enumeration that goes stale silently, so it is written
+ * as what it is: a reader's map, not a guarantee. The guarantee is that there is one predicate.
+ *
+ * `shapes.ts` validates every one of those fields as a bare string, on purpose, so a value of pure
+ * whitespace reaches a page and this is the predicate that stops it being printed as a reason.
+ */
+export const isBlank = (value: string): boolean => value.trim() === '';

@@ -1,5 +1,5 @@
 import { UNREACHABLE, UNRECOGNISED } from './api.ts';
-import { internal, malformed, type ContradictionKind, type Of } from './contradiction.ts';
+import { internal, isBlank, malformed, type ContradictionKind, type Of } from './contradiction.ts';
 import { labelled } from './presentation.ts';
 import type { FailureResponse, LampState, LampView, StatusResponse } from './types.ts';
 
@@ -26,13 +26,29 @@ import type { FailureResponse, LampState, LampView, StatusResponse } from './typ
 /**
  * One lamp, reduced to the SIX things a surface prints, so no surface derives any of them twice.
  *
- * Six, counted rather than eyeballed, and this said five. The board prints all six; the rail reads
- * five of them and never `doubted`, because its reason is screen reader text with no emphasis to
- * take. A wrong count in a file whose argument is that the printed things were counted is that
+ * Six, counted rather than eyeballed, and this said five. The board prints all six, and the rail
+ * reads five of them and never `doubted`, because its reason is screen reader text with no emphasis
+ * to take. A wrong count in a file whose argument is that the printed things were counted is that
  * argument failing on itself, which the archive's own docblock was corrected for one commit ago.
+ *
+ * `given` IS A SEVENTH FIELD AND IS NOT ONE OF THE SIX, because no surface prints it. It is here for
+ * the duplicate rule alone, which compares the names a reader SEES and has to quote the name that
+ * actually arrived. Counting it among the printed things is the mistake this docblock already made
+ * once in the other direction.
  */
 export interface LampReading {
   readonly name: string;
+  /**
+   * The name AS IT ARRIVED, before any substitution, which no surface prints.
+   *
+   * The slip quotes the value it is refusing, everywhere on this page. When two lamps arrive with no
+   * name at all they collide on the substitute, and quoting the substitute made the page report that
+   * the endpoint had given two lamps the name `This lamp arrived with no name`. The endpoint gave
+   * them nothing, `readLamp` gave them that, and the opening on an `internal` contradiction attributes
+   * what follows to the body. So the comparison is over the printed name and the quote is over this
+   * one, which also shows the whitespace when whitespace is what collided.
+   */
+  readonly given: string;
   /** The state word AS IT ARRIVED, never a word chosen here. An odd word printed is odd and true. */
   readonly state: string;
   /** The reason as it arrived, or this board's own sentence when none did. */
@@ -145,9 +161,6 @@ const REASON: Readonly<Record<Silence, string>> = {
 /** The lamps both surfaces name before any believable answer has arrived. ONE COPY, and there were two. */
 const PENDING_NAMES: readonly string[] = ['Vector index', 'Embeddings', 'MCP transport'];
 
-/** Blank means blank to a reader, so whitespace counts as nothing rather than as a reason. */
-const isBlank = (value: string): boolean => value.trim() === '';
-
 /** Two digits, so a wall clock reads as one rather than as a number that happens to be small. */
 const twoDigits = (value: number): string => String(value).padStart(2, '0');
 
@@ -182,14 +195,20 @@ export const clockOf = (at: Date): string =>
  *      replaced a looser rule that three separate forms walked straight past.
  *   1. `observedAt` has the right shape and still names no instant. A month above 12 and an hour
  *      above 24 reach here and `Date.parse` returns nothing for them.
- *   2. `observedAt` names a day that does not exist. `Date.parse` SILENTLY ROLLS FORWARD a day that
- *      overflows its own month, so the board prints the thirtieth of February in the class that
- *      means a measurement. See `rolledForward`.
+ *   2. `observedAt` names an instant that does not exist as written. `Date.parse` SILENTLY ROLLS
+ *      FORWARD both a day that overflows its own month and an hour of 24, so the board printed the
+ *      thirtieth of February, and printed `2026-12-31T24:00:00.000Z` for an instant in 2027, in the
+ *      class that means a measurement. The hour is the sibling the first version of this rule missed
+ *      because it only ever read the date. See `rolledForward`.
  *   3. `server` names nobody. The board prints it under ANSWERING, which is the cell a reader checks
  *      when they suspect something other than this API is replying.
  *   4. Two lamps print the same name, compared over the names the surfaces PRINT and with the ends
- *      trimmed. Both surfaces key their lamps by name, so a repeat is two capabilities the reader
- *      cannot tell apart and two nodes preact cannot either.
+ *      trimmed. A repeat is two capabilities the reader cannot tell apart. It is ALSO two nodes
+ *      under one preact key when the two raw names are byte identical, which is the commonest case,
+ *      but not when they differ only by whitespace: both surfaces key on the UNTRIMMED name
+ *      (`StatusBoard.tsx:163`, `Annunciator.tsx:82`), so `Vector index ` gets its own key while the
+ *      browser collapses the space and the reader sees one heading twice. The reader is the reason
+ *      this rule exists; the key is a consequence it sometimes also has.
  *   5. A probe instant with no lamps at all. The board's legend says each lamp is lit by a probe that
  *      asks the running database, and the rail would render a lone lit timestamp with nothing beside
  *      it, which is a rail reporting the clock as a success.
@@ -203,11 +222,6 @@ export const clockOf = (at: Date): string =>
  *     turns a legible partial answer into no answer. The blank name was the sibling of rule 3 and was
  *     missed while rule 3 was being written, which a review caught.
  *
- * A PARAGRAPH THAT STOOD HERE IS DELETED RATHER THAN REWRITTEN. It argued that the FORMAT of
- * `observedAt` should not be a rule, because an offset and a date with no time both name real
- * instants in another notation. True, and it is what let an expanded-year timestamp and a textual
- * date past the calendar check, since neither begins with four digits. Rule 0 now closes the
- * category, and the argument that kept it open is gone rather than narrowed.
  *   - `observedAt` later than the moment the browser received the answer. The browser's clock and the
  *     server's are different clocks and skew between them is ordinary, so this would refuse genuine
  *     answers on a machine whose time is merely wrong. Over-refusing is the failure a test caught on
@@ -215,6 +229,18 @@ export const clockOf = (at: Date): string =>
  *   - The lamp names themselves. `toLamps` writes three fixed names, but a surface that refused an
  *     unfamiliar name could never show a capability added later, and the name is printed rather than
  *     branched on.
+ *   - The board also prints `view.failure.detail`, which is not a field of either type counted
+ *     above. It never comes from the 200 this module reads. It is the API's own sentence when a non
+ *     2xx carried a failure shape, and `api.ts` or this file writes it otherwise. Its blankness is
+ *     guarded in `asFailure` so all three surfaces that draw a slip are covered by one rule rather
+ *     than by three.
+ *
+ * A PARAGRAPH THAT STOOD ABOVE THIS LIST IS DELETED RATHER THAN REWRITTEN. It argued that the FORMAT
+ * of `observedAt` should not be a rule, because an offset and a date with no time both name real
+ * instants in another notation. True, and it is what let an expanded-year timestamp and a textual
+ * date past the calendar check, since neither begins with four digits. Rule 0 now closes the
+ * category, and the argument that kept it open is gone rather than narrowed. It sat between the
+ * first exclusion and the rest, so two exclusions read as part of the deletion note.
  *
  * NONE OF THESE IS REACHABLE FROM THIS PROJECT'S OWN API, and each was read rather than assumed.
  * `server.ts` builds the body from `SERVER_NAME`, a non-empty module constant, from
@@ -278,6 +304,9 @@ function unlit(silence: Silence, failure: FailureResponse | null): StatusView {
     failure,
     lamps: PENDING_NAMES.map((name) => ({
       name,
+      // These lamps did not ARRIVE, this file writes them, so the name it prints is the only name
+      // there is. `given` exists for the duplicate rule, which never runs on this path.
+      given: name,
       state: 'UNKNOWN',
       detail: REASON[silence],
       note: null,
@@ -320,6 +349,7 @@ function readLamp(lamp: LampView): LampReading {
   if (nameless) {
     return {
       name,
+      given: lamp.name,
       state: lamp.state,
       detail,
       note: 'A lamp that names no capability cannot report on one, so it is not lit.',
@@ -331,6 +361,7 @@ function readLamp(lamp: LampView): LampReading {
   if (known === undefined) {
     return {
       name,
+      given: lamp.name,
       state: lamp.state,
       detail,
       note: `This board does not know the state ${JSON.stringify(lamp.state)}, so the lamp is not lit.`,
@@ -347,6 +378,7 @@ function readLamp(lamp: LampView): LampReading {
 
   return {
     name,
+    given: lamp.name,
     state: lamp.state,
     detail,
     note: blank ? 'A lamp with no reason is not a measurement, so it is not lit.' : null,
@@ -378,7 +410,8 @@ function statusContradiction(
   }
   if (rolledForward(status.observedAt)) {
     return malformed(
-      `it reports ${JSON.stringify(status.observedAt)} as when the probe ran, which is not a day that exists`,
+      `it reports ${JSON.stringify(status.observedAt)} as when the probe ran, which is not an ` +
+        'instant that exists as written',
     );
   }
   if (isBlank(status.server)) {
@@ -392,9 +425,15 @@ function statusContradiction(
   // console chip and both rack openings that the commit before this one was written to fix.
   const repeated = repeatedName(lamps);
   if (repeated !== null) {
-    return internal(`it gives two different lamps the same name, ${JSON.stringify(repeated)}`);
+    return internal(
+      `it sends two lamps a reader cannot tell apart by name, ${JSON.stringify(repeated[0])} and ` +
+        JSON.stringify(repeated[1]),
+    );
   }
-  if (status.lamps.length === 0) {
+  // `lamps`, not `status.lamps`, because the rule above it reads the derived array and adjacent
+  // rules reading two different arrays is how the two stop agreeing. They cannot disagree today,
+  // `lamps` is a one to one map of `status.lamps`, which is exactly why picking one costs nothing.
+  if (lamps.length === 0) {
     return internal(
       `it reports a probe at ${status.observedAt} and names nothing at all that was looked at`,
     );
@@ -403,7 +442,14 @@ function statusContradiction(
 }
 
 /**
- * The exact shape `Date.prototype.toISOString` produces, which is what the contract declares.
+ * The shape `Date.prototype.toISOString` produces for the years 0000 to 9999, which is what the
+ * contract declares.
+ *
+ * NOT "the exact shape", and the word cost a review. Measured on this engine at `f572c95`:
+ * `new Date(8.64e15).toISOString()` is `+275760-09-13T00:00:00.000Z` and `new Date(-8.64e15)` gives
+ * `-271821-04-20T00:00:00.000Z`, so at the extremes `toISOString` produces an expanded year this
+ * pattern refuses. Neither is reachable from a `new Date()`, so the rule over-refuses nothing real,
+ * but the claim had to be narrowed to the range it is actually true for.
  *
  * THE HALF OF THE REVIEW COMMENT I TALKED MYSELF OUT OF, and talking myself out of it is what left
  * the hole. The comment said to validate the contract's format AND the calendar date. I did the
@@ -414,47 +460,46 @@ function statusContradiction(
  * it never reaches the calendar check because it does not start with a digit. `February 30 2026 UTC`
  * does the same. Measured, not reasoned about.
  *
- * ONE SHAPE RULE CLOSES THE WHOLE CATEGORY where a regex on the written date needs a new sibling
- * every time somebody finds another form the engine accepts. It refuses nothing real: `server.ts`
- * builds this field from `capabilities.observedAt.toISOString()` and there is one producer.
+ * It refuses nothing real: `server.ts` builds this field from `capabilities.observedAt.toISOString()`
+ * and there is one producer.
  */
 const CONTRACT_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
 
-/** The written calendar date at the front of a contract-shaped timestamp. */
-const CALENDAR_DATE = /^(\d{4})-(\d{2})-(\d{2})/u;
-
 /**
- * True when the written day does not exist and the engine quietly moved it.
+ * True when the engine reads this string as a different instant from the one it writes.
  *
- * `Date.parse` IS NOT A CALENDAR CHECK, and the hole is narrower and sharper than it looks. Measured
- * on this engine: a month above 12, a day above 31 and an hour above 24 all return NaN, so the rule
- * above catches them. A day that merely OVERFLOWS ITS OWN MONTH does not. `2026-02-30T20:04:05.123Z`
- * matches the contract's shape exactly, parses, and lands on the second of March. `2025-02-29` lands
- * on the first of March while `2024-02-29` is left alone, because that year is a leap year.
+ * A ROUND TRIP RATHER THAN A CALENDAR CHECK, and the difference is the whole finding. This used to
+ * pull the year, month and day off the front with a second regex and rebuild them, which asked
+ * whether the written DAY exists and never asked anything about the time. Measured on node v22.22.0
+ * at `f572c95`: `2026-08-09T24:00:00.000Z` has the contract's exact shape, `Date.parse` accepts it,
+ * and the calendar prefix `2026-08-09` is a day that exists, so all three rules passed it. The engine
+ * reads it as the TENTH. `2026-12-31T24:00:00.000Z` is read as the first of January 2027. The board
+ * printed either one verbatim under LAST LOOKED in the class that means a measurement, and the rail
+ * lit its Last looked lamp green showing `00:00:00Z`, a clock two digits away from the `24` written
+ * in the string.
  *
- * WHAT IS ACTUALLY WRONG WITH IT, corrected after a review read the rendering rather than the claim.
- * This said the two surfaces would show two different days. They would not: the rail prints only a
- * wall clock, and rolling a day forward never moves the time of day, so the rail's `20:04:05Z` is
- * exactly the time written in the string. The defect is on the board alone, and it is enough. The
- * board prints `observedAt` verbatim under LAST LOOKED in the class that means a measurement, so it
- * presents a calendar day that does not exist as a measured fact, and the rail lights its Last looked
- * lamp green off an instant nobody sent.
+ * THAT IS WHY THE CHECK IS AN IDENTITY NOW. `toISOString` is the contract's own producer, so asking
+ * whether the value survives a parse and a re-print asks the only question that matters, and it
+ * cannot have siblings: there is no second field to forget, because every field is compared at once.
+ * A regex on the written date needed a new sibling every time somebody found another form the engine
+ * accepts, and the hour was the one nobody had looked at.
  *
- * `setUTCFullYear` RATHER THAN `Date.UTC`, which maps a two digit year into the 1900s. Measured:
- * `Date.UTC(0, 1, 29)` reads the year 0 as 1900, which is not a leap year, so the twenty ninth of
- * February in the year 0 would be refused and it is a real day.
+ * MEASURED AGAINST THE RULE IT REPLACES over 25 values at `f572c95`: exactly two verdicts change,
+ * `2026-08-09T24:00:00.000Z` and `2026-12-31T24:00:00.000Z`, both from shown to refused. Every real
+ * instant in that set still shows, including the leap days `2024-02-29`, `2000-02-29` and
+ * `0000-02-29`, and `9999-12-31T23:59:59.999Z`. The other end of the shape's range is
+ * `0000-01-01T00:00:00.000Z`, because the pattern opens with four digits and takes no sign, and it
+ * was measured separately rather than in that set of 25, which carried `1970-01-01` instead and
+ * called it an end. So the
+ * `setUTCFullYear` argument this docblock used to carry is gone rather than narrowed: there is no
+ * year arithmetic left here to get wrong.
+ *
+ * IT MUST RUN AFTER THE PARSE RULE AND THAT IS LOAD BEARING, not an ordering preference. Measured:
+ * `new Date(NaN).toISOString()` THROWS a RangeError. The rule above returns for every value
+ * `Date.parse` rejects, so nothing that reaches this line can throw here.
  */
 function rolledForward(value: string): boolean {
-  const written = CALENDAR_DATE.exec(value);
-  if (written === null) return false;
-  const year = Number(written[1]);
-  const month = Number(written[2]);
-  const day = Number(written[3]);
-  // `setUTCFullYear` rather than `Date.UTC`, which maps a two digit year into the 1900s and would
-  // read the year 0026 as 1926, taking its leap years with it.
-  const at = new Date(0);
-  at.setUTCFullYear(year, month - 1, day);
-  return at.getUTCFullYear() !== year || at.getUTCMonth() !== month - 1 || at.getUTCDate() !== day;
+  return new Date(Date.parse(value)).toISOString() !== value;
 }
 
 /**
@@ -468,6 +513,23 @@ function rolledForward(value: string): boolean {
  * GREEN with a real reason. That is precisely what this rule exists to refuse, built by the fix for
  * the blank name.
  *
+ * BOTH RAW NAMES COME BACK, AND THE SENTENCE CHANGED RATHER THAN THE VALUE IT QUOTES. This is the
+ * third rewrite of that sentence and the first two were both false, in opposite directions, for the
+ * same underlying reason: the comparison is over a DERIVED name and the sentence quoted ONE value
+ * while claiming something about TWO lamps. Quoting the substitute reported that the endpoint had
+ * named two lamps `This lamp arrived with no name` when it had named neither. Quoting the second
+ * lamp's raw name reported that it had given both lamps `"  "` when the first had sent `" "`. The
+ * pre-existing case was false too: `Vector index` and `Vector index ` are not the same name. No
+ * single quoted value can be true here, so the claim is now about what a READER cannot tell apart
+ * BY NAME, and both values that arrived are named. That is true for every pair, including one where
+ * the two raw names really are identical.
+ *
+ * `BY NAME` IS LOAD BEARING AND WAS MISSING FOR ONE COMMIT. Without it the sentence claimed a reader
+ * cannot tell the two LAMPS apart, and the paragraph below this one says the opposite in the same
+ * file: each keeps its own state word and its own reason, so they print different text. What cannot
+ * be told apart is which capability each one reports on, which is what `:206` already said and what
+ * the rewrite dropped.
+ *
  * TRIMMED, because two lamps named `Vector index` and `Vector index ` print the same heading and are
  * not equal as strings, which is the same defect wearing a space.
  *
@@ -477,15 +539,13 @@ function rolledForward(value: string): boolean {
  * while printing different text. Comparing display names refuses that body, which is the answer this
  * rule already gives for every other pair of lamps a reader cannot tell apart.
  */
-function repeatedName(lamps: readonly LampReading[]): string | null {
-  const seen = new Set<string>();
+function repeatedName(lamps: readonly LampReading[]): readonly [string, string] | null {
+  const seen = new Map<string, string>();
   for (const lamp of lamps) {
     const key = lamp.name.trim();
-    // THE NAME AS IT WILL BE PRINTED, not the trimmed key it collided on. The slip quotes the value
-    // it is refusing, everywhere on this page, and quoting the key would name a string neither lamp
-    // carries and hide the whitespace that made them collide.
-    if (seen.has(key)) return lamp.name;
-    seen.add(key);
+    const first = seen.get(key);
+    if (first !== undefined) return [first, lamp.given];
+    seen.set(key, lamp.given);
   }
   return null;
 }
