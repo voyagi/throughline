@@ -270,7 +270,14 @@ describe('getMemories', () => {
  *
  * A `{}` on `/agent/turn` reached `Console.tsx` as an answer and `response.recalls.map` threw
  * during render: a blank pane, which is the silent absence this site argues against. A `{}` on
- * `/status` is non-null, so `StatusBoard.tsx:76` lit the holder beside three UNKNOWN fallback lamps.
+ * `/status` is non-null, so the holder above `StatusBoard`'s `Last looked` and `Answering` cells lit
+ * beside three UNKNOWN fallback lamps. (That cited a line in `StatusBoard.tsx` which is the opening
+ * of a docblock: the element had moved a hundred lines down. It is named by those CELLS rather than
+ * as "the receipt strip", which a correction reached for first and which is not an identifier in
+ * that file at all: the element is an anonymous `div` and only the cells carry words a reader can
+ * grep. Naming a thing that does not exist is no better than naming a line that moved. The old
+ * number is not quoted here either, because a sweep for stale citations cannot tell a live one from
+ * a specimen of a dead one.)
  */
 describe('getStatus', () => {
   it('accepts a well formed status', () => {
@@ -360,6 +367,25 @@ describe('postTurn', () => {
     const memories = [without(RECALLED, field)];
     vi.stubGlobal('fetch', () => ok({ ...WELL_FORMED_TURN, recalls: [{ ...RECALL, memories }] }));
     refused(await postTurn('https://api.example', 'hello'));
+  });
+
+  it('accepts a recalled memory with no incident and a successor, which the contract declares', async () => {
+    // BOTH `nullOr` FIELDS ON THIS PATH, FLIPPED TOGETHER, and flipping them together is the point.
+    // `RECALLED` carries `incidentId` as a string and `supersededBy` as null, so between that
+    // fixture and this one each of the two fields is fed both of the shapes the contract declares.
+    // With only the fixture, rewriting either `nullOr(isString)` to a bare `isString` compiled and
+    // left the suite green while the console refused THE WHOLE TURN BODY for any recalled memory
+    // carrying no incident: `hasFields` returns on the first failing field, so one row's null takes
+    // the answer down with it.
+    //
+    // The null is real produced traffic. `http/contract.ts` maps `incidentId` straight off
+    // `memory.provenance`, which the contract declares `string | null`, and the loop writes
+    // `input.incidentId ?? null` when it records one. The row path already pins its own null, in
+    // `archive-island.test.ts`, which renders a row with no incident as "none recorded". This is
+    // that assertion's missing sibling on the recall path.
+    const memories = [{ ...RECALLED, incidentId: null, supersededBy: 'mem-0002' }];
+    vi.stubGlobal('fetch', () => ok({ ...WELL_FORMED_TURN, recalls: [{ ...RECALL, memories }] }));
+    await expect(postTurn('https://api.example', 'hello')).resolves.toMatchObject({ ok: true });
   });
 
   // THE RECALL RECEIPT, whose fields a docblock twice described as printed and never dereferenced.

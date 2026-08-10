@@ -22,9 +22,17 @@ import type { Coverage, MemoryKind } from './types.ts';
  * does not do what it reads as. A key naming something on `Object.prototype` - `constructor`,
  * `toString`, `__proto__`, `valueOf` - resolves to an INHERITED value, which is not nullish, so the
  * `??` never fires and the caller gets a function where it expected a label. A review measured the
- * consequence: `(PATH_LABEL[retrievalPath] ?? retrievalPath).toUpperCase()` in `Console.tsx`
- * throws `TypeError: ... is not a function`, and a page that throws during render is the blank pane
- * this console exists to argue against.
+ * consequence: the PRE-`labelled` form `(PATH_LABEL[retrievalPath] ?? retrievalPath).toUpperCase()`,
+ * on the ONE PATH reading that uppercases it in `Console.tsx`, threw `TypeError: ... is not a
+ * function`, and a page that throws during render is the blank pane this console exists to argue
+ * against. `Console.tsx` reads `retrievalPath` THREE times: two look a label up, at the receipt
+ * strip and at the recall strip, and only the recall strip ever called `.toUpperCase()`. The third
+ * compares the raw value to `'none'` and looks nothing up, so it was never exposed to this at all.
+ * Naming the exclusion is the same rule a count in prose follows. THE ERA MATTERS BECAUSE THE
+ * EXPRESSION IS GONE: both label readings call `labelled` now, so a reader grepping
+ * `Console.tsx` for the quoted form finds nothing and cannot tell a fixed defect from a wrong
+ * citation. This carried a line number until a review found the line had moved, and dropping the
+ * number without dating the expression traded one unfollowable reference for another.
  *
  * THE SAME CLASS OF MISTAKE, TWICE IN ONE FILE, IS WHY THIS IS A HELPER AND NOT A FIX AT ONE SITE.
  * `isCoverage` in `shapes.ts` tests `=== true` and is immune; `isTurnView`, written an hour later in
@@ -74,8 +82,27 @@ export const KIND_LABEL: Readonly<Record<MemoryKind, string>> = {
 export const verdictClass = (coverage: Coverage | string): string =>
   coverage === 'COVERED' ? 'verdict v-cov' : coverage === 'PARTIAL' ? 'verdict v-par' : 'verdict v-unk';
 
-/** The time out of an ISO instant. The date is on the strip already; the clock is what changes. */
+/**
+ * The time out of an ISO instant. The date is on the strip already; the clock is what changes.
+ *
+ * A BARE SLICE, WHICH IS AN EXEMPTION AND NOT AN OVERSIGHT, so this is the claim it makes: every
+ * value that reaches this function was minted by this browser rather than read off the wire. That
+ * holds structurally rather than by care. `Console.tsx` is the only module that imports it, all
+ * eight of its call sites read an `at`, and the only thing that writes an `at` is `Console` itself,
+ * with `new Date().toISOString()` when a question is sent. Nothing on `AgentTurnResponse` carries an
+ * instant to confuse it with: the one timestamp-shaped field there is `budget.day`, which no surface
+ * prints.
+ *
+ * ITS SIBLING SAT RIGHT HERE AND WAS NOT SO LUCKY. `day` was the same bare slice, and all three of
+ * ITS call sites read WIRE timestamps, so a row could print `2026-02-30`, a day that never happened,
+ * and `2026-08-09T24:00:00.000Z` printed a date the engine reads as the tenth. It is now `readDay`
+ * in `archive-state.ts`, which asks `instantFault` before it slices anything. Two functions one line
+ * apart, identical in body, and only one of them was safe: the difference was never in the code, it
+ * was in who calls it, which is exactly the kind of safety that stops being true without a warning.
+ *
+ * SO IF A WIRE INSTANT EVER NEEDS A CLOCK, it needs `readDay`'s treatment and not this. Widen that
+ * reader rather than reaching for this one, and `/status` has already walked this road: it formats
+ * its clock with `clockOf` from a `Date` it built AFTER the body passed the guard, because slicing
+ * `observedAt` read the wrong instant off any timestamp carrying an offset.
+ */
 export const clock = (iso: string): string => iso.slice(11, 19);
-
-/** The date out of an ISO instant, for a row whose whole point is which day it was true. */
-export const day = (iso: string): string => iso.slice(0, 10);

@@ -619,6 +619,24 @@ describe('the archive island, hydrated', () => {
     expect(cellText(stripAt(container, 1), 'Tombstoned')).toBe('no date recorded · no reason recorded');
   });
 
+  it('keeps an unreadable eviction date apart from no eviction date at all', async () => {
+    // THE WHOLE ARGUMENT OF THIS PRODUCT, IN ONE CELL. "No date recorded" says nothing arrived.
+    // "A date this console cannot read" says something arrived and cannot be believed. They are
+    // different claims about the archive, and a page that collapsed them while arguing they are
+    // different would be the loudest possible way to fail. The bare slice collapsed them: it printed
+    // `February 3` for the first row, which reads as a date and is not one.
+    answers(
+      listing([
+        row({ id: 'a', state: 'tombstoned', evictedAt: 'February 30 2026 UTC', evictionReason: 'the sweep' }),
+        row({ id: 'b', state: 'tombstoned', evictedAt: null, evictionReason: 'the sweep' }),
+      ]),
+    );
+    const container = await mountAndSettle();
+
+    expect(cellText(stripAt(container, 0), 'Tombstoned')).toBe('a date this console cannot read · the sweep');
+    expect(cellText(stripAt(container, 1), 'Tombstoned')).toBe('no date recorded · the sweep');
+  });
+
   it('gives a current row no tombstone cell at all', async () => {
     answers(listing([row({ state: 'current' })]));
     const container = await mountAndSettle();
@@ -683,6 +701,33 @@ describe('the archive island, hydrated', () => {
     // confident lit value, which is the inversion this page exists to argue against.
     expect(cellClass(open, 'Valid until')).toBe('val');
     expect(cellClass(closed, 'Valid until')).toBe('val doubt');
+  });
+
+  it('says a date cannot be read rather than printing a day that never happened', async () => {
+    // THE DEFECT AS A READER MEETS IT. `2026-02-30` has the contract's exact shape and parses, so
+    // every guard on the way here waved it through, and the cell sliced its first ten characters and
+    // printed the thirtieth of February in the class that means a measurement. `2026-08-09T24:00`
+    // is worse in the quieter way: it prints a date that looks ordinary and is off by a day, since
+    // the engine reads that instant as the tenth.
+    answers(
+      listing([
+        row({ id: 'a', validFrom: '2026-02-30T00:00:00.000Z', validUntil: '2026-08-09T24:00:00.000Z' }),
+        row({ id: 'b', validFrom: '2026-08-01T09:00:00.000Z', validUntil: '2026-08-07T09:00:00.000Z' }),
+      ]),
+    );
+    const container = await mountAndSettle();
+
+    const unreadable = stripAt(container, 0);
+    const readable = stripAt(container, 1);
+    expect(cellText(unreadable, 'Valid from')).toBe('a date this console cannot read');
+    expect(cellText(unreadable, 'Valid until')).toBe('a date this console cannot read');
+    expect(cellText(readable, 'Valid from')).toBe('2026-08-01');
+    expect(cellText(readable, 'Valid until')).toBe('2026-08-07');
+    // BOTH ARMS OF THE ONE CLASS THIS CHANGES. `Valid from` was the only one of the three date cells
+    // that was unconditionally confident, so it is the only one whose class the reader moves, and
+    // asserting the readable arm too is what stops a fix that simply doubts everything.
+    expect(cellClass(unreadable, 'Valid from')).toBe('val doubt');
+    expect(cellClass(readable, 'Valid from')).toBe('val');
   });
 
   it('says no incident is recorded rather than leaving the cell blank', async () => {
@@ -899,7 +944,8 @@ describe('the archive island, hydrated', () => {
     // THE SURFACE THAT ACTUALLY SHOWS THE SYMPTOM. `asFailure` used to forward any string `error`,
     // whitespace included, and this page prints it uppercased into a verdict, so a body carrying a
     // blank code drew `REFUSED:    .` at a reader with nothing between the colon and the stop.
-    // `Archive.tsx:422` and `archive-state.ts:305` are two of the three sites that do this, and the
+    // The refusal slip's verdict in `Archive.tsx` and `verdictWord`'s `refused` case in
+    // `archive-state.ts` are two of the three sites that do this, and the
     // fix was first pinned only on `/status`, whose board never prints the code at all: its verdict
     // comes from a fixed table. A guard tested on the one surface that cannot show its symptom is
     // the shape this branch keeps closing.
@@ -1186,10 +1232,17 @@ describe('the archive island, hydrated', () => {
     //
     // Mutating the fixture above, each cell driven at the commit named:
     //
-    //   delete it entirely   a4fa1df: 1 failed of 40, ONLY the `callsWithNoFixture` guard spoke.
-    //                        5a19e33: 1 failed of 42, the Filter assertion spoke FIRST.
-    //   empty its rows       a4fa1df: 40 green.   5a19e33: 42 green. STILL SURVIVES.
-    //   swap `neverAnswers`  a4fa1df: 40 green.   5a19e33: 1 failed of 42, Filter assertion.
+    //   delete it entirely   `a4fa1df`: 1 failed of 40, ONLY the `callsWithNoFixture` guard spoke.
+    //                        `5a19e33`: 1 failed of 42, the Filter assertion spoke FIRST.
+    //   empty its rows       `a4fa1df`: 40 green.   `5a19e33`: 42 green. STILL SURVIVES.
+    //   swap `neverAnswers`  `a4fa1df`: 40 green.   `5a19e33`: 1 failed of 42, Filter assertion.
+    //
+    //   BACKTICKED SO A SWEEP CAN SEE THEM. Both shas sat bare here while `13f5429` three lines
+    //   below was backticked, and the repository's sha census matched only the backticked form, so
+    //   these two live anchors were invisible to it and its totals were short by two. Neither is an
+    //   ancestor of `origin/main` and `git name-rev` returns `undefined` for both, so they are
+    //   already unreferenced objects rather than commits on some branch. They are listed in
+    //   `docs/gates.md` as part of the anchor debt.
     //
     //   `requested` line removed, at `13f5429`: the failing set is UNCHANGED across all three rows
     //   above, plus the `cancelAnimationFrame` mutation and a duplicated fetch.

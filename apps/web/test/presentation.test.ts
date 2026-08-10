@@ -7,9 +7,11 @@ import { HOLDER, KIND_LABEL, labelled, verdictClass } from '../src/scripts/prese
  * IT HAD NO TEST OF ITS OWN when it was written, which is the same gap that produced the defect it
  * exists to fix. `TABLE[key] ?? key` reads as "the label, or the raw value", and it is not: a key
  * naming something on `Object.prototype` resolves to an INHERITED value, which is not nullish, so
- * the `??` never fires and the caller is handed a function. Measured in `Console.tsx`, where
- * `(PATH_LABEL[retrievalPath] ?? retrievalPath).toUpperCase()` throws `... is not a function` and
- * takes the pane down with it.
+ * the `??` never fires and the caller is handed a function. Measured in `Console.tsx`, where the
+ * PRE-`labelled` form `(PATH_LABEL[retrievalPath] ?? retrievalPath).toUpperCase()` threw
+ * `... is not a function` and took the pane down with it. Dated deliberately: both PATH readings
+ * there call `labelled` now, so that expression survives only in this sentence and in the twin of it
+ * in `presentation.ts`, and a reader who greps for it should find nothing.
  *
  * Fourteen call sites depend on this returning `undefined` for anything the table does not OWN.
  */

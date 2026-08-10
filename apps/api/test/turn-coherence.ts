@@ -13,11 +13,27 @@
  * the paragraph explaining why it will not have the model judge its own subject matter. So this runs
  * in CI, over every exit the loop has, and ships nothing.
  *
- * EVERY `loop.ts` LINE NUMBER IN THIS FILE IS READ AT `de773d8`, and that anchor is not decoration.
- * TWENTY of them, counted by extracting every backticked citation from this file and adding the two
- * that appear as prose in the next paragraph. The count said twenty-one for one commit, which is
- * what you get by counting `server.ts:287` as well: that is a different file, this anchor does not
- * vouch for it, and it happens to still be right.
+ * EVERY `loop.ts` LINE NUMBER IN THIS FILE IS READ AT `f185b4b`, and that anchor is not decoration.
+ * It said `de773d8` for two commits, which is a MID-BRANCH commit of PR #18 and is not an ancestor
+ * of `origin/main`: `git merge-base --is-ancestor de773d8 origin/main` fails, so a clone without
+ * that branch cannot resolve it. `f185b4b` is the squash that merged the branch,
+ * `git diff de773d8 f185b4b -- apps/api/src/agent/loop.ts` is empty, so every number below is as
+ * true of this anchor as of the old one and a reader can now actually check them. (That sentence
+ * called `de773d8` the pre-squash TIP. The tip was `9f453b4`. What kills an anchor is the squash,
+ * not which commit of the branch it was.)
+ *
+ * TWENTY DISTINCT NUMBERS, and the word DISTINCT is what makes the figure reproducible. Extracting
+ * every backticked citation from this file returns TWENTY FIVE occurrences, two written in full as
+ * `loop.ts:NNN` and twenty three as bare `:NNN` continuations, which carry EIGHTEEN distinct values
+ * between them. Add 177 and 311, which appear below as prose rather than as citations, and the set
+ * is twenty. Those two are deliberately unbackticked HERE as well: the sentence used to claim they
+ * appear "nowhere in backticks" while printing both of them in backticks, which put the reader
+ * straight back into the twenty five versus twenty confusion this paragraph exists to end. It also
+ * stated a method returning twenty seven beside a figure of twenty, so a reader re-deriving it got
+ * neither number and could not tell which end was wrong. The count also said twenty-one for one
+ * commit, which is what you get by counting the `toRecallEvent` map in `server.ts` as well: that is
+ * a different file and this anchor does not vouch for it, which is the entire reason not to count
+ * it. It has since gone stale, exactly as an unvouched citation is expected to.
  *
  * All twenty were correct at `ae8bd70` and every one BELOW THE FUNCTION SIGNATURE was wrong by five
  * or by seventeen one commit later, because the commit that gave each tool call its own id inserted
@@ -257,7 +273,7 @@ function coverageRules(facts: TurnFacts): readonly Contradiction[] {
     // is no receipt to show for a search that did not finish. So an empty `recalls` is coherent with
     // `null`, which means nothing was recalled, and with `UNKNOWN`, which means a recall threw. Any
     // other verdict there is a receipt that went missing between the loop and the reader, and
-    // `server.ts:287` maps every receipt through `toRecallEvent`, which is where one could.
+    // `server.ts` maps every receipt through `toRecallEvent`, which is where one could.
     //
     // WRITTEN AS AN ALLOWLIST, not as `=== 'COVERED' || === 'PARTIAL'`. Naming the two bad values
     // needs a new sibling the day a fourth verdict exists, and this file already carries the lesson

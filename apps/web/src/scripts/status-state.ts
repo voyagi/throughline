@@ -1,5 +1,13 @@
 import { UNREACHABLE, UNRECOGNISED } from './api.ts';
-import { internal, isBlank, malformed, type ContradictionKind, type Of } from './contradiction.ts';
+import {
+  instantFault,
+  internal,
+  isBlank,
+  malformed,
+  type ContradictionKind,
+  type InstantFault,
+  type Of,
+} from './contradiction.ts';
 import { labelled } from './presentation.ts';
 import type { FailureResponse, LampState, LampView, StatusResponse } from './types.ts';
 
@@ -191,22 +199,28 @@ export const clockOf = (at: Date): string =>
  * taking `observedAt` and `server` and the rail taking the formatted `clock` in place of `observedAt`
  * alone, because the rail never read `server` in the first place.
  *
- *   0. `observedAt` is not the timestamp shape this contract declares. See `CONTRACT_INSTANT`, which
- *      replaced a looser rule that three separate forms walked straight past.
+ *   0. `observedAt` is not the timestamp shape this contract declares, which replaced a looser rule
+ *      that three separate forms walked straight past.
  *   1. `observedAt` has the right shape and still names no instant. A month above 12 and an hour
  *      above 24 reach here and `Date.parse` returns nothing for them.
  *   2. `observedAt` names an instant that does not exist as written. `Date.parse` SILENTLY ROLLS
  *      FORWARD both a day that overflows its own month and an hour of 24, so the board printed the
  *      thirtieth of February, and printed `2026-12-31T24:00:00.000Z` for an instant in 2027, in the
  *      class that means a measurement. The hour is the sibling the first version of this rule missed
- *      because it only ever read the date. See `rolledForward`.
+ *      because it only ever read the date.
+ *
+ *      Rules 0 to 2 are the three faults `instantFault` in `contradiction.ts` returns, in its order
+ *      rather than in one this file chooses, and `INSTANT_FAULT_PHRASE` below turns each into the
+ *      end of the sentence printed here. They moved there when the archive needed the same three
+ *      questions about the instants it prints per row.
  *   3. `server` names nobody. The board prints it under ANSWERING, which is the cell a reader checks
  *      when they suspect something other than this API is replying.
  *   4. Two lamps print the same name, compared over the names the surfaces PRINT and with the ends
  *      trimmed. A repeat is two capabilities the reader cannot tell apart. It is ALSO two nodes
  *      under one preact key in two of the three cases, counted rather than waved at, and the
- *      sentence that stood here named only one of the two. Both surfaces key on the PRINTED name
- *      (`StatusBoard.tsx:163`, `Annunciator.tsx:82`), which `readLamp` passes through untrimmed
+ *      sentence that stood here named only one of the two. Both surfaces key their lamp list on the
+ *      PRINTED name, `key={lamp.name}` in `StatusBoard.tsx` and in `Annunciator.tsx`, which
+ *      `readLamp` passes through untrimmed
  *      unless it is blank. So two byte identical names share a key. Two BLANK names share one too,
  *      because `readLamp` maps every blank name to the single substitute. Two names differing only
  *      by whitespace do NOT, since `Vector index ` keeps a key of its own while the browser
@@ -391,6 +405,19 @@ function readLamp(lamp: LampView): LampReading {
 }
 
 /**
+ * The end of the sentence this page prints for each way an instant fails to be one.
+ *
+ * `Record<InstantFault, string>` rather than three branches, so a fourth fault added to the shared
+ * union is a compile error here until this page decides what it says about it. The three phrases are
+ * the ones this page has always printed and they are pinned whole in `status-state.test.ts`.
+ */
+const INSTANT_FAULT_PHRASE: Readonly<Record<InstantFault, string>> = {
+  shape: 'which is not a timestamp in the form this contract declares',
+  time: 'which is not a time',
+  exists: 'which is not an instant that exists as written',
+};
+
+/**
  * Which way a status body argues with itself, as a phrase, or null when it does not.
  *
  * The single fields come first, because a comparison against a value that is not a value at all is
@@ -400,21 +427,15 @@ function statusContradiction(
   status: StatusResponse,
   lamps: readonly LampReading[],
 ): StatusContradiction | null {
-  if (!CONTRACT_INSTANT.test(status.observedAt)) {
+  // A DIRECT INDEX RATHER THAN `labelled`, and the difference is where the key came from. Every
+  // other table in this module is indexed by a string off the wire, which is why `labelled` exists.
+  // This one is indexed by a value `instantFault` just minted out of a closed union, so there is no
+  // absent case to fall back from and a fallback here would be a branch nothing can reach.
+  const fault = instantFault(status.observedAt);
+  if (fault !== null) {
     return malformed(
-      `it reports ${JSON.stringify(status.observedAt)} as when the probe ran, which is not a ` +
-        'timestamp in the form this contract declares',
-    );
-  }
-  if (Number.isNaN(Date.parse(status.observedAt))) {
-    return malformed(
-      `it reports ${JSON.stringify(status.observedAt)} as when the probe ran, which is not a time`,
-    );
-  }
-  if (rolledForward(status.observedAt)) {
-    return malformed(
-      `it reports ${JSON.stringify(status.observedAt)} as when the probe ran, which is not an ` +
-        'instant that exists as written',
+      `it reports ${JSON.stringify(status.observedAt)} as when the probe ran, ` +
+        INSTANT_FAULT_PHRASE[fault],
     );
   }
   if (isBlank(status.server)) {
@@ -445,67 +466,6 @@ function statusContradiction(
 }
 
 /**
- * The shape `Date.prototype.toISOString` produces for the years 0000 to 9999, which is what the
- * contract declares.
- *
- * NOT "the exact shape", and the word cost a review. Measured on this engine at `f572c95`:
- * `new Date(8.64e15).toISOString()` is `+275760-09-13T00:00:00.000Z` and `new Date(-8.64e15)` gives
- * `-271821-04-20T00:00:00.000Z`, so at the extremes `toISOString` produces an expanded year this
- * pattern refuses. Neither is reachable from a `new Date()`, so the rule over-refuses nothing real,
- * but the claim had to be narrowed to the range it is actually true for.
- *
- * THE HALF OF THE REVIEW COMMENT I TALKED MYSELF OUT OF, and talking myself out of it is what left
- * the hole. The comment said to validate the contract's format AND the calendar date. I did the
- * calendar date, checking the written day with a regex anchored at four digits, and wrote a paragraph
- * arguing the loose format was fine because an offset names a real instant in another notation. That
- * argument is true and it is also what let three siblings straight through: `+002026-02-30T…` is a
- * conforming expanded-year ISO string, `Date.parse` accepts it, it rolls to the second of March, and
- * it never reaches the calendar check because it does not start with a digit. `February 30 2026 UTC`
- * does the same. Measured, not reasoned about.
- *
- * It refuses nothing real: `server.ts` builds this field from `capabilities.observedAt.toISOString()`
- * and there is one producer.
- */
-const CONTRACT_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
-
-/**
- * True when the engine reads this string as a different instant from the one it writes.
- *
- * A ROUND TRIP RATHER THAN A CALENDAR CHECK, and the difference is the whole finding. This used to
- * pull the year, month and day off the front with a second regex and rebuild them, which asked
- * whether the written DAY exists and never asked anything about the time. Measured on node v22.22.0
- * at `f572c95`: `2026-08-09T24:00:00.000Z` has the contract's exact shape, `Date.parse` accepts it,
- * and the calendar prefix `2026-08-09` is a day that exists, so all three rules passed it. The engine
- * reads it as the TENTH. `2026-12-31T24:00:00.000Z` is read as the first of January 2027. The board
- * printed either one verbatim under LAST LOOKED in the class that means a measurement, and the rail
- * lit its Last looked lamp green showing `00:00:00Z`, a clock two digits away from the `24` written
- * in the string.
- *
- * THAT IS WHY THE CHECK IS AN IDENTITY NOW. `toISOString` is the contract's own producer, so asking
- * whether the value survives a parse and a re-print asks the only question that matters, and it
- * cannot have siblings: there is no second field to forget, because every field is compared at once.
- * A regex on the written date needed a new sibling every time somebody found another form the engine
- * accepts, and the hour was the one nobody had looked at.
- *
- * MEASURED AGAINST THE RULE IT REPLACES over 25 values at `f572c95`: exactly two verdicts change,
- * `2026-08-09T24:00:00.000Z` and `2026-12-31T24:00:00.000Z`, both from shown to refused. Every real
- * instant in that set still shows, including the leap days `2024-02-29`, `2000-02-29` and
- * `0000-02-29`, and `9999-12-31T23:59:59.999Z`. The other end of the shape's range is
- * `0000-01-01T00:00:00.000Z`, because the pattern opens with four digits and takes no sign, and it
- * was measured separately rather than in that set of 25, which carried `1970-01-01` instead and
- * called it an end. So the
- * `setUTCFullYear` argument this docblock used to carry is gone rather than narrowed: there is no
- * year arithmetic left here to get wrong.
- *
- * IT MUST RUN AFTER THE PARSE RULE AND THAT IS LOAD BEARING, not an ordering preference. Measured:
- * `new Date(NaN).toISOString()` THROWS a RangeError. The rule above returns for every value
- * `Date.parse` rejects, so nothing that reaches this line can throw here.
- */
-function rolledForward(value: string): boolean {
-  return new Date(Date.parse(value)).toISOString() !== value;
-}
-
-/**
  * A name printed by more than one lamp, or null. A `Set` rather than a scan inside a loop.
  *
  * OVER THE NAMES THE SURFACES ACTUALLY PRINT, not over the raw ones, and the difference was a defect
@@ -530,8 +490,9 @@ function rolledForward(value: string): boolean {
  * `BY NAME` IS LOAD BEARING AND WAS MISSING FOR ONE COMMIT. Without it the sentence claimed a reader
  * cannot tell the two LAMPS apart, and the paragraph below this one says the opposite in the same
  * file: each keeps its own state word and its own reason, so they print different text. What cannot
- * be told apart is which capability each one reports on, which is what `:206` already said and what
- * the rewrite dropped.
+ * be told apart is which capability each one reports on, which is what rule 4 in this module's own
+ * header already said and what the rewrite dropped. (That cited a line number in the same file,
+ * which this session's edits moved before anything else did.)
  *
  * TRIMMED, because two lamps named `Vector index` and `Vector index ` print the same heading and are
  * not equal as strings, which is the same defect wearing a space.

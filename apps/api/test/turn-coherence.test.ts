@@ -115,7 +115,7 @@ function run(
  * closes only the receipt half and the choice between a unique id and the id the model sent is a
  * design change rather than a patch.
  *
- * THAT DECISION WAS REVERSED IN `de773d8` AND EVERY SENTENCE ABOVE IS HISTORY. The loop mints its
+ * THAT DECISION WAS REVERSED IN `f185b4b` AND EVERY SENTENCE ABOVE IS HISTORY. The loop mints its
  * own `tc-N` and keeps what the model sent in `given`, so `forgetful` below models a repeating model
  * on purpose and the turn it produces is coherent. This paragraph exists because the version of this
  * docblock that said THE LOOP IS NOT CHANGED HERE survived the commit that changed it, sitting just
@@ -182,12 +182,22 @@ const throwing = (): MemoryRepository =>
 /**
  * EVERY EXIT, ENUMERATED FROM `loop.ts` RATHER THAN FROM THE CASES THAT CAME TO MIND.
  *
- * `runAgentTurn` returns from THREE places, read at `de773d8`: `loop.ts:207`, `:232` and `:254`, the
+ * `runAgentTurn` returns from THREE places, read at `f185b4b`: `loop.ts:207`, `:232` and `:254`, the
  * round cap, a permitted answer and a second refusal. This said four and counted the round cap
  * twice, once for the empty tool list, which is the same statement reached by another route. The
  * module beside this one was corrected for that exact miscount in the commit that should have
  * corrected this line too, which is the sibling file half of the shape this whole branch keeps
  * closing.
+ *
+ * AND IT NEARLY HAPPENED AGAIN TO THIS VERY LINE, one anchor down. The anchor read `de773d8`, a
+ * MID-BRANCH commit of PR #18 that `git merge-base --is-ancestor de773d8 origin/main` rejects, so a
+ * fresh clone cannot resolve it. Both this file and the module beside it moved to the merged sha in
+ * the SAME commit, because a sweep caught this one before it shipped, in the paragraph directly
+ * above, which is about leaving the sibling file behind. It is recorded as a near miss rather than
+ * as history: no commit ever shipped the module anchored to `f185b4b` with this file still on
+ * `de773d8`, and writing it as though one had would be the same overclaim this file keeps deleting.
+ * `loop.ts` is identical between the two shas, so all three numbers were true throughout and only
+ * the anchor was unusable.
  *
  * AND THEN IT HAPPENED AGAIN, TO THESE THREE NUMBERS, IN THE PARAGRAPH SAYING SO. They read 202, 227
  * and 249 until round nine, because the commit that re-derived every citation in the module beside
@@ -712,6 +722,33 @@ describe('each rule fires on the fault it names, and the guard is not vacuous', 
     // spend and asserts the console accepts the body. This is that assertion's missing sibling on
     // the API side, and the guard here is the one that would have to be wrong for both to matter.
     const budget = { used: null, limit: 50, day: '2026-08-10' };
+
+    expect(responseContradictions(asResponse(coherent(), budget))).toEqual([]);
+  });
+
+  it('accepts a budget spent exactly to its ceiling, which is the last permitted turn of the day', () => {
+    // THE BOUNDARY OF `used > limit`, ONE LINE BELOW THE CLAUSE THAT JUST GOT A CONTROL, and it is a
+    // let-through clause of exactly the same kind: it exists to admit a legal body, so no fault case
+    // can pin it. Mutating `>` to `>=` reports a contradiction against a body this demo produces
+    // every day.
+    //
+    // FIVE FAULT CASES REACH THIS CLAUSE AND EXACTLY ONE TRIPS IT, a distinction the first version
+    // of this comment collapsed into "the one fault case that reaches it". The one that TRIPS it
+    // feeds 51 of 50, and 51 is above 50 under either operator, so it cannot tell them apart. The
+    // four `budgetDayNotADay` cases PASS THROUGH at 3 of 50 and stay green either way. The two
+    // `budgetNotACount` cases never arrive at all, because the branch above them is taken instead.
+    // It does not RETURN, which the first version of this sentence said: `responseContradictions`
+    // pushes and carries on into the day rule, which is why those two cases still get a day. Which
+    // cases reach a clause and which cases exercise it are different questions, and only the second
+    // one is worth writing down.
+    //
+    // IT IS REAL PRODUCED TRAFFIC RATHER THAN A HYPOTHETICAL, which is what makes it worth a test.
+    // `demo-budget.ts` spends a call with `SET calls = calls + 1 WHERE day = $1 AND calls < $2`, so
+    // the call made when `calls` sits one below the ceiling passes that WHERE, increments TO the
+    // ceiling, and returns `allowed: true` carrying a spend equal to the limit. `server.ts` attaches
+    // that to the turn. Every day's last permitted turn carries this exact body, and reporting it as
+    // a turn that argues with itself would refuse the one turn a reader is most likely to inspect.
+    const budget = { used: 50, limit: 50, day: '2026-08-10' };
 
     expect(responseContradictions(asResponse(coherent(), budget))).toEqual([]);
   });

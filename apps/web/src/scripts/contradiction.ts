@@ -100,3 +100,86 @@ export const isCount = (value: number): boolean => Number.isInteger(value) && va
  * `detail` are typechecked inside `asFailure` rather than by a shape guard.
  */
 export const isBlank = (value: string): boolean => value.trim() === '';
+
+/**
+ * The shape `Date.prototype.toISOString` produces for the years 0000 to 9999, which is what the
+ * contract declares every instant on it to be.
+ *
+ * NOT "the exact shape", and the word cost a review. Measured on node v22.22.0: `new Date(8.64e15)`
+ * prints `+275760-09-13T00:00:00.000Z` and `new Date(-8.64e15)` prints `-271821-04-20T00:00:00.000Z`,
+ * so at the extremes `toISOString` produces an expanded year this pattern refuses. Neither is
+ * reachable from a `new Date()`, so the rule over-refuses nothing real, but the claim had to be
+ * narrowed to the range it is actually true for.
+ */
+const CONTRACT_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
+
+/** Which of the three ways a declared instant fails to be one. */
+export type InstantFault =
+  /** Not the shape the contract declares. Every non-ISO form a page might be handed lands here. */
+  | 'shape'
+  /** The contract's shape, naming no time at all. A month of 13 and an hour of 25 reach here. */
+  | 'time'
+  /** A time the engine reads as a DIFFERENT instant from the one written. */
+  | 'exists';
+
+/**
+ * Which way a declared instant is not one, or null when it is.
+ *
+ * HERE FOR THE REASON `isCount` AND `isBlank` ARE HERE, and it arrived the same way, which makes it
+ * the third instance of one migration. It lived in `status-state.ts`, where it guards `observedAt`,
+ * and then the archive needed the same question about the three instants it prints per row. A
+ * predicate copied into a second file is the case this repository settles with one module rather
+ * than with a comment asking for care, and `gate:dup` refuses the second copy.
+ *
+ * THE ROUTE IS WHAT THE THREE SHARE, NOT THE ORIGIN, and the origins are named because a reader
+ * should not have to assume one file fed all of them. `isCount` came from `recall-state.ts`, where
+ * it guarded a receipt's counts. `isBlank` came from `status-state.ts`. This came from
+ * `status-state.ts` too. Each was written for one page, a second page turned out to need exactly
+ * it, and this module is where they meet. (A rewrite briefly made this paragraph plural, which
+ * made it claim all three had guarded `observedAt`. Only this one ever did.)
+ *
+ * THE ORDER OF THESE THREE IS LOAD BEARING AND IT IS WHY THEY ARE ONE FUNCTION RATHER THAN THREE
+ * EXPORTS. Measured on node v22.22.0: `new Date(NaN).toISOString()` THROWS a RangeError, and
+ * `2026-13-45T00:00:00.000Z` has the contract's exact shape while `Date.parse` returns NaN for it.
+ * So a caller running the round trip before the parse rule throws during render on that value, which
+ * is the blank pane this console exists to argue against. As three separate predicates the ordering
+ * was a property of each caller, correct in the only caller there was and waiting for the second one.
+ * As one function there is no order left for a caller to get wrong.
+ *
+ * A ROUND TRIP RATHER THAN A CALENDAR CHECK for the third rule, and the difference is a whole
+ * finding. The rule this replaced pulled the year, month and day off the front with a second regex
+ * and rebuilt them, which asked whether the written DAY exists and never asked anything about the
+ * time. Measured: `2026-08-09T24:00:00.000Z` has the contract's exact shape, `Date.parse` accepts
+ * it, and `2026-08-09` is a day that exists, so every rule passed it. The engine reads it as the
+ * TENTH. `toISOString` is the contract's own producer, so asking whether a value survives a parse
+ * and a re-print asks the only question that matters, and it cannot have siblings: there is no
+ * second field to forget, because every field is compared at once.
+ *
+ * THE ARGUMENT THAT LEFT THE HOLE IS WORTH KEEPING, because it is the reasoning failure rather than
+ * the code one. An earlier version validated the calendar date with a regex anchored at four digits
+ * and argued the loose format was fine, because an offset does name a real instant in another
+ * notation. That argument is true, and it is what let three forms straight past: `+002026-02-30T…`
+ * is conforming expanded-year ISO, `Date.parse` accepts it, it rolls to the second of March, and it
+ * never reached the calendar check because it does not open with a digit. `February 30 2026 UTC`
+ * does the same. A true argument for the wrong rule is the shape to watch for here.
+ *
+ * THE ACCEPT SIDE IS MEASURED, NOT ASSUMED, because a rule that refuses is only as good as what it
+ * still lets through. Measured against the rule it replaced over 25 values at `f572c95`: exactly two
+ * verdicts changed, `2026-08-09T24:00:00.000Z` and `2026-12-31T24:00:00.000Z`, both from shown to
+ * refused. Every real instant in that set still shows, including the leap days `2024-02-29`,
+ * `2000-02-29` and `0000-02-29`, and `9999-12-31T23:59:59.999Z`. The other end of the shape's range
+ * is `0000-01-01T00:00:00.000Z`, because the pattern opens with four digits and takes no sign, and
+ * it was measured separately rather than in that set of 25.
+ *
+ * IT REFUSES NOTHING REAL, AND THERE ARE NOW TWO PRODUCERS RATHER THAN ONE. `server.ts` builds
+ * `observedAt` from `capabilities.observedAt.toISOString()`, and `http/contract.ts` builds a row's
+ * `createdAt`, `validFrom`, `validUntil` and `evictedAt` the same way off a `Date`. Both are this
+ * function's own producer, so nothing either sends can fail it. What it guards against is the wire
+ * being something other than those two, which is the only reason `shapes.ts` exists at all.
+ */
+export function instantFault(value: string): InstantFault | null {
+  if (!CONTRACT_INSTANT.test(value)) return 'shape';
+  const millis = Date.parse(value);
+  if (Number.isNaN(millis)) return 'time';
+  return new Date(millis).toISOString() === value ? null : 'exists';
+}

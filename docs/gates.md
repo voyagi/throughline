@@ -158,14 +158,18 @@ changes any file the suite loads makes them unverified until re-run. That set is
 twice: `apps/web/test/api-shape.test.ts` imports `../src/scripts/api.ts` and `../src/scripts/shapes.ts`
 directly, so the suite loads `apps/web/src` and a change there is a change the counts cannot survive.
 
-**ALL THIRTEEN ARE UNVERIFIED AS OF 2026-08-10, BY THE RULE DIRECTLY ABOVE.** The branch
-`fix/coherence-clauses-and-call-ids` changes FIVE groups in that set, counted with
-`git diff --stat ae8bd70..HEAD`: one file in `apps/api/src`, one in `packages/contract/src`, five
-under `apps/api/test`, four under `apps/web/test` and five under `apps/web/src`. This paragraph has
-now been written three times and named three groups, then four, before a review counted them. In a
-section whose own text says the set has been got wrong three times, once for omitting a directory,
-that is the same failure twice over: the enumeration was short, and so was the rule it was checked
-against, which is why `apps/web/src` is now named up there rather than only down here. Saying so here is the
+**ALL THIRTEEN ARE UNVERIFIED AS OF 2026-08-10, BY THE RULE DIRECTLY ABOVE.** The work that landed
+as `f185b4b` changes FIVE groups in that set, counted with `git diff --name-only ae8bd70 f185b4b`:
+one file in `apps/api/src`, one in `packages/contract/src`, five under `apps/api/test`, five under
+`apps/web/test` and six under `apps/web/src`. THE REF IS A MERGED SHA AND NOT `HEAD` ON PURPOSE:
+the previous version counted against `ae8bd70..HEAD` while HEAD was still moving, and its last two
+figures were four and five, correct when written and false two commits later when the same branch
+touched `presentation.ts` and `presentation.test.ts`. A count against a moving ref cannot be
+re-derived by a reader, which is the whole failure this section keeps recording. This paragraph has
+now been written four times: it named three groups, then four, then five with two of the per-group
+figures already stale. In a section whose own text says the set has been got wrong three times, once
+for omitting a directory, that is the same failure again, one level down: the rule fired on the
+document that states it, and nobody re-derived it. Saying so here is the
 point of writing the rule down: the counts stop being readable as current the moment something in
 that set moves, and nothing else in this repository would have told a reader that. They are left
 standing rather than deleted, because a measurement that says when it went stale is worth more than
@@ -183,6 +187,81 @@ is worse than the omission, because it looks like a method. `scripts/test` and t
 modules it imports account for 146 of the 736, measured with `npx vitest run scripts/test` rather
 than inferred, and unchanged across every baseline this section has recorded because nothing under
 `scripts/` has moved since `01bfe35`.
+
+### How a citation is written, since three rounds have now closed the same category
+
+A CITATION NAMES A FILE AND AN IDENTIFIER, NOT A LINE, and this is written down once here rather
+than argued again in each file that carries one. A file and an identifier survive an edit to the
+file; a line number has no mechanism keeping it true, and every round that swept them found the
+sweep itself had a blind spot. One commit re-derived twenty numbers in a guard module and left three
+in the guard's own TEST file. The next closed every `Console.tsx:NNN` in the repository and left two
+bare `:NNN` continuations, which its verification grep could not match, and one of those was stale
+by 52 lines.
+
+Two forms are allowed, and nothing else:
+
+- name the reader, as in "`freshness.toFixed` inside `ArchiveStrip`", which is what a reader greps
+  for anyway,
+- or anchor the number to a NAMED COMMIT THAT IS AN ANCESTOR OF `main`, as
+  `apps/api/test/turn-coherence.ts` does with `read at f185b4b`, so any clone can resolve it.
+
+THE ANCESTOR HALF IS NOT PEDANTRY, and this rule had to learn it on its own exemplar. That anchor
+read `de773d8` for two commits, which is a MID-BRANCH commit of PR #18, the second of the five
+`gh pr view 18 --json commits` lists. `git merge-base --is-ancestor de773d8 origin/main` FAILS, so the sha
+resolves only in a clone that still has the branch, and it resolves here today purely because a
+stale local branch has not been deleted yet. The twenty numbers it vouched for were correct the
+entire time, which is what makes this the quiet failure rather than the loud one: an anchored
+citation looks more rigorous than a bare number and can be less useful. A squash merge leaves EVERY
+branch commit unreachable and not merely the tip, and a squash merge is exactly when somebody is
+most likely to write one down. The merged equivalent is `f185b4b`, and
+`git diff de773d8 f185b4b -- apps/api/src/agent/loop.ts` is empty.
+
+(THAT SENTENCE CALLED `de773d8` "the pre-squash tip" for one commit, in three files at once, and a
+review checked it against `gh pr view 18`: the tip was `9f453b4`. The evidence that falsified the
+claim was one command away and the claim was written without running it. The correction also makes
+the rule stronger, because the reason an anchor dies is not that it was a tip.
+
+BOTH REFERENCES HERE NAMED A LOCAL TAG UNTIL A SWEEP CAUGHT THEM, which is the same defect one turn
+later and in the paragraph introducing the rule. `git ls-remote --tags origin` is EMPTY: those tags
+were never pushed, so a tag-relative name resolves in exactly one clone on earth and is strictly
+worse than the sha it was decorating. If a citation needs a name a reader can resolve, the only
+safe ones are a sha that is an ancestor of `main`, an identifier, or a command they can run.)
+
+A count in prose is a citation too: name what it EXCLUDES ("seventeen of eighteen, every one but
+`createdAt`") or state the method that reproduces it, so the reader can re-derive it instead of
+trusting it. A figure whose stated method returns a different number is worse than no figure.
+
+THE REPOSITORY DOES NOT YET MEET THE ANCESTOR HALF, and saying so is the point of writing the rule
+down. THE METHOD IS EVERY HEX TOKEN THAT RESOLVES TO A COMMIT, backticked or not, which is the whole
+correction: take every `[0-9a-f]{7,40}` token in tracked files, keep the ones
+`git rev-parse --verify <token>^{commit}` accepts, and test each with
+`git merge-base --is-ancestor <token> origin/main`. Measured on THIS commit, which is unmerged and
+therefore has no ancestor sha of its own to be anchored to: THIRTEEN shas are cited and NINE are not
+ancestors.
+
+ONE of the nine is `de773d8`, quoted in this file, in `apps/api/test/turn-coherence.ts` and in
+`apps/api/test/turn-coherence.test.ts` as the specimen that taught the rule rather than as a live
+anchor. The remaining EIGHT are pre-existing and are a unit of their own:
+
+- `6c8162d` and `766e3b3` sit on the undeleted local branch `fix/status-hour-and-turn-coherence`, in
+  `apps/api/test/turn-coherence.test.ts` (`766e3b3` also in `apps/web/test/status-island.test.ts`);
+- `01bfe35` and `da283fe` in this file, `694957e` in `apps/api/test/server.test.ts`, and `13f5429`,
+  `a4fa1df` and `5a19e33` in `apps/web/test/archive-island.test.ts`, are reachable from NO ref at
+  all. `git name-rev` returns `undefined` for every one of them. They survive in this clone only as
+  unreferenced objects held by the reflog, and one `git gc` makes them unresolvable even here, which
+  is a sharper deadline than a branch nobody has deleted.
+
+Most of them cannot simply be re-anchored. `01bfe35` is cited for what that specific tree CONTAINED,
+so moving its anchor would falsify the sentence rather than repair it. Each needs its measurement
+re-checked against the merged tree first, which is why this is a unit and not a sweep.
+
+THE FIRST VERSION OF THIS CENSUS SAID ELEVEN, SEVEN AND SIX, because it matched only BACKTICKED
+shas. `a4fa1df` and `5a19e33` are written bare, six times across four lines in
+`apps/web/test/archive-island.test.ts`, in a table whose own header says every cell names the commit
+it was measured at. They are live anchors and the sweep could not see them. That is the identical
+blind spot this section records three paragraphs above for bare `:NNN` continuations: a sweep scoped
+to a FORMAT rather than to a MEANING closes the instances it can match and reports the category
+closed. Scope a sweep to what a thing IS, never to how it happens to be typed.
 
 Thirteen bullets follow, one per mutation, counted from the list itself.
 

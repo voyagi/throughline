@@ -102,15 +102,55 @@ const RECEIPT_CHECKS: FieldChecks<MemoryListReceiptView> = {
 /**
  * A row is checked whole, and `kind` and `state` are checked only as strings.
  *
- * Whole, because `Archive.tsx` reads sixteen of these eighteen fields and two of them are read with
- * a method call - `freshness.toFixed` at `:124` and the `memory.id` key at `:482` - which THROW on a
- * missing value rather than printing wrongly. A review proved it: `memories: [null, 3, 'x']` was
- * accepted, classified as three rows, and crashed the island's render.
+ * Whole, because `Archive.tsx` reads SEVENTEEN of these eighteen fields, every one but `createdAt`,
+ * and because TWO of them are read in a way that THROWS ON A MISSING FIELD rather than printing
+ * wrongly: `freshness.toFixed` and the `memory.supersededBy.slice` truncation, both inside
+ * `ArchiveStrip`.
+ *
+ * A THIRD READ FAILS ON SOMETHING ELSE, and the distinction survived two rewrites without being
+ * made. The `memory.id` key on the `ArchiveStrip` list throws on a missing ROW, because `null.id`
+ * throws, while a row that merely lacks an `id` yields `key={undefined}`, which preact accepts.
+ * THREE READS, TWO FAULTS. An earlier version called all three "a method call", which is wrong for a
+ * property read, and its correction called all three a missing-value throw, which is wrong for this
+ * one. A review proved the ROW half: `memories: [null, 3, 'x']` was accepted, classified as three
+ * rows, and crashed the island's render.
+ *
+ * The `supersededBy` one is the sibling this sentence lost twice. It said TWO while a review was
+ * re-deriving the other number in the same sentence, and the truncation guards on `=== null`, which
+ * an ABSENT field does not satisfy, so an undefined value walks past the guard into `.slice`.
+ *
+ * NAMED RATHER THAN CITED BY LINE, and the count names its exception for the same reason. Both
+ * numbers here were wrong: the reads were seventeen and this said sixteen, and the key citation
+ * pointed 52 lines off the reader it named. A count whose exception is named can be re-derived by
+ * grepping for that one field; a bare count can only be trusted. The two citations were bare `:NNN`
+ * continuations, which is why the sweep that re-derived every `Console.tsx:NNN` in this repository
+ * looked straight past them.
  *
  * Strings rather than closed domains for `kind` and `state`, deliberately, and the direction is the
  * reason. `kindWords` falls back to the raw value, so an unrecognised kind prints as itself and the
  * reader sees a word nobody has a label for - visibly odd, and true. Refusing the whole listing for
  * it would replace one honest row with no archive at all.
+ *
+ * THE FOUR TIMESTAMPS ARE BARE STRINGS HERE ON PURPOSE, AND THAT IS A DECISION WITH A COST. The
+ * contract declares `createdAt`, `validFrom`, `validUntil` and `evictedAt` to be what `toISOString`
+ * produces, so unlike `kind` they DO have a closed shape this file could enforce. It does not,
+ * because `arrayOf` is `every` and `hasFields` returns on the first failing field: one row carrying
+ * an unreadable date would refuse the entire listing, and a reader would lose thirty nine honest
+ * rows over the fortieth. `readDay` in `archive-state.ts` asks `instantFault` per CELL instead, so
+ * the bad date costs its own cell and nothing else. That is the same axis `LAMP_CHECKS` chose, for
+ * the same reason, one page over.
+ *
+ * So do not "tighten" these four here. Doing so trades a marked cell for a blank archive, which is
+ * the direction this file argues against everywhere else.
+ *
+ * THE OTHER DECLARED INSTANTS IN THIS FILE ARE BARE FOR DIFFERENT REASONS, named because an
+ * enumeration that hides its exclusions is a sample wearing an enumeration's clothes. They are
+ * SCALARS rather than row fields, so the one-bad-row argument above does not reach any of them.
+ * `STATUS_CHECKS.observedAt` is guarded downstream anyway, by `statusContradiction`, because both
+ * status surfaces print it. `RECEIPT_CHECKS.requestedAt` is guarded nowhere and needs no rule,
+ * because no surface prints it, which `archive-state.ts` records beside the receipt it belongs to.
+ * `BUDGET_CHECKS.day` is a written day rather than an instant, and nothing on this console prints
+ * that either.
  */
 const ROW_CHECKS: FieldChecks<MemoryRowView> = {
   id: isString,

@@ -187,17 +187,28 @@ export interface BudgetView {
    * It first said "null when the ceiling refused the turn". A refusal is answered 429 with a
    * `FailureResponse` and carries no `BudgetView` at all, so that case never travels in this shape.
    * Corrected, it then said "so a turn can report a ceiling it could not read a count from", which
-   * names no producer: the only one is `server.ts:288`, which runs after the refusal has already
+   * names no producer: the only one is where `server.ts` attaches this budget to a turn, which runs
+   * after the refusal has already
    * returned, and a `DemoBudget` that allows a turn always carries a number. Writing a narrower
    * scenario was not a fix either time.
    *
-   * What is true, counted rather than recalled. `used: null` appears five times under `apps/`.
-   * THREE are the internal `BudgetDecision`, a different type on a different path, where the null is
-   * real and means "refused, so no count was taken". ONE is `shapes.ts`, the console's validator
-   * entry `used: nullOr(isNumber)`, which is a rule and not a value at all. The fifth is a fixture
-   * in `apps/web/test/api-shape.test.ts` that builds the null deliberately, to prove the console
-   * accepts one rather than refusing the whole turn over it. So the nullability is inherited from
-   * `BudgetDecision`'s shape, and the only place it is load-bearing today is that test.
+   * What is true, counted rather than recalled, and NAMED rather than counted, because the bare
+   * count went stale the first time somebody wrote a sixth. Every place the null is written under
+   * `apps/`, so a reader can re-derive the number instead of trusting it:
+   *
+   *   - `demo-budget.ts`, `http-surface.test.ts` and `server.test.ts` write the internal
+   *     `BudgetDecision`, a different type on a different path, where the null is real and means
+   *     "refused, so no count was taken";
+   *   - `shapes.ts` writes the console's validator entry `used: nullOr(isNumber)`, which is a rule
+   *     and not a value at all;
+   *   - `api-shape.test.ts` and `apps/api/test/turn-coherence.test.ts` each build the null
+   *     deliberately, as positive controls proving a guard ACCEPTS one rather than refusing the whole
+   *     turn over it. Neither can be a fault case, because the clause each pins exists to let a legal
+   *     body through.
+   *
+   * So the nullability is inherited from `BudgetDecision`'s shape, and it is load-bearing in those
+   * two tests, one per side. The sentence here said five and named one of them for the commit
+   * between the API control being written and this being re-counted.
    */
   readonly used: number | null;
   readonly limit: number;

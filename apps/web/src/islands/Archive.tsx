@@ -4,11 +4,12 @@ import { getMemories, UNRECOGNISED, type ApiFailure } from '../scripts/api.ts';
 import {
   describeListing,
   isUnlit,
+  readDay,
   receiptOf,
   verdictWord,
   type ListingState,
 } from '../scripts/archive-state.ts';
-import { day, HOLDER, KIND_LABEL, labelled, verdictClass } from '../scripts/presentation.ts';
+import { HOLDER, KIND_LABEL, labelled, verdictClass } from '../scripts/presentation.ts';
 import { KindAgeCells } from './cells.tsx';
 import type {
   ListFailureCause,
@@ -95,6 +96,15 @@ function ArchiveStrip({ memory }: { memory: MemoryRowView }) {
   const holder = tombstoned ? 'holder h-tomb' : (labelled(HOLDER, memory.kind) ?? 'holder');
   const retired = memory.state === 'current' ? '' : ' retired';
 
+  // READ ONCE PER ROW, not once per expression, because each cell needs both halves of the reading
+  // and calling the reader twice per cell is the duplicated-work smell already recorded against
+  // `readRecall` on the console. The two nullable fields keep their null AS a null rather than
+  // handing it to the reader: `null` here is a fact with its own words, and asking "is this a
+  // readable date" about a value that never arrived would answer the wrong question.
+  const validFrom = readDay(memory.validFrom);
+  const validUntil = memory.validUntil === null ? null : readDay(memory.validUntil);
+  const evictedAt = memory.evictedAt === null ? null : readDay(memory.evictedAt);
+
   return (
     <div class={memory.stale ? `strip cocked${retired}` : `strip${retired}`}>
       {/* Guarded like every lookup on this page: a kind the server adds later renders a holder with
@@ -151,14 +161,17 @@ function ArchiveStrip({ memory }: { memory: MemoryRowView }) {
         <div class="row r-three">
           <div class="cell">
             <b>Valid from</b>
-            <span class="val">{day(memory.validFrom)}</span>
+            {/* THE ONLY ONE OF THE THREE WHOSE CLASS THIS CHANGES, because it is the only cell that
+                was unconditionally confident. The other two already take the doubt class whenever
+                they hold a date at all, so an unreadable one arrives there already marked. */}
+            <span class={validFrom.doubted ? 'val doubt' : 'val'}>{validFrom.text}</span>
           </div>
           <div class="cell">
             <b>Valid until</b>
             {/* An open interval is a FACT, not a missing value, so it reads as still current rather
                 than as an empty cell. */}
-            <span class={memory.validUntil === null ? 'val' : 'val doubt'}>
-              {memory.validUntil === null ? 'still current' : day(memory.validUntil)}
+            <span class={validUntil === null ? 'val' : 'val doubt'}>
+              {validUntil === null ? 'still current' : validUntil.text}
             </span>
           </div>
           <div class="cell">
@@ -178,7 +191,7 @@ function ArchiveStrip({ memory }: { memory: MemoryRowView }) {
               {/* The row is STILL HERE. That is the whole argument: eviction leaves a tombstone, so
                   the archive stays auditable rather than becoming shorter. */}
               <span class="say doubt">
-                {memory.evictedAt === null ? 'no date recorded' : day(memory.evictedAt)}
+                {evictedAt === null ? 'no date recorded' : evictedAt.text}
                 {' · '}
                 {memory.evictionReason ?? 'no reason recorded'}
               </span>

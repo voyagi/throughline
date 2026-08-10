@@ -84,8 +84,14 @@ const MAX_REFLECTED_KIND_LENGTH = 40;
  * reached the reflected field. `JSON.stringify` escapes it, so the wire stayed valid JSON and nothing
  * broke, which is exactly why it would have sat there indefinitely.
  *
- * The same trap as `MAX_BODY_BYTES` being compared against `text.length` at `:167`, which is NOT
- * fixed and is DEFERRED rather than recorded anywhere: a JavaScript string index is not a character.
+ * The same trap as `MAX_BODY_BYTES` being compared against `text.length` further down this file,
+ * which is NOT fixed and is DEFERRED rather than recorded anywhere: a JavaScript string index is not
+ * a character. (That cited a bare line number and the comparison had already moved past it. Both
+ * identifiers are in this file and neither can go stale, which is the rule `docs/gates.md` now
+ * states once. A sweep for stale citations missed this one twice, because a bare backticked number
+ * matches neither the `File.ext:NNN` shape nor anything a reader would think to grep. The corrected
+ * number is deliberately not written here either: adding these very lines moved the comparison
+ * again, which is the whole argument in four lines.)
  * Stated as a deferral because an earlier version of this comment said "it is in the backlog", a
  * review went looking, and there is no backlog in this repository. The comment further down this
  * same file records the identical mistake being caught in an earlier round, which is the part worth

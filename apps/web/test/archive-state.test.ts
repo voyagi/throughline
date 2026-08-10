@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   describeListing,
   isUnlit,
+  readDay,
   receiptOf,
   verdictWord,
   type ListingInput,
@@ -397,5 +398,119 @@ describe('receiptOf', () => {
     ['refused', input({ failure: { error: 'rate_limited', detail: 'x' } })],
   ])('returns null for %s, which carries no receipt', (_label, given) => {
     expect(receiptOf(describeListing(given))).toBeNull();
+  });
+});
+
+/** What an unreadable date cell says. Written once so no assertion below pins a wording by hand. */
+const UNREADABLE = 'a date this console cannot read';
+
+describe('readDay', () => {
+  it.each([
+    ['a real instant', '2026-08-10T14:22:18.000Z', '2026-08-10'],
+    ['a leap day', '2024-02-29T00:00:00.000Z', '2024-02-29'],
+    ['the first instant the contract shape admits', '0000-01-01T00:00:00.000Z', '0000-01-01'],
+    ['the last instant it admits', '9999-12-31T23:59:59.999Z', '9999-12-31'],
+  ])('prints the date of %s and does not doubt it', (_label, iso, date) => {
+    // THE ACCEPT SIDE, WHICH NO FAULT CASE CAN PIN, for the same reason the budget guard's null
+    // branch needed a control of its own: this branch exists to let a legal value THROUGH.
+    //
+    // TWO DIFFERENT MUTATIONS, AND THIS COMMENT HAS NOW RUN THEM TOGETHER ONCE. Both measured at
+    // `f185b4b` on node v22.22.0, whole suite each:
+    //
+    //   forcing `instantFault` in `contradiction.ts` to fault on EVERY value  ->  42 red
+    //   making `readDay` alone doubt every value                              ->   7 red
+    //
+    // The 42 is not this reader's blast radius. `statusContradiction` is `instantFault`'s other
+    // caller, and the two status suites are most of that number. What THIS reader mediates is the
+    // seven: these four accept cases, plus the readable arms of `prints the tombstone date and
+    // reason`, `reads an open validity interval as a fact` and `says a date cannot be read`, all in
+    // `archive-island.test.ts`.
+    //
+    // THE FIRST VERSION ARGUED "exactly these four and nothing else in the suite" and the second
+    // quoted 42 for a mutation it described as widening THE READER, which is a number measured
+    // somewhere else. A reader re-deriving either one got a different figure and could not tell
+    // which end was wrong. That is the same failure twice, one level apart, in the comment written
+    // to fix it: the fix for an unmeasured claim has to name the exact mutation it measured.
+    expect(readDay(iso)).toEqual({ text: date, doubted: false });
+  });
+
+  it.each([
+    ['a textual date the engine accepts and rolls', 'February 30 2026 UTC', 'February 3'],
+    ['an expanded year, which is conforming ISO', '+002026-02-30T00:00:00.000Z', '+002026-02'],
+    ['an empty string', '', ''],
+    ['a date with no time in it', '2026-08-10', '2026-08-10'],
+  ])('refuses %s, which the bare slice printed as "%s"', (_label, iso, sliced) => {
+    // FOUR FORMS THIS CELL MUST REFUSE, AND NOT ONE OF THEM PINS THE CLAUSE THAT NAMES THEM. Written
+    // as shape-clause cases and measured afterwards, which is the only reason the claim was caught:
+    // deleting the shape rule leaves all four GREEN, because every one fails a later clause as well.
+    // Three of them roll forward and are caught by the round trip, and the empty string fails the
+    // parse. A case chosen by reading lands on the wrong clause; the case that actually isolates the
+    // shape rule is the test directly below this one.
+    //
+    // The third column is what this cell PRINTED before the reader existed, measured on node
+    // v22.22.0. THE ASSERTION ON IT IS A FIXTURE SELF CHECK AND NOTHING MORE, which is worth saying
+    // plainly: `day()` was deleted by the same commit that added this reader, so no production code
+    // computes that value any more and the line exercises `String.prototype.slice` against a
+    // neighbouring column. It fails only if somebody edits one column and not the other. Keeping it
+    // is cheap and it keeps the historical output honest. Counting it as coverage would not be.
+    //
+    // The last row is the one worth arguing about: the bare slice's
+    // output looked perfectly correct. It is refused anyway, because the contract declares this
+    // field to be `toISOString` output, and a value that is not did not come from the declared
+    // producer, so nothing here can vouch for the day it names. `/status` refuses the same forms.
+    expect(iso.slice(0, 10)).toBe(sliced);
+    expect(readDay(iso)).toEqual({ text: UNREADABLE, doubted: true });
+  });
+
+  it('refuses an expanded year, which is the one form the shape clause alone catches', () => {
+    // THE CASE THAT ISOLATES THE SHAPE CLAUSE, and without it that clause is pinned by nothing on
+    // this page. Measured on node v22.22.0: `+012026-08-10T00:00:00.000Z` is conforming expanded
+    // year ISO, `Date.parse` accepts it, and `toISOString` reproduces it BYTE IDENTICAL, so the
+    // parse rule and the round trip both wave it through and only the shape refuses it.
+    //
+    // It is the same case, in the same shape, that an earlier round had to add to the budget day
+    // guard one file over, for the same reason: three cases sat around that clause reading as though
+    // they covered it, and none did. The only method that finds this is deleting one clause at a
+    // time and reading which tests redden.
+    expect(readDay('+012026-08-10T00:00:00.000Z')).toEqual({ text: UNREADABLE, doubted: true });
+  });
+
+  it('refuses a contract-shaped value that names no time at all', () => {
+    // THE PARSE CLAUSE, which is the one between the other two and is reachable: a month of 13 and a
+    // day of 45 have the contract's exact shape, and `Date.parse` returns NaN where a day of 30 in
+    // February returns the second of March.
+    expect(readDay('2026-13-45T00:00:00.000Z')).toEqual({ text: UNREADABLE, doubted: true });
+  });
+
+  it('does not throw on a contract-shaped value the engine cannot parse', () => {
+    // THE ORDER INSIDE `instantFault` IS LOAD BEARING, AND THIS NAMES THE FAILURE MODE RATHER THAN
+    // CATCHING IT ALONE. The round trip calls `toISOString` on the parse result, and
+    // `new Date(NaN).toISOString()` THROWS a RangeError, so a reader asking the round trip before
+    // the parse takes the whole pane down on this exact value instead of doubting one cell. That is
+    // the blank pane this site argues against, and it is worth saying in words.
+    //
+    // IT IS NOT AN INDEPENDENT CONTROL, AND THE FIRST VERSION OF THIS COMMENT IMPLIED IT WAS.
+    // Measured: every mutation that makes this throw, whether swapping the two clauses or deleting
+    // the parse rule, ALSO reddens the verdict assertion directly above it, by the same RangeError,
+    // because a thrown error fails that test outright. No mutation reddens this one on its own. It
+    // earns its place by naming a failure mode a `toEqual` cannot name, and it must not be counted
+    // among the clause controls.
+    expect(() => readDay('2026-13-45T00:00:00.000Z')).not.toThrow();
+  });
+
+  it.each([
+    ['a day that overflows its own month', '2026-02-30T00:00:00.000Z', '2026-03-02T00:00:00.000Z'],
+    ['an hour of 24, which moves the very day this cell prints', '2026-08-09T24:00:00.000Z', '2026-08-10T00:00:00.000Z'],
+  ])('refuses %s, which the engine reads as a different instant', (_label, iso, reads) => {
+    // THE ROUND TRIP CLAUSE, and this is the sharpest pair in the file. Both values have the
+    // contract's exact shape AND parse, so the two clauses above wave them through, and the bare
+    // slice printed the written prefix: `2026-02-30`, a day that never happened, and `2026-08-09`
+    // for an instant the engine reads as the TENTH. A cell whose entire point is which day a claim
+    // was true printed the wrong day, in the class that means a measurement.
+    //
+    // The instant the engine actually reads is pinned here so the third column cannot go stale
+    // silently, the same way `status-state.test.ts` pins its own.
+    expect(new Date(Date.parse(iso)).toISOString()).toBe(reads);
+    expect(readDay(iso)).toEqual({ text: UNREADABLE, doubted: true });
   });
 });

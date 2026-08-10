@@ -1,5 +1,6 @@
 import { UNREACHABLE, UNRECOGNISED } from './api.ts';
 import {
+  instantFault,
   internal,
   isCount,
   malformed,
@@ -318,4 +319,46 @@ export function receiptOf(state: ListingState): MemoryListReceiptView | null {
   return state.kind === 'unknown' || state.kind === 'empty' || state.kind === 'rows'
     ? state.receipt
     : null;
+}
+
+/** What one date cell prints, and whether it is printing a date at all. */
+export interface DayReading {
+  /** The cell's text. A date only when the value survived a parse and a re-print. */
+  readonly text: string;
+  /** True when this is a refusal rather than a date, so the cell takes the doubt class. */
+  readonly doubted: boolean;
+}
+
+/**
+ * The day out of a declared instant, or the reason there is no day to print.
+ *
+ * PER ROW RATHER THAN BY REFUSING THE LISTING, which is the choice this page already made for the
+ * same shape one surface over. `readLamp` in `status-state.ts` sends a lamp this console cannot read
+ * to its own unlit reading instead of refusing the status body, for the reason recorded at
+ * `LAMP_CHECKS` in `shapes.ts`: refusing a whole page because one item came back wrong turns a
+ * legible partial answer into no answer. A row is this page's lamp. One unreadable date out of forty
+ * rows must not cost a reader the other thirty nine, and `arrayOf` is `every`, so putting this in
+ * `shapes.ts` is exactly what it would have cost.
+ *
+ * THE CELL SAYS WHICH IT IS, and that is the entire product argument in one cell. `null` already has
+ * its own words here - `still current` for an open interval, `no date recorded` for a row nobody
+ * evicted - and those say NOTHING ARRIVED. This says something arrived and cannot be read, which is
+ * a different claim, and the page that blurs the two while arguing they are different would be the
+ * loudest possible way to fail.
+ *
+ * ONE PHRASE RATHER THAN THE THREE `instantFault` DISTINGUISHES, decided rather than overlooked. The
+ * status board prints a different sentence per fault because it has a slip to print it on; this is a
+ * cell in a three column row, and which of the three ways a date is unreadable does not change what
+ * the reader can do about it, which is nothing. What the cell owes them is that it is not a date.
+ *
+ * WHAT IT DOES NOT DO IS PRINT THE VALUE, and that is the one thing worth arguing about here. The
+ * status slip quotes what it refused and this does not, because a cell sized for `2026-08-10` cannot
+ * hold an arbitrary string off the wire without taking the row's layout with it. The value is in the
+ * response either way, and a reader who wants it has the network pane. Print nothing false, and do
+ * not print the unreadable thing where a date goes.
+ */
+export function readDay(iso: string): DayReading {
+  return instantFault(iso) === null
+    ? { text: iso.slice(0, 10), doubted: false }
+    : { text: 'a date this console cannot read', doubted: true };
 }
