@@ -5,7 +5,7 @@
  * `ok: true` for any 200 whose body parses, so the body decides nothing and the page believes
  * whatever arrives. Two reviews, in two rounds, drove the same input class through it:
  *
- *   - `{}` on `/agent/turn` reached `Console.tsx:316` as an answer, where `response.recalls.map`
+ *   - `{}` on `/agent/turn` reached `Console.tsx` as an answer, where `response.recalls.map`
  *     threw during render and the pane went blank - the silent absence `api.ts` says the whole site
  *     argues against;
  *   - `{ receipt: { coverage: 'COVERED', kinds: [] }, memories: [] }` on `/memories` passed the
@@ -171,8 +171,8 @@ const STATUS_CHECKS: FieldChecks<StatusResponse> = {
  *
  * THIS WAS THE DEFECT IN THE COMMIT THAT ADDED THIS FILE. `recalls[].memories` was checked as
  * `Array.isArray` and nothing more, so `[null]`, `[3]` or `['an-id']` were accepted - while
- * `Console.tsx` keys each one by `memory.id` (`:487`) and calls `score.toFixed` (`:96`) and
- * `similarity.toFixed` (`:121`). Those THROW, and the pane goes blank: exactly the failure the
+ * `RecalledStrip` in `Console.tsx` keys each one by `memory.id` and calls `score.toFixed` and
+ * `similarity.toFixed`. Those THROW, and the pane goes blank: exactly the failure the
  * header of this file says it closed, left open one list over from where it was closed. The listing
  * path had the identical hole and the identical fix twelve lines up, which is what makes this worth
  * writing down rather than quietly correcting.
@@ -228,7 +228,7 @@ const BUDGET_CHECKS: FieldChecks<BudgetView> = {
  * THIS PARAGRAPH HAS NOW BEEN WRONG TWICE, IN THE SAME DIRECTION, AND THAT IS THE REASON THE FIX IS
  * STRUCTURAL RATHER THAN ANOTHER FIELD. The first version said the fields beyond `coverage` are "a
  * wrong or blank cell"; corrected, it still said they are "printed and never dereferenced". Both
- * were false: `Console.tsx:399` calls `.toUpperCase()` on `retrievalPath`, so a receipt carrying
+ * were false: `Console.tsx` calls `.toUpperCase()` on `retrievalPath`, so a receipt carrying
  * only `coverage` was accepted and then threw during render. Writing a narrower claim about the
  * same object was not a fix, it was the same mistake with better prose.
  *
@@ -269,21 +269,46 @@ const RECALL_CHECKS: FieldChecks<RecallEventView> = {
 /**
  * One entry of the transcript, checked by the role it declares.
  *
- * `role` alone was not enough, which is the other half of the same finding. `Console.tsx:568` reads
- * `content.length`, so `{ role: 'tool_result', id: 't1', name: 'recall' }` - a turn with no
- * `content` - was accepted and threw during render. `TurnView` is five shapes carrying different
- * fields, so one flat map cannot describe it.
+ * `role` alone was not enough, which is the other half of the same finding. The transcript pane in
+ * `Console.tsx` reads `content.length`, so `{ role: 'tool_result', id: 't1', name: 'recall' }` - a
+ * turn with no `content` - was accepted and threw during render. `TurnView` is five shapes carrying
+ * different fields, so one flat map cannot describe it. (That reader was cited by LINE here until a
+ * review found the line had moved, so it is named instead. A file and an identifier survive an edit
+ * to the file. A number does not, and this file has no anchor convention to lean on.)
  *
  * The type is what keeps this honest in BOTH directions: a sixth role added to the union has no
  * entry and fails to compile, and a field added to one of the five variants leaves that variant's
  * map incomplete and fails to compile. `args` is `unknown` in the contract and stays unchecked here
- * on purpose - it is model-supplied, and `Console.tsx:226` already reads it defensively.
+ * on purpose - it is model-supplied, and `writeAttempts` in `Console.tsx` already reads it
+ * defensively.
+ *
+ * `given` IS CHECKED THOUGH NO SURFACE PRINTS IT, and it is checked the same way every other
+ * declared string on every other shape in this file is. A first version of this paragraph argued
+ * that refusing a whole body over an unrendered field was the opposite of what `ROW_CHECKS` and
+ * `LAMP_CHECKS` chose, and a review falsified it by reading them: `arrayOf` is `every` and
+ * `hasFields` returns on the first failing field, so ONE row missing a declared field refuses the
+ * whole listing and one lamp refuses the whole status body, exactly as this does. Presence is
+ * all or nothing everywhere here.
+ *
+ * WHAT THOSE TWO ACTUALLY CHOSE IS A DIFFERENT AXIS, and `given` already has it. Their leniency is
+ * about DOMAIN: `kind` and `state` are `isString` rather than the closed unions the contract
+ * declares, so a word this console has no label for prints as itself instead of taking the archive
+ * down with it. `given` is `isString` too, and it has no closed domain to be lenient about, so there
+ * is nothing further to give it. `args` is unchecked for the third reason again, that its declared
+ * type is `unknown`.
+ *
+ * The real cost is worth stating plainly and is not what the first version said: a `tool_call`
+ * without `given` fails the whole turn body, and the failure a reader sees is the console's
+ * unrecognised shape sentence rather than anything about a missing field. That is the deal every
+ * declared field on this page already makes. The one narrow way it could be reached is the loop
+ * writing `given` from a `ChatToolCall.id` that no adapter validated, which is a gap on the API side
+ * and belongs there rather than in a shrug on this one.
  */
 const TURN_ROLE_CHECKS: { [Role in TurnView['role']]: FieldChecks<Extract<TurnView, { role: Role }>> } = {
   user: { role: isString, content: isString },
   assistant: { role: isString, content: isString },
   refusal: { role: isString, content: isString },
-  tool_call: { role: isString, id: isString, name: isString, args: () => true },
+  tool_call: { role: isString, id: isString, given: isString, name: isString, args: () => true },
   tool_result: { role: isString, id: isString, name: isString, content: isString },
 };
 

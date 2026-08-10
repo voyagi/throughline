@@ -183,6 +183,11 @@ export async function runAgentTurn(options: AgentOptions, message: string): Prom
   let worstCoverage: Coverage | null = null;
   let toolCallCount = 0;
   let refusedAnAbsenceClaim = false;
+  // THE ID EVERY JOIN IN THIS TURN IS KEYED ON, and it has a counter of its own rather than reusing
+  // `toolCallCount`, which counts a different thing. Only calls UNDER budget increment that one, so
+  // an over-budget call would be announced under an id the last counted call already holds, and the
+  // one property this id has to have is that it cannot repeat.
+  let announced = 0;
 
   // A cap on ROUNDS, not just on tool calls, and they are genuinely different limits. Once the tool
   // budget is spent, every further request is answered with "you have used your budget" WITHOUT
@@ -268,12 +273,24 @@ export async function runAgentTurn(options: AgentOptions, message: string): Prom
       // announced: the exact shape the `refusal` role was added to remove, left standing on the
       // one path the invariant test did not drive. The model really did ask for the tool, so
       // recording the request and answering it with a refusal is also the honest transcript.
-      transcript.push({ role: 'tool_call', id: call.id, name: call.name, args: call.args });
+      //
+      // THE ID IS THIS LOOP'S OWN AND THE MODEL'S GOES IN `given`, which is the fix for a hole the
+      // turn coherence guard found by firing on it. `call.id` arrives from the model and nothing
+      // constrains it, so a model reusing one id for every call produced two announcements, two
+      // results and two receipts under one key. Every join in this system is that key: the console
+      // matches a receipt to the request that produced it by id, and a repeat there hides a FAILED
+      // recall behind a successful one, on the page whose whole argument is that the two are told
+      // apart. `given` keeps what the model sent, because that is what a provider adapter has to
+      // hand back when it replays this transcript, and discarding it to gain uniqueness would trade
+      // one loss for another.
+      announced += 1;
+      const id = `tc-${announced}`;
+      transcript.push({ role: 'tool_call', id, given: call.id, name: call.name, args: call.args });
 
       if (toolCallCount >= maxToolCalls) {
         transcript.push({
           role: 'tool_result',
-          id: call.id,
+          id,
           name: call.name,
           content:
             `This turn has already used its ${maxToolCalls} tool calls. Answer with what you have, ` +
@@ -285,10 +302,10 @@ export async function runAgentTurn(options: AgentOptions, message: string): Prom
 
       const outcome = await runTool(call, { repository, workspaceId });
       if (outcome.coverage !== undefined) worstCoverage = worseOf(worstCoverage, outcome.coverage);
-      // Keyed by the call id the model supplied, so a console can line a receipt up with the
-      // request that produced it rather than by position.
-      if (outcome.recall !== undefined) recalls.push({ callId: call.id, result: outcome.recall });
-      transcript.push({ role: 'tool_result', id: call.id, name: call.name, content: outcome.content });
+      // Keyed by the id announced above rather than by position, and rather than by the id the model
+      // supplied, for the reason given there.
+      if (outcome.recall !== undefined) recalls.push({ callId: id, result: outcome.recall });
+      transcript.push({ role: 'tool_result', id, name: call.name, content: outcome.content });
     }
   }
 }

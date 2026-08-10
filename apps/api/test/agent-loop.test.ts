@@ -407,17 +407,27 @@ describe('the tool budget and the round budget are different limits', () => {
     };
     const result = await run(threeAtOnce, repositoryReturning(recallResult()), 2);
 
-    const announced = new Set(
-      result.transcript
-        .filter((turn): turn is Extract<Turn, { role: 'tool_call' }> => turn.role === 'tool_call')
-        .map((turn) => turn.id),
+    const calls = result.transcript.filter(
+      (turn): turn is Extract<Turn, { role: 'tool_call' }> => turn.role === 'tool_call',
     );
+    const announced = new Set(calls.map((turn) => turn.id));
     for (const turn of result.transcript) {
       if (turn.role === 'tool_result') {
         expect(announced.has(turn.id), `tool_result ${turn.id} was never announced`).toBe(true);
       }
     }
-    expect(announced.has('c')).toBe(true);
+
+    // EIGHTEEN ANNOUNCEMENTS, AND THIS TEST USED TO SEE THREE. The model asks for the same three
+    // calls every round and the loop runs six rounds against a budget of two, so eighteen calls
+    // really are announced. Every one of them used to be announced under one of THREE ids, because
+    // the loop echoed the id the model sent, so six announcements and six results shared each id and
+    // nothing keyed on it could attribute any of them. The assertion here read the SET and found
+    // three, which is exactly how a turn with six collisions per id read as correct.
+    expect(calls).toHaveLength(18);
+    expect(announced.size).toBe(calls.length);
+    // The model's own ids are still on the record, and they are the three it kept reusing. Its
+    // third call, the one refused for budget, is among them, which is what this test is named for.
+    expect(new Set(calls.map((turn) => turn.given))).toEqual(new Set(['a', 'b', 'c']));
     expect(result.toolCallCount).toBe(2);
   });
 

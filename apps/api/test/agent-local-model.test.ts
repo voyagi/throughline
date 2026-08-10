@@ -21,10 +21,13 @@ function ask(history: readonly Turn[]): Promise<ChatReply> {
 
 const userTurn: Turn = { role: 'user', content: QUESTION };
 
+// THE TWO IDS DIFFER ON PURPOSE, because this is what the loop really writes. `id` is the loop's
+// own and `given` is what this model asked under, and the model reads NEITHER: it counts the recall
+// calls in the history and numbers its next one from that.
 const recalled = (content: string): readonly Turn[] => [
   userTurn,
-  { role: 'tool_call', id: 'recall-1', name: 'recall', args: { query: QUESTION } },
-  { role: 'tool_result', id: 'recall-1', name: 'recall', content },
+  { role: 'tool_call', id: 'tc-1', given: 'recall-1', name: 'recall', args: { query: QUESTION } },
+  { role: 'tool_result', id: 'tc-1', name: 'recall', content },
 ];
 
 describe('createLocalChatModel', () => {

@@ -461,8 +461,14 @@ function slipWords(container: HTMLElement): string {
  * `asking`, `not-asked`, `unknown` and `empty` the first paragraph is prose the page wrote, and for
  * `rows` there is no slip at all, which is the state where the throw below actually fires. That is
  * SEVEN states, and the first version of this list enumerated six: the producer was short one
- * member in the paragraph whose whole job was accurate narrowing. Both callers are on the two
- * states where the narrow claim holds.
+ * member in the paragraph whose whole job was accurate narrowing.
+ *
+ * NOTHING IS CLAIMED HERE ABOUT WHERE THE CALLERS SIT, and the sentence that stood in this place
+ * claimed it twice over and was wrong both ways. It said BOTH callers were on those two states.
+ * There are more than two, and three of them read the contradicted listing, where the first
+ * paragraph is the guard's own sentence rather than anything the API sent. That is a legitimate
+ * read and not a misuse: what this function returns is THE FIRST PARAGRAPH. Whose sentence that is
+ * depends on the state, and the list above is how a reader tells which.
  *
  * THROWS RATHER THAN RETURNING `''`, because the commit that added this converted `cellClass` and
  * `holderClass` to throw for exactly that reason and then introduced a fresh falsy sentinel two
@@ -904,8 +910,15 @@ describe('the archive island, hydrated', () => {
     // lost its sentence, it is a body that named no failure, so the page says the answer could not
     // be read. The detail is discarded with it, deliberately, because printing a readable reason
     // under this verdict would contradict it.
+    //
+    // THE DISCARD IS PINNED RATHER THAN ASSERTED IN THIS COMMENT, which is what the sentence above
+    // used to be on its own. The slip's FIRST paragraph is where this page prints `failure.detail`,
+    // so reading that paragraph whole says two things at once: the console wrote this sentence, and
+    // the body's own reason is not standing there. `slipWords` says only the first. It reads the
+    // whole slip, so it would pass just as happily with the rate limit sentence sitting beside the
+    // one it looks for, which is the coarse read this file's own docblock warns about.
     expect(cellText(receiptStrip(container), 'Verdict')).toBe('UNRECOGNISED_RESPONSE');
-    expect(slipWords(container)).toContain(
+    expect(slipDetail(container)).toBe(
       'Something answered 429 in a shape this console does not recognise.',
     );
   });

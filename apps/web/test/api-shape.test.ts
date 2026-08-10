@@ -268,7 +268,7 @@ describe('getMemories', () => {
 /**
  * The other two endpoints, which the first round of this fix left open.
  *
- * A `{}` on `/agent/turn` reached `Console.tsx:316` as an answer and `response.recalls.map` threw
+ * A `{}` on `/agent/turn` reached `Console.tsx` as an answer and `response.recalls.map` threw
  * during render: a blank pane, which is the silent absence this site argues against. A `{}` on
  * `/status` is non-null, so `StatusBoard.tsx:76` lit the holder beside three UNKNOWN fallback lamps.
  */
@@ -363,7 +363,7 @@ describe('postTurn', () => {
   });
 
   // THE RECALL RECEIPT, whose fields a docblock twice described as printed and never dereferenced.
-  // `Console.tsx:399` calls `.toUpperCase()` on `retrievalPath`, so a receipt carrying only
+  // `Console.tsx` calls `.toUpperCase()` on `retrievalPath`, so a receipt carrying only
   // `coverage` was accepted and threw during render. One case per declared field.
   it.each(Object.keys(RECALL.receipt))('refuses a recall receipt with no %s', async (field) => {
     vi.stubGlobal('fetch', () =>
@@ -372,11 +372,17 @@ describe('postTurn', () => {
     refused(await postTurn('https://api.example', 'hello'));
   });
 
-  // THE OTHER LIST THE CONSOLE WALKS. `role` alone was the whole check, and `Console.tsx:568` reads
-  // `content.length`, so a `tool_result` with no content was accepted and threw.
+  // THE OTHER LIST THE CONSOLE WALKS. `role` alone was the whole check, and the transcript pane in
+  // `Console.tsx` reads `content.length`, so a `tool_result` with no content was accepted and threw.
+  // Named rather than cited by line, for the reason `shapes.ts` gives beside the same reader.
   it.each([
     ['a tool_result with no content', { role: 'tool_result', id: 't1', name: 'recall' }],
-    ['a tool_call with no id', { role: 'tool_call', name: 'recall', args: {} }],
+    ['a tool_call with no id', { role: 'tool_call', given: 'x', name: 'recall', args: {} }],
+    // The sibling of the case above, and NOT because this console renders `given`. It does not, and
+    // the contract says so in as many words. It is checked the way every declared string on every
+    // shape in `shapes.ts` is checked, which is the whole of the reason: presence is all or nothing
+    // there, for rows and lamps just as much as for this.
+    ['a tool_call with no given', { role: 'tool_call', id: 't1', name: 'recall', args: {} }],
     ['a user turn with no content', { role: 'user' }],
     ['a refusal with no content', { role: 'refusal' }],
     ['a role this console does not know', { role: 'narrator', content: 'once upon a time' }],
@@ -401,7 +407,7 @@ describe('postTurn', () => {
     ['user', { role: 'user', content: 'have we seen this' }],
     ['assistant', { role: 'assistant', content: 'yes, once' }],
     ['refusal', { role: 'refusal', content: 'I will not claim absence' }],
-    ['tool_call', { role: 'tool_call', id: 't1', name: 'recall', args: { query: 'x' } }],
+    ['tool_call', { role: 'tool_call', id: 't1', given: 'toolu_01', name: 'recall', args: { query: 'x' } }],
     ['tool_result', { role: 'tool_result', id: 't1', name: 'recall', content: '{}' }],
   ])('accepts a well formed %s turn', async (_label, turn) => {
     // The negative controls for the role map. Without them a check that refused every turn would

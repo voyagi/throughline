@@ -430,7 +430,9 @@ describe('the console island, hydrated', () => {
     // is: `failedRecalls` derives it by call id and the board already draws it.
     answers({
       ...turn([recall(1)]),
-      transcript: [{ role: 'tool_call', id: 'recall-2', name: 'recall', args: { query: 'a second look' } }],
+      transcript: [
+        { role: 'tool_call', id: 'recall-2', given: 'recall-2', name: 'recall', args: { query: 'a second look' } },
+      ],
     });
     const container = await mountAndAsk('anything');
 

@@ -588,10 +588,13 @@ export default function Console({ apiBase }: Props) {
               </p>
             ))}
 
-          {/* Keys are positional throughout this rack. The obvious identifiers are not unique: the
-              local model emits the call id "recall-1" on every turn, and the same memory can be
-              recalled by two questions in one session, so keying on either collapses distinct
-              strips into one. */}
+          {/* Keys are positional throughout this rack. The obvious identifiers are not unique: a
+              call id is unique WITHIN a turn and the loop mints it per turn, so the first call of
+              every turn is "tc-1", and the same memory can be recalled by two questions in one
+              session, so keying on either collapses distinct strips into one. This used to name the
+              local model's "recall-1", which is no longer the id anything joins on. It still
+              travels, in `given`, which this page does not read. The conclusion did not change,
+              because the minted id repeats across turns exactly as the old one did. */}
           {found.length > 0 && <h3 class="subbay">Recalled</h3>}
           {found.map((memory, index) => (
             <RecalledStrip memory={memory} key={`${memory.id}-${index}`} />

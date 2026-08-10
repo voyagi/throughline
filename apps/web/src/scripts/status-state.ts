@@ -204,11 +204,14 @@ export const clockOf = (at: Date): string =>
  *      when they suspect something other than this API is replying.
  *   4. Two lamps print the same name, compared over the names the surfaces PRINT and with the ends
  *      trimmed. A repeat is two capabilities the reader cannot tell apart. It is ALSO two nodes
- *      under one preact key when the two raw names are byte identical, which is the commonest case,
- *      but not when they differ only by whitespace: both surfaces key on the UNTRIMMED name
- *      (`StatusBoard.tsx:163`, `Annunciator.tsx:82`), so `Vector index ` gets its own key while the
- *      browser collapses the space and the reader sees one heading twice. The reader is the reason
- *      this rule exists; the key is a consequence it sometimes also has.
+ *      under one preact key in two of the three cases, counted rather than waved at, and the
+ *      sentence that stood here named only one of the two. Both surfaces key on the PRINTED name
+ *      (`StatusBoard.tsx:163`, `Annunciator.tsx:82`), which `readLamp` passes through untrimmed
+ *      unless it is blank. So two byte identical names share a key. Two BLANK names share one too,
+ *      because `readLamp` maps every blank name to the single substitute. Two names differing only
+ *      by whitespace do NOT, since `Vector index ` keeps a key of its own while the browser
+ *      collapses the space and the reader sees one heading twice. The reader is the reason this rule
+ *      exists. The key is a consequence it sometimes also has.
  *   5. A probe instant with no lamps at all. The board's legend says each lamp is lit by a probe that
  *      asks the running database, and the rail would render a lone lit timestamp with nothing beside
  *      it, which is a rail reporting the clock as a success.

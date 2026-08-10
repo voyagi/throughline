@@ -22,7 +22,7 @@ import type { Coverage, MemoryKind } from './types.ts';
  * does not do what it reads as. A key naming something on `Object.prototype` - `constructor`,
  * `toString`, `__proto__`, `valueOf` - resolves to an INHERITED value, which is not nullish, so the
  * `??` never fires and the caller gets a function where it expected a label. A review measured the
- * consequence: `(PATH_LABEL[retrievalPath] ?? retrievalPath).toUpperCase()` at `Console.tsx:399`
+ * consequence: `(PATH_LABEL[retrievalPath] ?? retrievalPath).toUpperCase()` in `Console.tsx`
  * throws `TypeError: ... is not a function`, and a page that throws during render is the blank pane
  * this console exists to argue against.
  *

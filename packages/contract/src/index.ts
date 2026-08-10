@@ -150,11 +150,31 @@ export interface RecallEventView {
  * real provider while passing every test. The console has the mirror problem: attributing the
  * refusal to the user or to a tool puts the loop's sentence in someone else's mouth, on the one
  * screen that exists to show who said what.
+ *
+ * A `tool_call` CARRIES TWO IDS BECAUSE THEY ARE TWO DIFFERENT FACTS, and carrying one of them was a
+ * hole. `id` is minted by the loop and is unique within a turn. `given` is the id the MODEL sent,
+ * kept verbatim and printed on no surface. Nothing stops a model reusing one id for every call it
+ * makes, and echoing that into the transcript put two announcements and two receipts under one key.
+ * The console joins a receipt to the request that produced it by this id, so a repeat there hides a
+ * FAILED recall behind a successful one, which is the single thing that page exists to keep apart.
+ *
+ * REWRITING THE ID ALONE WOULD HAVE DISCARDED THE RECORD, which is why this is two fields and not a
+ * renamed one. What the model sent is the only thing a provider adapter can hand back when it
+ * replays this transcript as model input, and what the console needs is a key that cannot collide.
+ * Those are different values the moment a model repeats itself, so the transcript carries both
+ * rather than choosing. `tool_result` has NO `given`: the loop authors that turn outright and was
+ * never handed an id for it, so a copy there would be another turn's field wearing this one's name.
  */
 export type TurnView =
   | { readonly role: 'user'; readonly content: string }
   | { readonly role: 'assistant'; readonly content: string }
-  | { readonly role: 'tool_call'; readonly id: string; readonly name: string; readonly args: unknown }
+  | {
+      readonly role: 'tool_call';
+      readonly id: string;
+      readonly given: string;
+      readonly name: string;
+      readonly args: unknown;
+    }
   | { readonly role: 'tool_result'; readonly id: string; readonly name: string; readonly content: string }
   | { readonly role: 'refusal'; readonly content: string };
 

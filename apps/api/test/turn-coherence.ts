@@ -13,11 +13,25 @@
  * the paragraph explaining why it will not have the model judge its own subject matter. So this runs
  * in CI, over every exit the loop has, and ships nothing.
  *
+ * EVERY `loop.ts` LINE NUMBER IN THIS FILE IS READ AT `de773d8`, and that anchor is not decoration.
+ * TWENTY of them, counted by extracting every backticked citation from this file and adding the two
+ * that appear as prose in the next paragraph. The count said twenty-one for one commit, which is
+ * what you get by counting `server.ts:287` as well: that is a different file, this anchor does not
+ * vouch for it, and it happens to still be right.
+ *
+ * All twenty were correct at `ae8bd70` and every one BELOW THE FUNCTION SIGNATURE was wrong by five
+ * or by seventeen one commit later, because the commit that gave each tool call its own id inserted
+ * five lines inside the body and twelve more at the tool call push. The signature at 177 did not
+ * move, and the sentence here said every one had, which is the same kind of overreach as a count
+ * nobody measured. A citation with no commit beside it cannot be told from one that has gone stale,
+ * and this file's own subject is claims with no mechanism keeping them true. When a future change
+ * moves them again, re-derive them and move the anchor, or drop the numbers.
+ *
  * THE RULES ARE BUILT FROM WHAT THE LOOP EMITS, ENUMERATED BY READING IT, not from the failures that
- * came to mind. `runAgentTurn` has THREE return sites, counted at `f572c95` with a match-only grep
- * for a return inside its body at lines 177 to 294: the round cap at `:202`, the permitted answer at
- * `:227` and the second refusal at `:249`. This said FOUR and listed the round cap reached with an
- * empty tool list as the fourth, which is the SAME statement at `:202` arrived at by another route.
+ * came to mind. `runAgentTurn` has THREE return sites, counted with a match-only grep for a return
+ * inside its body at lines 177 to 311: the round cap at `:207`, the permitted answer at `:232` and
+ * the second refusal at `:254`. This said FOUR and listed the round cap reached with an empty tool
+ * list as the fourth, which is the SAME statement at `:207` arrived at by another route.
  * A miscount inside a paragraph whose claim is that the sites were enumerated is that claim failing
  * on itself. What the enumeration turns up is a set of asymmetries a guard written from intuition
  * gets backwards:
@@ -59,12 +73,13 @@ export const RULES = {
   toolCountNotACount: 'its tool call count is not a count',
   resultBeforeItsCall: 'a tool result arrives before anything announced its id',
   callWithoutResult: 'a tool call is announced and never answered',
+  callAnnouncedTwice: 'two tool calls are announced under one id',
   recallNeverAnnounced: 'a recall receipt is keyed to a call nothing announced',
   recallAnnouncedAsAnotherTool: 'a recall receipt is keyed to a call for a different tool',
   recallIdsRepeated: 'two recall receipts share one call id',
   coverageBetterThanARecall: 'its verdict is better than a recall it carries',
   coverageMissingWithRecalls: 'it carries recalls and reports no verdict at all',
-  coverageWithoutARecall: 'it reports a verdict only a completed recall can produce, with no receipt',
+  coverageWithoutARecall: 'it reports a verdict with no receipt behind it',
   returnedNotACount: 'a recall receipt reports a row count that is not a count',
   returnedDisagreesWithMemories: 'a recall receipt counts rows that did not arrive with it',
   refusalFlagWithoutARefusal: 'it reports refusing an answer and shows no refusal',
@@ -145,7 +160,17 @@ function transcriptRules(facts: TurnFacts): readonly Contradiction[] {
   const announced = new Set<string>();
   const answered = new Set<string>();
   for (const turn of transcript) {
-    if (turn.role === 'tool_call') announced.add(turn.id);
+    if (turn.role === 'tool_call') {
+      // THIS RULE WAS DELIBERATELY ABSENT UNTIL THE LOOP COULD PASS IT, and the reason is recorded
+      // here rather than lost. The loop used to echo the model's own id into this field, so a model
+      // reusing one id produced two announcements under it, and a rule the loop's real output fails
+      // is not a rule anybody can ship. The loop now mints the id itself and keeps what the model
+      // sent as `given`, which is what makes this checkable at all.
+      if (announced.has(turn.id)) {
+        found.push(raise('callAnnouncedTwice', `the id ${JSON.stringify(turn.id)}`));
+      }
+      announced.add(turn.id);
+    }
     if (turn.role === 'tool_result') {
       if (!announced.has(turn.id)) {
         found.push(raise('resultBeforeItsCall', `the result for ${JSON.stringify(turn.id)}`));
@@ -226,9 +251,9 @@ function coverageRules(facts: TurnFacts): readonly Contradiction[] {
   if (facts.recalls.length === 0) {
     // THE EARLY RETURN USED TO BE UNCONDITIONAL AND THAT WAS A HOLE, found by Codex on the open PR
     // and verified here against the loop rather than taken on report. A verdict and a receipt are
-    // set in the SAME return: `loop.ts:396` hands back `coverage` and `recall` together for a recall
-    // that completed, and `:287` and `:290` read them one line apart. The ONLY path that produces a
-    // verdict with no receipt is the catch at `:373`, and it always produces UNKNOWN, because there
+    // set in the SAME return: `loop.ts:413` hands back `coverage` and `recall` together for a recall
+    // that completed, and `:304` and `:307` read them off one outcome. The ONLY path that produces a
+    // verdict with no receipt is the catch at `:390`, and it always produces UNKNOWN, because there
     // is no receipt to show for a search that did not finish. So an empty `recalls` is coherent with
     // `null`, which means nothing was recalled, and with `UNKNOWN`, which means a recall threw. Any
     // other verdict there is a receipt that went missing between the loop and the reader, and
@@ -237,11 +262,22 @@ function coverageRules(facts: TurnFacts): readonly Contradiction[] {
     // WRITTEN AS AN ALLOWLIST, not as `=== 'COVERED' || === 'PARTIAL'`. Naming the two bad values
     // needs a new sibling the day a fourth verdict exists, and this file already carries the lesson
     // from the timestamp rule that closed a category by validating the form instead of enumerating
-    // the ways to break it.
+    // the ways to break it. It therefore also fires on a verdict this file has never heard of, which
+    // no recall can produce either, and that is why the rule's sentence promises no completed recall.
     if (facts.coverage !== null && facts.coverage !== 'UNKNOWN') {
       return [
         raise('coverageWithoutARecall', `it reports ${facts.coverage} and carries no receipt at all`),
       ];
+    }
+    // THE SECOND ARM, AND IT IS THE NARROWER TWIN OF THE ARM ABOVE. The exemption for UNKNOWN was
+    // unconditional, which is the early-return shape this rule was written to close, one reading
+    // further in. UNKNOWN with no receipt means a recall THREW, and a recall that threw was
+    // ANNOUNCED first: `loop.ts:288` pushes the `tool_call` before `runTool` can reach the catch at
+    // `:390`. So UNKNOWN with no receipt AND no recall ever announced is a verdict from nowhere, and
+    // the transcript already carries what is needed to say so. Two arms means two fault cases, one
+    // per arm, which is the lesson the budget day rule paid for two commits ago.
+    if (facts.coverage === 'UNKNOWN' && !calls(facts.transcript).some((turn) => turn.name === 'recall')) {
+      return [raise('coverageWithoutARecall', 'it reports UNKNOWN and announced no recall at all')];
     }
     return found;
   }
@@ -272,17 +308,26 @@ function coverageRules(facts: TurnFacts): readonly Contradiction[] {
  * transcript turn is written in the second person TO THE MODEL, and returning that put instructions
  * for the model on the operator's screen. So the rule admits exactly two forms and no third.
  *
+ * THE SECOND FORM IS GATED ON `refusedAnAbsenceClaim`, AND UNGATED IT WAS AN EXEMPTION NOBODY HAD
+ * READ AS A CLAIM. It said that a turn carrying the operator-facing sentence is on the record
+ * whatever else it shows, so a turn with that text, the flag false and no refusal turn anywhere was
+ * declared coherent. The loop returns that sentence at ONE site, `:255`, inside
+ * `if (refusedAnAbsenceClaim)` at `:245` and one statement after the refusal is pushed at `:243`, so
+ * the flag is true wherever the sentence is. The gate cannot over-refuse a real turn either: a model
+ * whose own answer happened to equal that sentence is still the last transcript turn, so it passes
+ * as `said` without reaching the second form at all.
+ *
  * A LOOP SENTENCE THAT CLAIMS ABSENCE IS THE PRODUCT'S HEADLINE FAILURE IN THE PRODUCT'S OWN VOICE.
  * The rule scans EVERY TURN PUSHED UNDER THE `refusal` ROLE, and there are exactly TWO push sites
  * for that role, counted with a match-only grep for `transcript.push` in `loop.ts`, which returns
- * SIX: `:201` the round cap notice, `:224` the model's own words, `:238` the refusal from
- * `judgeAnswer`, `:271` a tool call, `:274` the over budget notice and `:291` a tool result. Of the
- * six, `:201` and `:238` carry the refusal role and are what this rule reads.
+ * SIX: `:206` the round cap notice, `:229` the model's own words, `:243` the refusal from
+ * `judgeAnswer`, `:288` a tool call, `:291` the over budget notice and `:308` a tool result. Of the
+ * six, `:206` and `:243` carry the refusal role and are what this rule reads.
  *
  * WHAT IT DOES NOT READ, named rather than counted, because the count that stood here was a number
- * nobody could derive from the method the same sentence gave. The over budget notice at `:274` is a
- * `tool_result`. So are the tool failure sentences at `:349` and `:351` and every sentence `dispatch`
- * writes. `refusalForTheUser` at `:497` is authored by the loop and pushed NOWHERE: it is returned
+ * nobody could derive from the method the same sentence gave. The over budget notice at `:291` is a
+ * `tool_result`. So are the tool failure sentences at `:366` and `:368` and every sentence `dispatch`
+ * writes. `refusalForTheUser` at `:514` is authored by the loop and pushed NOWHERE: it is returned
  * as `text`, so no transcript scan can reach it. A blanket scan of `tool_result` content would be
  * wrong anyway, because a recall's rendered text carries memory content from the database, so it
  * would refuse a stored memory for quoting an absence rather than refusing the loop for asserting
@@ -301,7 +346,9 @@ function answerRules(facts: TurnFacts): readonly Contradiction[] {
   // what the rule below then says.
   const said = last === undefined || last.role === 'tool_call' ? null : last.content;
 
-  if (facts.text !== said && facts.text !== refusalForTheUser(facts.coverage)) {
+  const operatorRefusal =
+    facts.refusedAnAbsenceClaim && facts.text === refusalForTheUser(facts.coverage);
+  if (facts.text !== said && !operatorRefusal) {
     found.push(raise('answerIsNotOnTheRecord', `it returns ${JSON.stringify(facts.text.slice(0, 60))}`));
   }
   if (facts.refusedAnAbsenceClaim && !facts.transcript.some((turn) => turn.role === 'refusal')) {

@@ -153,7 +153,24 @@ is what that sentence costs when it is true.
 The rule for
 reading it: a commit that touches only documentation leaves these standing, and a commit that
 changes any file the suite loads makes them unverified until re-run. That set is `packages/*/src`,
-`apps/api/src`, `scripts/lib`, and every directory named in `vitest.config.ts` `test.include`.
+`apps/*/src`, `scripts/lib`, and every directory named in `vitest.config.ts` `test.include`. It read
+`apps/api/src` until a fourth reading found the same omission this section has already recorded
+twice: `apps/web/test/api-shape.test.ts` imports `../src/scripts/api.ts` and `../src/scripts/shapes.ts`
+directly, so the suite loads `apps/web/src` and a change there is a change the counts cannot survive.
+
+**ALL THIRTEEN ARE UNVERIFIED AS OF 2026-08-10, BY THE RULE DIRECTLY ABOVE.** The branch
+`fix/coherence-clauses-and-call-ids` changes FIVE groups in that set, counted with
+`git diff --stat ae8bd70..HEAD`: one file in `apps/api/src`, one in `packages/contract/src`, five
+under `apps/api/test`, four under `apps/web/test` and five under `apps/web/src`. This paragraph has
+now been written three times and named three groups, then four, before a review counted them. In a
+section whose own text says the set has been got wrong three times, once for omitting a directory,
+that is the same failure twice over: the enumeration was short, and so was the rule it was checked
+against, which is why `apps/web/src` is now named up there rather than only down here. Saying so here is the
+point of writing the rule down: the counts stop being readable as current the moment something in
+that set moves, and nothing else in this repository would have told a reader that. They are left
+standing rather than deleted, because a measurement that says when it went stale is worth more than
+no measurement at all, and re-running thirteen mutations is a unit of its own rather than a line in
+somebody else's.
 
 It is written out here, maintenance cost and all, because it has now been got wrong THREE times and
 the third attempt was the instruction to derive it. First it was `apps/api/src/agent/**`. Then it

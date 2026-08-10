@@ -532,11 +532,20 @@ describe('the HTTP surface', () => {
 
       const body = (await (await ask(app, { message: 'what broke last time?' })).json()) as {
         recalls: { callId: string; receipt: Record<string, unknown>; memories: unknown[] }[];
+        transcript: { role: string; id?: string; given?: string }[];
       };
 
       expect(body.recalls).toHaveLength(1);
       const [event] = body.recalls;
-      expect(event?.callId).toBe('call-1');
+      // THE LOOP'S OWN ID, NOT THE MODEL'S, and the two are asserted together because the point of
+      // the change that split them is that a console can key on one while the record keeps the
+      // other. This read `call-1` for both, which is the model's id, and could not have told the
+      // difference on a turn where the model sent one id twice.
+      expect(event?.callId).toBe('tc-1');
+      expect(body.transcript.find((turn) => turn.role === 'tool_call')).toMatchObject({
+        id: 'tc-1',
+        given: 'call-1',
+      });
       expect(event?.receipt).toMatchObject({
         query: 'checkout',
         coverage: 'COVERED',

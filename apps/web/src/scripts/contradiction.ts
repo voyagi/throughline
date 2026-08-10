@@ -92,7 +92,11 @@ export const isCount = (value: number): boolean => Number.isInteger(value) && va
  * FIVE CALLERS, and this list is the sort of enumeration that goes stale silently, so it is written
  * as what it is: a reader's map, not a guarantee. The guarantee is that there is one predicate.
  *
- * `shapes.ts` validates every one of those fields as a bare string, on purpose, so a value of pure
- * whitespace reaches a page and this is the predicate that stops it being printed as a reason.
+ * `shapes.ts` validates the three STATUS fields as bare strings, on purpose, so a value of pure
+ * whitespace reaches a page and this is the predicate that stops it being printed as a reason. It
+ * covers three of the five, and the sentence here claimed all five for one commit. The other two
+ * arrive by a different route: `shapes.ts` exports a guard for the listing, one for the status body
+ * and one for the agent turn, and none at all for a failure body, so a failure's `error` and
+ * `detail` are typechecked inside `asFailure` rather than by a shape guard.
  */
 export const isBlank = (value: string): boolean => value.trim() === '';

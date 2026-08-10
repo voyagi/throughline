@@ -17,9 +17,11 @@ import type { LampView, StatusResponse } from '../src/scripts/types.ts';
  *
  * MOST SENTENCES ARE PINNED WHOLE WITH `toBe` AND FOUR ARE NOT, which is what this said before and
  * got wrong by saying every one. The four use `toContain` and all four assert the duplicate-name
- * clause, where the surrounding sentence is already pinned whole by the test at the top of the
- * second describe. Pinning the clause alone there keeps five cases readable as five values rather
- * than as five copies of one paragraph.
+ * clause, where the surrounding sentence is already pinned whole by `refuses a body carrying two
+ * lamps under one name, and quotes the name`. Pinning the clause alone in the other four keeps five
+ * cases readable as five values rather than as five copies of one paragraph. That test is NAMED
+ * rather than placed, because the sentence here placed it and was wrong twice over: it sat in the
+ * first describe and not the second, and seventh in it rather than at the top.
  */
 
 const AT = '2026-08-09T20:04:05.123Z';

@@ -88,9 +88,11 @@ function asFailure(body: unknown, status: number): ApiFailure {
     // A USABLE `detail` IS DISCARDED ON THIS PATH AND THAT IS DELIBERATE, which the sentence here
     // used to deny by saying there was nothing to preserve. A body sending a blank code and a real
     // reason loses the reason. Keeping it would print that reason under the `UNRECOGNISED` verdict,
-    // which reads THE ANSWER COULD NOT BE READ, directly above a sentence proving something in it
-    // was read. That is the same self-contradiction the slip guards exist to refuse, so the loss is
-    // the cheaper of the two.
+    // which `Archive.tsx` draws as `THIS CONSOLE COULD NOT READ THE ANSWER. VERDICT: UNKNOWN.`,
+    // directly above a sentence proving something in it was read. That is the same
+    // self-contradiction the slip guards exist to refuse, so the loss is the cheaper of the two.
+    // The verdict is QUOTED rather than paraphrased, because a capitalised paraphrase reads as a
+    // quotation in a file that quotes exactly everywhere else, and this one was not the string.
     if (
       typeof candidate.error === 'string' &&
       !isBlank(candidate.error) &&

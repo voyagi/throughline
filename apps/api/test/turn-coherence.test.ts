@@ -12,7 +12,9 @@
  * what it was measured on, so it is the only one.)
  *
  * TWO HALVES, and the second is what stops the first rotting. The positive half runs the real loop
- * over twelve arrangements and asserts that `answerContradictions` finds nothing. The negative half
+ * over every arrangement in `EXITS` and asserts that `answerContradictions` finds nothing. No count
+ * is written here: the one that was said twelve, went to thirteen the moment an exit was added, and
+ * was not the kind of number a reader could check without counting the list anyway. The negative half
  * hands the guard a turn that is wrong in exactly one way and asserts the rule that names that fault
  * fires. The last test compares the rules the negative half drove against the whole rule set, so a
  * rule with no case that triggers it turns this suite red rather than sitting there reading as
@@ -37,12 +39,15 @@
  *   | the model facing refusal returned to the operator     |    3 of 47 |    0 of 34 |
  *   | the round cap notice put under the assistant role     |    1 of 47 |    0 of 34 |
  *
- * THE FIRST ROW IS WHY THIS FILE EXISTS. Nothing in `apps/api/test` compares a recall receipt to the
- * call that asked for it: a grep for `callId` there returns two lines, both in `server.test.ts`, of
- * which one is a type annotation inside a cast and the other is the single assertion, comparing the
- * id against a LITERAL rather than against the transcript. So a receipt keyed to an id no `tool_call`
- * announced was invisible to 47 tests, and it is the thing the console reads to line a receipt up
- * with its request.
+ * THE FIRST ROW IS WHY THIS FILE EXISTS. Nothing in `apps/api/test` compared a recall receipt to the
+ * call that asked for it: a grep for `callId` there returned two lines AT `f572c95`, before this file
+ * was written, both in `server.test.ts`, of which one is a type annotation inside a cast and the
+ * other is the single assertion, comparing the id against a LITERAL rather than against the
+ * transcript. So a receipt keyed to an id no `tool_call` announced was invisible to 47 tests, and it
+ * is the thing the console reads to line a receipt up with its request. The grep returns more than
+ * that today, in more files, and the reason is this file and the ones it made necessary, so the
+ * measurement is anchored where it was taken rather than rewritten to a number that would say
+ * nothing about why the file exists.
  *
  * THE LAST THREE ROWS ARE THE HONEST HALF AND ARE NOT A GAP TO CLOSE HERE. Each is a defect this
  * guard cannot see BY CONSTRUCTION, and saying so is the point of measuring:
@@ -63,7 +68,7 @@ import { describe, expect, it } from 'vitest';
 import type { AgentTurnResponse, TurnView } from '@throughline/contract';
 import type { ChatModel, ChatReply } from '../src/agent/loop.ts';
 import type { MemoryRepository, RecallResult } from '@throughline/memory';
-import { runAgentTurn, type AgentAnswer } from '../src/agent/loop.ts';
+import { refusalForTheUser, runAgentTurn, type AgentAnswer } from '../src/agent/loop.ts';
 import { createScriptedChatModel } from '../src/agent/local-model.ts';
 import { toRecallEvent } from '../src/http/contract.ts';
 import { answerContradictions, responseContradictions, RULES, type RuleId } from './turn-coherence.ts';
@@ -99,28 +104,29 @@ function run(
 }
 
 /**
- * A model that never stops asking, WITH A FRESH ID EACH TIME.
+ * A model that never stops asking, which is how the round cap gets driven with tools in hand.
  *
- * THE GUARD FOUND SOMETHING ON ITS FIRST RUN AND THIS IS THE HONEST RECORD OF IT. The first version
- * of this model returned the same literal call id every round, copying the fixture in
- * `agent-loop.test.ts`, and `recallIdsRepeated` fired: the turn came back carrying several recall
- * receipts all keyed to one id, which a console cannot attribute to the request that produced each.
- * `loop.ts` echoes `call.id` exactly as the model supplied it and validates nothing about it, which
- * is already carried as a known gap.
+ * THE GUARD FOUND SOMETHING ON ITS FIRST RUN AND THIS IS THE HONEST RECORD OF IT, IN THE PAST TENSE
+ * BECAUSE IT IS OVER. The first version of this model returned the same literal call id every round,
+ * copying the fixture in `agent-loop.test.ts`, and `recallIdsRepeated` fired: the turn came back
+ * carrying several recall receipts all keyed to one id, which a console could not attribute to the
+ * request that produced each. `loop.ts` echoed `call.id` exactly as the model supplied it, and the
+ * decision recorded here was that the loop would not be changed for it, because refusing a repeat
+ * closes only the receipt half and the choice between a unique id and the id the model sent is a
+ * design change rather than a patch.
  *
- * THE LOOP IS NOT CHANGED HERE, and that is a decision rather than an oversight. Nothing in
- * production repeats an id: `createChatModel` in `local-model.ts` throws for every provider except
- * the local one, so `createLocalChatModel` is the only model that can reach the loop and it numbers
- * its calls `recall-1` upward within a turn. `createScriptedChatModel`, used here and by
- * `agent-loop.test.ts`, is the TEST model, and the only producers of a repeat are fixtures reusing a
- * literal. Making the loop refuse a repeat
- * would not fix the deeper half either, because the transcript would still carry two `tool_call`
- * turns under one id, and the fix that does close that has to choose between an id that is unique
- * and an id that is what the model actually sent. That is a design change, not a patch, and it
- * belongs in its own unit with the provider adapter that will care about it.
+ * THAT DECISION WAS REVERSED IN `de773d8` AND EVERY SENTENCE ABOVE IS HISTORY. The loop mints its
+ * own `tc-N` and keeps what the model sent in `given`, so `forgetful` below models a repeating model
+ * on purpose and the turn it produces is coherent. This paragraph exists because the version of this
+ * docblock that said THE LOOP IS NOT CHANGED HERE survived the commit that changed it, sitting just
+ * above a new docblock saying the opposite, and a reader would have believed whichever they reached
+ * first. A note explaining why something was not done has to be deleted by the change that does it.
+ * (No line distance is quoted. The sentence here said twenty and it was thirty, which is the trap
+ * the sibling file records as the reason it stopped quoting distances at all.)
  *
- * So the RULE stays, because catching this is the guard's job, and the fixture stops modelling the
- * defect while pretending to model the loop.
+ * The per-round id this model still hands out no longer reaches any rule: rules read `id`, which the
+ * loop now owns, so these land in `given` and nothing compares them. It is kept because a model that
+ * varies its ids is the ordinary case and this fixture should not quietly become the odd one.
  */
 const insatiable: ChatModel = {
   id: 'insatiable',
@@ -138,17 +144,55 @@ const asksForNothing: ChatModel = {
   reply: () => Promise.resolve({ kind: 'tools', calls: [] }),
 };
 
+/**
+ * A model that reuses ONE call id for every call it makes.
+ *
+ * THIS IS THE FIXTURE THE GUARD CAUGHT ON ITS FIRST RUN, RESTORED AS A CASE THE LOOP NOW HANDLES.
+ * It used to be what `insatiable` did by accident, copied from another file's literal, and the turn
+ * came back carrying several receipts keyed to one id. The note beside it recorded that the loop was
+ * not being changed, because refusing a repeat closes only the receipt half and leaves two
+ * `tool_call` turns sharing an id, and choosing between an id that is unique and the id the model
+ * actually sent is a design change rather than a patch.
+ *
+ * That choice is made now and it is BOTH. The loop mints the id it joins on and keeps what the model
+ * sent as `given`, so this model is no longer a fixture modelling a defect: it is an ordinary
+ * provider being sloppy, which is a thing a provider is free to be.
+ *
+ * A FACTORY AND NOT A CONSTANT, the way `throwing()` beside it already is, because the count lives
+ * in a closure. Written as a constant it was shared between the two tests that use it, and the first
+ * one exhausted it: the second received a model that answered on its first call and asked for no
+ * tool at all. The test that found that was the one written to prove this fixture repeats an id.
+ */
+const forgetful = (): ChatModel => ({
+  id: 'forgetful',
+  reply: (() => {
+    let asked = 0;
+    return (): Promise<ChatReply> => {
+      asked += 1;
+      return Promise.resolve(
+        asked > 2 ? answer('Checkout was slow in July.') : recallCall('call-1', `look ${asked}`),
+      );
+    };
+  })(),
+});
+
 const throwing = (): MemoryRepository =>
   fakeRepository({ recall: () => Promise.reject(new Error('the cluster refused the connection')) });
 
 /**
  * EVERY EXIT, ENUMERATED FROM `loop.ts` RATHER THAN FROM THE CASES THAT CAME TO MIND.
  *
- * `runAgentTurn` returns from THREE places, at `loop.ts:202`, `:227` and `:249`: the round cap, a
- * permitted answer and a second refusal. This said four and counted the round cap twice, once for
- * the empty tool list, which is the same statement reached by another route. The module beside this
- * one was corrected for that exact miscount in the commit that should have corrected this line too,
- * which is the sibling file half of the shape this whole branch keeps closing.
+ * `runAgentTurn` returns from THREE places, read at `de773d8`: `loop.ts:207`, `:232` and `:254`, the
+ * round cap, a permitted answer and a second refusal. This said four and counted the round cap
+ * twice, once for the empty tool list, which is the same statement reached by another route. The
+ * module beside this one was corrected for that exact miscount in the commit that should have
+ * corrected this line too, which is the sibling file half of the shape this whole branch keeps
+ * closing.
+ *
+ * AND THEN IT HAPPENED AGAIN, TO THESE THREE NUMBERS, IN THE PARAGRAPH SAYING SO. They read 202, 227
+ * and 249 until round nine, because the commit that re-derived every citation in the module beside
+ * this one walked past the sibling file whose whole subject is that sibling files get walked past.
+ * The numbers carry the anchor now for the reason that module gives.
  *
  * Reaching each of the three is not the same as covering the loop, so the arrangements below also
  * drive the paths that BUILD the fields the rules
@@ -194,6 +238,14 @@ const EXITS: readonly (readonly [string, () => Promise<AgentAnswer>])[] = [
     () => run(insatiable, repositoryReturning(recallResult()), 2),
   ],
   ['the round cap reached while the model asks for nothing', () => run(asksForNothing, fakeRepository(), 2)],
+  [
+    'a model that sends one call id twice, which the loop must not echo into two receipts',
+    () =>
+      run(
+        forgetful(),
+        repositoryReturning(recallResult({ coverage: 'COVERED', memories: [scoredMemory()] })),
+      ),
+  ],
   [
     'a recall that throws, which moves the verdict and leaves no receipt behind',
     () =>
@@ -299,9 +351,31 @@ describe('a turn the loop really produced never argues with itself', () => {
   });
 });
 
+describe('two calls get two ids, whatever the model called them', () => {
+  it('does not echo one model id into two announcements and two receipts', async () => {
+    const result = await run(
+      forgetful(),
+      repositoryReturning(recallResult({ coverage: 'COVERED', memories: [scoredMemory()] })),
+    );
+
+    const announced = result.transcript
+      .filter((turn): turn is Extract<TurnView, { role: 'tool_call' }> => turn.role === 'tool_call')
+      .map((turn) => turn.id);
+
+    expect(announced).toHaveLength(2);
+    expect(new Set(announced).size).toBe(2);
+    expect(result.recalls).toHaveLength(2);
+    expect(new Set(result.recalls.map((event) => event.callId)).size).toBe(2);
+  });
+});
+
 const USER: TurnView = { role: 'user', content: 'has checkout been slow before?' };
 const SAID: TurnView = { role: 'assistant', content: 'Checkout was slow in July.' };
-const CALLED: TurnView = { role: 'tool_call', id: 'call-1', name: 'recall', args: { query: 'x' } };
+// `id` AND `given` ARE THE SAME STRING IN THE HAND-BUILT FIXTURES BELOW, and that is a convenience
+// rather than a claim about the loop, which mints `tc-1` and records what the model sent. These
+// cases exist to drive the RULES, which read `id` and never `given`. What the loop really writes is
+// covered by the exits above, which run it.
+const CALLED: TurnView = { role: 'tool_call', id: 'call-1', given: 'call-1', name: 'recall', args: { query: 'x' } };
 const RESULT: TurnView = { role: 'tool_result', id: 'call-1', name: 'recall', content: 'one row' };
 
 const coherent = (): AgentAnswer => ({
@@ -326,12 +400,28 @@ const withReturned = (returned: number): RecallResult => {
  * being wrong in some other way that happens to trip the same rule. The base is asserted coherent by
  * its own test below, which is what makes every difference here attributable.
  *
- * TWO OF THEM CHANGE TWO FIELDS AND CANNOT DO OTHERWISE, which is worth naming rather than letting
- * the sentence above read as absolute. `callWithoutResult` drops the `tool_result` turn and clears
- * `recalls`, because a receipt keyed to a call whose result never arrived would also trip
- * `recallNeverAnnounced` and the case would stop being about one rule. `loopSentenceClaimsAbsence`
- * replaces the last turn and `text` together, because `text` must go on matching the record or the
- * case would trip `answerIsNotOnTheRecord` as well.
+ * ONE FAULT PER CASE IS ENFORCED RATHER THAN PROMISED, which it was not until round seven found a
+ * case quietly firing two. The assertion compares the WHOLE set of rules a case fires against the
+ * one it names plus anything `ALSO_FIRES` records as unavoidable for it, so a case that starts
+ * breaking a second thing turns red instead of going on reading as a proof about the first.
+ *
+ * THREE OF THEM CHANGE MORE THAN ONE FIELD AND CANNOT DO OTHERWISE, which is worth naming rather
+ * than letting the sentence above read as absolute. `loopSentenceClaimsAbsence` replaces the last
+ * turn and `text` together, because `text` must go on matching the record or the case would trip
+ * `answerIsNotOnTheRecord` as well. The SECOND arm of `coverageWithoutARecall` changes three: the
+ * announced call has to stop being a recall, the receipts have to go with it, and the verdict has to
+ * be UNKNOWN, because the arm is about exactly that combination and no smaller break reaches it. The
+ * second `answerIsNotOnTheRecord` case changes three for the same kind of reason: it has to set the
+ * refusal flag, carry a refusal turn so `refusalFlagWithoutARefusal` stays quiet, and return a text
+ * that is neither of the two forms the rule admits.
+ *
+ * `callWithoutResult` USED TO BE ONE OF THEM AND IS NOT ANY MORE, and the reason it gave was false.
+ * It cleared `recalls` as well, on the stated grounds that a receipt left standing would also trip
+ * `recallNeverAnnounced`. That rule keys on the tool CALL, built from the transcript, and this case
+ * keeps the call and drops the RESULT, so the receipt stays announced and that rule never fires.
+ * What clearing `recalls` actually did was leave `coverage` at COVERED with no receipt, which trips
+ * the newer `coverageWithoutARecall` too, so the case reported two rules in the file that promises
+ * one. It was invisible while the rule that caught it did not exist yet.
  */
 const FAULTS: readonly (readonly [RuleId, string, AgentAnswer])[] = [
   ['transcriptEmpty', 'nothing was recorded', { ...coherent(), transcript: [] }],
@@ -354,7 +444,16 @@ const FAULTS: readonly (readonly [RuleId, string, AgentAnswer])[] = [
   [
     'callWithoutResult',
     'a call is announced and dropped',
-    { ...coherent(), transcript: [USER, CALLED, SAID], recalls: [] },
+    { ...coherent(), transcript: [USER, CALLED, SAID] },
+  ],
+  [
+    // ONE FIELD, AND IT FIRES ONE RULE, which is worth saying because the obvious second change is
+    // not needed: `toolCallCount` stays at 1 against two announcements, and that rule only fires
+    // when the count EXCEEDS them. A turn counting fewer calls than it announced is the over-budget
+    // case and is legal.
+    'callAnnouncedTwice',
+    'one id announces two calls',
+    { ...coherent(), transcript: [USER, CALLED, CALLED, RESULT, SAID] },
   ],
   [
     'recallNeverAnnounced',
@@ -371,7 +470,7 @@ const FAULTS: readonly (readonly [RuleId, string, AgentAnswer])[] = [
       ...coherent(),
       transcript: [
         USER,
-        { role: 'tool_call', id: 'call-1', name: 'remember', args: {} },
+        { role: 'tool_call', id: 'call-1', given: 'call-1', name: 'remember', args: {} },
         RESULT,
         SAID,
       ],
@@ -411,6 +510,21 @@ const FAULTS: readonly (readonly [RuleId, string, AgentAnswer])[] = [
     { ...coherent(), recalls: [] },
   ],
   [
+    // THE SECOND ARM OF THE SAME RULE, which the case above cannot reach: it keeps the recall in the
+    // transcript and removes only the receipt, so the UNKNOWN exemption never has to decide anything.
+    // Here the turn reports the verdict a THROWN recall produces while announcing no recall at all,
+    // and a recall that threw was announced before it could throw. Three fields, for the reason the
+    // docblock above gives.
+    'coverageWithoutARecall',
+    'it reports the thrown-recall verdict and never asked',
+    {
+      ...coherent(),
+      transcript: [USER, { role: 'tool_call', id: 'call-1', given: 'call-1', name: 'remember', args: {} }, RESULT, SAID],
+      recalls: [],
+      coverage: 'UNKNOWN',
+    },
+  ],
+  [
     'returnedDisagreesWithMemories',
     'the receipt counts rows that did not arrive',
     { ...coherent(), recalls: [{ callId: 'call-1', result: withReturned(4) }] },
@@ -431,6 +545,39 @@ const FAULTS: readonly (readonly [RuleId, string, AgentAnswer])[] = [
     { ...coherent(), text: 'Something nobody said.' },
   ],
   [
+    // THE SECOND FORM OF BEING ON THE RECORD, WHICH THE RULE USED TO ADMIT FROM ANY TURN AT ALL.
+    // `refusalForTheUser` is the sentence the loop returns to the OPERATOR on a second refusal, and
+    // it is deliberately not a transcript turn, so the rule has to admit it. Ungated, that admission
+    // was an exemption nobody had read as a claim: it said a turn carrying that sentence is on the
+    // record whatever else it shows. Here the flag is false and no turn carries the refusal role, so
+    // the loop could not have produced this text, and until this case existed the gate that says so
+    // was pinned by nothing.
+    'answerIsNotOnTheRecord',
+    'it returns the operator-facing refusal without having refused anything',
+    { ...coherent(), text: refusalForTheUser('COVERED') },
+  ],
+  [
+    // THE OTHER HALF OF THE SAME GATE, and with the case above alone only the FLAG half was pinned.
+    // Mutating the gate to `operatorRefusal = facts.refusedAnAbsenceClaim` left every other case and
+    // every exit green, so any turn that had refused once would have been exempt from this rule
+    // altogether, which is a wider hole than the one the gate was added to close. Here the flag is
+    // true AND a refusal turn is present, so the two rules about refusals stay quiet, and the text is
+    // neither the last turn nor the operator sentence. Three fields, for the reason above.
+    'answerIsNotOnTheRecord',
+    'it refused once and then returned a sentence from nowhere',
+    {
+      ...coherent(),
+      refusedAnAbsenceClaim: true,
+      transcript: [
+        USER,
+        CALLED,
+        RESULT,
+        { role: 'refusal', content: 'Rewrite that to say only what the search established.' },
+      ],
+      text: 'Something nobody said.',
+    },
+  ],
+  [
     'loopSentenceClaimsAbsence',
     'the loop asserts an absence in its own voice',
     {
@@ -441,6 +588,36 @@ const FAULTS: readonly (readonly [RuleId, string, AgentAnswer])[] = [
   ],
   ['modelIdBlank', 'nothing is named as having answered', { ...coherent(), modelId: '   ' }],
 ];
+
+/**
+ * The cases that CANNOT fire one rule alone, with what else they fire.
+ *
+ * TWO CASES, THREE RULES EACH, AND THE CONTENTS WERE READ OFF THE FAILING ASSERTION RATHER THAN
+ * REASONED. The first version of this table was written from an argument about what each case ought
+ * to trip, listed `recallNeverAnnounced` for both, and was wrong for both: it is the right extra for
+ * neither one on its own. That is the whole reason the assertion compares the set instead of
+ * containing it, and it caught its author on the commit that added it.
+ *
+ * Both cases take the TRANSCRIPT away, and three separate rules read the transcript for something
+ * the rest of the turn still refers to. Emptying it orphans the receipt, which is keyed to a call
+ * that is now gone, and leaves the answer matching no turn at all. Replacing it with the assistant
+ * turn alone orphans the receipt and leaves a tool count standing over nothing announced. Neither
+ * can be narrowed: clearing `recalls` to quieten the orphan would leave COVERED with no receipt,
+ * which is what `coverageWithoutARecall` refuses, and that trade is the mistake `callWithoutResult`
+ * was carrying.
+ *
+ * KEYED BY THE LABEL, WHICH IS UNIQUE PER CASE, and not by the rule, because a rule-keyed table
+ * would hand one case's exemption to every other case naming the same rule. FOUR RULES HAVE MORE
+ * THAN ONE CASE, and this sentence said two of them and was made wrong by the commit it was written
+ * in: `answerIsNotOnTheRecord` has three, `coverageWithoutARecall` two, and on the budget list,
+ * which consults the same table, `budgetDayNotADay` has four and `budgetNotACount` two. A renamed
+ * label drops out of this table and turns its case RED rather than quietly widening what that case
+ * is allowed to fire, which is the safe direction for a lookup that grants permission.
+ */
+const ALSO_FIRES: Readonly<Record<string, readonly RuleId[]>> = {
+  'nothing was recorded': ['recallNeverAnnounced', 'answerIsNotOnTheRecord'],
+  'the message that started it is missing': ['recallNeverAnnounced', 'toolCountAboveAnnouncements'],
+};
 
 const asResponse = (answered: AgentAnswer, budget: AgentTurnResponse['budget']): AgentTurnResponse => ({
   text: answered.text,
@@ -455,8 +632,43 @@ const asResponse = (answered: AgentAnswer, budget: AgentTurnResponse['budget']):
 
 const BUDGET_FAULTS: readonly (readonly [RuleId, string, AgentTurnResponse['budget']])[] = [
   ['budgetSpentAboveItsLimit', 'it spent past its own ceiling', { used: 51, limit: 50, day: '2026-08-10' }],
+  // THAT GUARD IS `!isCount(limit) || (used !== null && !isCount(used))`, WHICH IS THREE CLAUSES AND
+  // NOT TWO. The sentence here said two and named a half for each of these cases, which left the
+  // third unaccounted for one commit after the round that was about unaccounted clauses. The
+  // null test is pinned by the positive control below rather than by a row here, because that clause
+  // exists to let a legal body THROUGH and no fault case can hold a clause like that.
+  //
+  // The ceiling and the spend pin the two `isCount` calls. Until the second row existed the right
+  // operand had nothing at all holding it: every `used` any case fed was 3 or 51, both of them
+  // counts, so it could be deleted with the suite still green. That is the same defect as the budget
+  // day shape clause, twenty lines up, in the same function, found in the round that fixed that one.
+  //
+  // THE TWO VALUES ALSO SPLIT `isCount` ITSELF, which is two clauses wearing one name. `-1` fails
+  // `value >= 0` and passes `Number.isInteger`, and `2.5` does the reverse, so between them the
+  // predicate has no clause that can be deleted quietly. Every non-count in this file used to be
+  // `-1`, so `Number.isInteger` was decoration and `isCount(3.5)` would have been true.
   ['budgetNotACount', 'the ceiling is not a count', { used: 3, limit: -1, day: '2026-08-10' }],
-  ['budgetDayNotADay', 'the day is a word', { used: 3, limit: 50, day: 'today' }],
+  ['budgetNotACount', 'the count spent is not a whole number', { used: 2.5, limit: 50, day: '2026-08-10' }],
+  [
+    // A TWO CLAUSE CASE, AND IT PINS NEITHER OF THEM ALONE. Measured on node v22.22.0 at `ae8bd70`:
+    // `today` fails the shape test AND parses to NaN, so deleting either clause leaves it red. It is
+    // kept because it is the value a human actually types, not because it isolates anything.
+    'budgetDayNotADay',
+    'the day is a word',
+    { used: 3, limit: 50, day: 'today' },
+  ],
+  [
+    // THE CASE ONLY THE SHAPE CLAUSE CATCHES, and until it was added that clause was pinned by
+    // NOTHING while the three cases around it read as covering the rule. Measured on node v22.22.0
+    // at `ae8bd70`: deleting the shape test reddens NONE of the other cases, because every one of
+    // their values fails a later clause as well. `+012026-08-10` is the expanded year notation,
+    // which `Date.parse` accepts and `toISOString` reproduces BYTE IDENTICAL, so the NaN test and
+    // the identity both wave it through and only the shape refuses it. This is the same defect the
+    // case below was written to fix, one clause up, and it was standing in the commit that fixed it.
+    'budgetDayNotADay',
+    'the day is a real instant written in a notation this field never uses',
+    { used: 3, limit: 50, day: '+012026-08-10' },
+  ],
   [
     // THE CASE THE SHAPE RULE LETS THROUGH AND THE PARSE CATCHES. Measured on node v22.22.0 at
     // `766e3b3`: `2026-13-45` matches the shape and `Date.parse` returns NaN for it, so this pins
@@ -469,10 +681,13 @@ const BUDGET_FAULTS: readonly (readonly [RuleId, string, AgentTurnResponse['budg
   [
     // THE CASE ONLY THE ROUND TRIP CATCHES, and without it that clause was pinned by NOTHING. The
     // comment on the case above USED to claim it pinned the round trip half. Measured: it does not.
-    // Over six years times every mm and dd from 00 to 99, 40 of 60000 values are caught only by the
-    // identity and `2026-13-45` is not one of them, so deleting the identity left every test green
-    // while the guard silently degraded to shape plus parse. `2026-02-30` parses to the second of
-    // March, which is a real instant that is not the day written.
+    // Over 2020 to 2025 times every mm and dd from 00 to 99, 40 of 60000 values are caught only by
+    // the identity and `2026-13-45` is not one of them, so deleting the identity left every test
+    // green while the guard silently degraded to shape plus parse. THE WINDOW HAS TO BE NAMED, and
+    // the sentence that stood here did not name one: the same sweep over 2026 to 2031 gives 41,
+    // because a leap year falls in a different place in it, so the bare figure was underivable.
+    // `2026-02-30` parses to the second of March, which is a real instant that is not the day
+    // written.
     'budgetDayNotADay',
     'the day parses and names a different day than it writes',
     { used: 3, limit: 50, day: '2026-02-30' },
@@ -486,12 +701,48 @@ describe('each rule fires on the fault it names, and the guard is not vacuous', 
     expect(answerContradictions(coherent())).toEqual([]);
   });
 
-  it.each(FAULTS)('%s: %s', (rule, _label, broken) => {
-    expect(answerContradictions(broken).map((one) => one.rule)).toContain(rule);
+  it('accepts a budget whose spend is null, which is a shape the contract allows', () => {
+    // THE THIRD CLAUSE OF THE BUDGET COUNT GUARD, and no fault case can pin it, because that clause
+    // exists to let a legal body THROUGH rather than to catch one. `BudgetView.used` is
+    // `number | null` and `isCount(null)` is false, so rewriting `used !== null &&` to
+    // `used === null ||` compiles and turns this body into a reported contradiction while every
+    // fault case stays green. A positive control is the only shape of test that sees that.
+    //
+    // The web side already pins its own null branch, in `api-shape.test.ts`, which feeds a null
+    // spend and asserts the console accepts the body. This is that assertion's missing sibling on
+    // the API side, and the guard here is the one that would have to be wrong for both to matter.
+    const budget = { used: null, limit: 50, day: '2026-08-10' };
+
+    expect(responseContradictions(asResponse(coherent(), budget))).toEqual([]);
   });
 
-  it.each(BUDGET_FAULTS)('%s: %s', (rule, _label, budget) => {
-    expect(responseContradictions(asResponse(coherent(), budget)).map((one) => one.rule)).toContain(rule);
+  it.each(FAULTS)('%s: %s', (rule, label, broken) => {
+    // THE WHOLE SET, NOT `toContain`, AND THE DIFFERENCE IS A DEFECT THIS FILE ALREADY SHIPPED. One
+    // fault per case is a promise the docblock above makes, and until this line compared the whole
+    // set nothing enforced it: `callWithoutResult` cleared `recalls` for a stated reason that was
+    // false, which left COVERED standing with no receipt and fired `coverageWithoutARecall` too. A
+    // containment assertion cannot see a second rule, so the case read as proving one thing while
+    // proving two, and it was the arrival of the second rule that made it wrong rather than anything
+    // the case itself changed. Every case that genuinely cannot fire alone declares what else it
+    // fires, so the exceptions are data here rather than prose nobody checks.
+    //
+    // SORTED, because the order the rules come back in belongs to `turnContradictions` rather than
+    // to this assertion, and pinning it here would turn a harmless reordering of the rule sets into
+    // twenty red tests.
+    expect([...answerContradictions(broken).map((one) => one.rule)].sort()).toEqual(
+      [rule, ...(ALSO_FIRES[label] ?? [])].sort(),
+    );
+  });
+
+  it.each(BUDGET_FAULTS)('%s: %s', (rule, label, budget) => {
+    // THE SAME WHOLE-SET COMPARISON AS ABOVE, and it was left as `toContain` for one commit while
+    // the assertion three lines up was converted, which is this file's own subject happening to it.
+    // A mechanism that covers one of two sibling lists is not a mechanism, it is a case that got
+    // attention. Every budget case fires exactly one rule, so `ALSO_FIRES` is consulted for the same
+    // reason rather than because any of them needs an entry today.
+    expect(
+      [...responseContradictions(asResponse(coherent(), budget)).map((one) => one.rule)].sort(),
+    ).toEqual([rule, ...(ALSO_FIRES[label] ?? [])].sort());
   });
 
   it('drives every rule in the set, so none of them is a guard nobody can trigger', () => {
@@ -504,5 +755,16 @@ describe('each rule fires on the fault it names, and the guard is not vacuous', 
     ]);
 
     expect([...driven].sort()).toEqual(Object.keys(RULES).sort());
+  });
+
+  it('keeps every case label unique, because the exemption table is keyed by one', () => {
+    // THE MECHANISM UNDER `ALSO_FIRES`, which until now was an argument in its docblock. That table
+    // grants a case permission to fire extra rules and is keyed by label, so two cases sharing a
+    // label would hand one case's exemption to the other silently, and `it.each` would show it only
+    // as two tests with the same name. A lookup that grants permission needs its key guarded, and
+    // the docblock saying labels are unique is not a guard.
+    const labels = [...FAULTS.map(([, label]) => label), ...BUDGET_FAULTS.map(([, label]) => label)];
+
+    expect(new Set(labels).size).toBe(labels.length);
   });
 });
