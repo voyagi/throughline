@@ -1,3 +1,4 @@
+import { readText } from '../scripts/contradiction.ts';
 import { KIND_LABEL, labelled } from '../scripts/presentation.ts';
 import type { MemoryKind } from '../scripts/types.ts';
 
@@ -28,8 +29,14 @@ export function KindAgeCells({ kind, ageDays, halfLifeDays }: Props) {
       <div class="cell">
         <b>Kind</b>
         {/* Guarded, because a kind the server adds later must print SOMETHING. An unlabelled cell on
-            these boards reads as a missing fact rather than as a console that is out of date. */}
-        <span class="val">{labelled(KIND_LABEL, kind) ?? kind}</span>
+            these boards reads as a missing fact rather than as a console that is out of date.
+
+            THE GUARD DID THE OPPOSITE FOR ONE VALUE, and this module is the worst place in the
+            repository for that, because BOTH boards import it. `ROW_CHECKS.kind` and
+            `RECALLED_MEMORY_CHECKS.kind` are `isString`, so a kind of pure whitespace is non-null,
+            the label lookup misses it, and the raw value prints nothing. One blank field emptied a
+            cell on the archive rack and on the console rack at the same time. */}
+        <span class="val">{labelled(KIND_LABEL, kind) ?? readText(kind, 'a kind this row did not name')}</span>
       </div>
       <div class="cell">
         <b>Age</b>

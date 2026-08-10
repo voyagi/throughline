@@ -207,9 +207,9 @@ Two forms are allowed, and nothing else:
 
 THE ANCESTOR HALF IS NOT PEDANTRY, and this rule had to learn it on its own exemplar. That anchor
 read `de773d8` for two commits, which is a MID-BRANCH commit of PR #18, the second of the five
-`gh pr view 18 --json commits` lists. `git merge-base --is-ancestor de773d8 origin/main` FAILS, so the sha
-resolves only in a clone that still has the branch, and it resolves here today purely because a
-stale local branch has not been deleted yet. The twenty numbers it vouched for were correct the
+`gh pr view 18 --json commits` lists. `git merge-base --is-ancestor de773d8 origin/main` FAILS, so
+the sha resolves only in a clone that still has the branch, and it resolves here today purely
+because a stale local branch has not been deleted yet. The twenty numbers it vouched for were correct the
 entire time, which is what makes this the quiet failure rather than the loud one: an anchored
 citation looks more rigorous than a bare number and can be less useful. A squash merge leaves EVERY
 branch commit unreachable and not merely the tip, and a squash merge is exactly when somebody is
@@ -235,13 +235,30 @@ THE REPOSITORY DOES NOT YET MEET THE ANCESTOR HALF, and saying so is the point o
 down. THE METHOD IS EVERY HEX TOKEN THAT RESOLVES TO A COMMIT, backticked or not, which is the whole
 correction: take every `[0-9a-f]{7,40}` token in tracked files, keep the ones
 `git rev-parse --verify <token>^{commit}` accepts, and test each with
-`git merge-base --is-ancestor <token> origin/main`. Measured on THIS commit, which is unmerged and
-therefore has no ancestor sha of its own to be anchored to: THIRTEEN shas are cited and NINE are not
-ancestors.
+`git merge-base --is-ancestor <token> origin/main`. Measured at `e96ebf8`: FOURTEEN shas are cited
+and TEN are not ancestors.
 
-ONE of the nine is `de773d8`, quoted in this file, in `apps/api/test/turn-coherence.ts` and in
-`apps/api/test/turn-coherence.test.ts` as the specimen that taught the rule rather than as a live
-anchor. The remaining EIGHT are pre-existing and are a unit of their own:
+THE ANCHOR `e96ebf8` IS ITSELF A CITED SHA, so re-running the method on any tree carrying
+this paragraph returns FIFTEEN rather than fourteen, and five ancestors rather than four. The debt
+figure is the one that matters and it does not move: `e96ebf8` IS an ancestor of `main`, so the
+count of non-ancestors is TEN on both trees. This note exists because the correction that added the
+anchor staled its own total in the same edit, which is the identical shape as the THIRTEEN it was
+correcting: a figure falsified by the change that wrote it. No count of how often that has happened
+here is offered, because nobody has counted and this section is the one that forbids exactly that.
+
+THIS PARAGRAPH FIRST SHIPPED THIRTEEN AND NINE, and those were the parent tree's figures, published
+by the commit that added the fourteenth. `9f453b4` entered this file and
+`apps/api/test/turn-coherence.ts` in the same diff as the census, so the sweep widened to stop
+missing citations missed the one it was itself writing. Two independent reviews and a third re-run
+of the stated method returned FOURTEEN and TEN. The anchor replaces the words "THIS commit" for the
+same class of reason: the range has since merged, and a document calling itself unmerged outlives
+that fact by exactly one squash.
+
+TWO of the ten are specimens rather than live anchors, and both are counted, because a specimen is
+still a sha a reader cannot resolve: `de773d8`, quoted in this file, in
+`apps/api/test/turn-coherence.ts` and in `apps/api/test/turn-coherence.test.ts` as the commit that
+taught the rule, and `9f453b4`, quoted in this file and in `apps/api/test/turn-coherence.ts` as the
+true tip of PR #18. The remaining EIGHT are pre-existing and are a unit of their own:
 
 - `6c8162d` and `766e3b3` sit on the undeleted local branch `fix/status-hour-and-turn-coherence`, in
   `apps/api/test/turn-coherence.test.ts` (`766e3b3` also in `apps/web/test/status-island.test.ts`);
@@ -251,17 +268,22 @@ anchor. The remaining EIGHT are pre-existing and are a unit of their own:
   unreferenced objects held by the reflog, and one `git gc` makes them unresolvable even here, which
   is a sharper deadline than a branch nobody has deleted.
 
-Most of them cannot simply be re-anchored. `01bfe35` is cited for what that specific tree CONTAINED,
-so moving its anchor would falsify the sentence rather than repair it. Each needs its measurement
-re-checked against the merged tree first, which is why this is a unit and not a sweep.
+RE-ANCHORING IS NOT A SWEEP, and `01bfe35` is the reason it cannot become one: it is cited for what
+that specific tree CONTAINED, so moving its anchor would falsify the sentence rather than repair it.
+No quantifier is offered over the other seven. Nobody has re-checked their measurements against the
+merged tree, and that check IS the unit, so a word like "most" here would be exactly the count with
+no method that the rule about counts in prose refuses. (It said "most of them" until a review asked
+which, and the honest answer was that nobody had counted.)
 
 THE FIRST VERSION OF THIS CENSUS SAID ELEVEN, SEVEN AND SIX, because it matched only BACKTICKED
-shas. `a4fa1df` and `5a19e33` are written bare, six times across four lines in
+shas. `a4fa1df` and `5a19e33` were written bare, six times across four lines in
 `apps/web/test/archive-island.test.ts`, in a table whose own header says every cell names the commit
-it was measured at. They are live anchors and the sweep could not see them. That is the identical
-blind spot this section records three paragraphs above for bare `:NNN` continuations: a sweep scoped
-to a FORMAT rather than to a MEANING closes the instances it can match and reports the category
-closed. Scope a sweep to what a thing IS, never to how it happens to be typed.
+it was measured at. They were live anchors the sweep could not see, and the commit that widened the
+sweep backticked all six, so the present tense this sentence carried was false of the tree it
+shipped in. That is the identical blind spot this section records for bare `:NNN` continuations
+under how a citation is written: a sweep scoped to a FORMAT rather than to a MEANING closes the
+instances it can match and reports the category closed. Scope a sweep to what a thing IS, never to
+how it happens to be typed.
 
 Thirteen bullets follow, one per mutation, counted from the list itself.
 

@@ -1189,16 +1189,107 @@ describe('the archive island, hydrated', () => {
   });
 
   it('leaves the Why cell plain on a covered listing', async () => {
+    // THE POSITIVE CONTROL FOR THE TWO BLANK REASON TESTS IN THIS FILE, named rather than placed:
+    // "marks the Why cell as doubt when a covered listing gives no reason at all" and "does not open
+    // the Why cell on a separator when the cause names no stage". They widen this class to ask a
+    // second question, and a widening that simply doubted everything would leave both green while
+    // breaking this one.
     answers(listing([row()], { coverage: 'COVERED' }));
     const container = await mountAndSettle();
 
     expect(cellClass(receiptStrip(container), 'Why')).toBe('say');
   });
 
+  it('marks the Why cell as doubt when a covered listing gives no reason at all', async () => {
+    // `readLamp`'S CLAIM, ON THE ARCHIVE'S RECEIPT. `shapes.ts` checks `coverageReason` as a bare
+    // string, on purpose, so whitespace reaches this cell. COVERED is the one verdict that licenses
+    // an absence claim, which made a confident empty Why the worst place on the page to leave it.
+    answers(listing([row()], { coverage: 'COVERED', coverageReason: '   ' }));
+    const container = await mountAndSettle();
+
+    expect(cellClass(receiptStrip(container), 'Why')).toBe('say doubt');
+    expect(cellText(receiptStrip(container), 'Why')).toBe(
+      'This receipt arrived with no reason beside it, so there is nothing here to stand on.',
+    );
+  });
+
+  it('does not open the Why cell on a separator when the cause names no stage', async () => {
+    // The other half of the same cell, and it fails differently: a blank cause is NON-null, so it
+    // took the arm that appends the cause and printed the separator with nothing after it. Asserted
+    // whole, because the defect is what the cell reads as a sentence rather than any one word in it.
+    answers(
+      listing([], {
+        coverage: 'UNKNOWN',
+        returned: 0,
+        coverageReason: 'the archive query did not complete',
+        coverageCause: '   ' as ListFailureCause,
+      }),
+    );
+    const container = await mountAndSettle();
+
+    expect(cellText(receiptStrip(container), 'Why')).toBe(
+      'the archive query did not complete · stopped by a stage this receipt did not name',
+    );
+  });
+
+  it('names a blank kind on the row strip rather than emptying the cell', async () => {
+    // `cells.tsx` IS THE MODULE BOTH BOARDS IMPORT, so this one blank field emptied a cell here and
+    // on the console rack at the same time. The console half is pinned in `console-island.test.ts`.
+    answers(listing([row({ kind: '  ' as MemoryKind })]));
+    const container = await mountAndSettle();
+
+    expect(cellText(stripAt(container, 0), 'Kind')).toBe('a kind this row did not name');
+  });
+
+  it('names a blank state rather than stamping an empty pill', async () => {
+    answers(listing([row({ state: '   ' as MemoryState })]));
+    const container = await mountAndSettle();
+
+    expect(cellText(stripAt(container, 0), 'State')).toBe('a state this row did not name');
+  });
+
+  it('names a blank filter kind rather than leaving the Filter cell empty', async () => {
+    // The same strip as the Why cell, one row up. `RECEIPT_CHECKS.kinds` is `arrayOf(isString)`.
+    answers(listing([row()], { kinds: ['   ' as MemoryKind] }));
+    const container = await mountAndSettle();
+
+    expect(cellText(receiptStrip(container), 'Filter')).toBe('a kind this receipt did not name');
+  });
+
+  it('gives a blank incident the words and the class a missing one already had', async () => {
+    // BOTH HALVES, because the class keyed on `=== null` too, so a blank took the CONFIDENT class
+    // over an empty cell: the one arrangement that reads as a recorded incident.
+    answers(listing([row({ incidentId: '  ' })]));
+    const container = await mountAndSettle();
+
+    expect(cellText(stripAt(container, 0), 'Incident')).toBe('none recorded');
+    expect(cellClass(stripAt(container, 0), 'Incident')).toBe('val doubt');
+  });
+
+  it('does not call a row unreplaced when it names no successor', async () => {
+    // NOT FOLDED INTO THE NULL ARM, and that is the point. `nothing` claims the row was never
+    // replaced, which a blank does not support: the row says it WAS superseded and does not say by
+    // what. Left raw it printed a lone ellipsis.
+    answers(listing([row({ supersededBy: '   ' })]));
+    const container = await mountAndSettle();
+
+    expect(cellText(stripAt(container, 0), 'Superseded by')).toBe('a row this listing did not name');
+    expect(cellText(stripAt(container, 0), 'Superseded by')).not.toBe('nothing');
+  });
+
+  it('gives a blank eviction reason the words a missing one already had', async () => {
+    answers(
+      listing([row({ state: 'tombstoned', evictedAt: '2026-08-01T00:00:00.000Z', evictionReason: '  ' })]),
+    );
+    const container = await mountAndSettle();
+
+    expect(cellText(stripAt(container, 0), 'Tombstoned')).toContain('no reason recorded');
+  });
+
   it('says an unnamed stage failed when the cause is one it has no sentence for', async () => {
-    // The safe direction, and the sibling of this fallback in the Why cell does NOT take it: that
-    // one prints the raw wire value. Recorded rather than changed here, because it is production
-    // behaviour and this commit changes none.
+    // The safe direction, and the sibling of this fallback in the Why cell still does NOT take it:
+    // that one prints the raw wire value for a cause it has no sentence for. The two now agree on
+    // one narrow case only, a cause that is present and BLANK, which neither can print at all.
     answers(
       listing([], {
         coverage: 'UNKNOWN',
@@ -1237,8 +1328,8 @@ describe('the archive island, hydrated', () => {
     //   empty its rows       `a4fa1df`: 40 green.   `5a19e33`: 42 green. STILL SURVIVES.
     //   swap `neverAnswers`  `a4fa1df`: 40 green.   `5a19e33`: 1 failed of 42, Filter assertion.
     //
-    //   BACKTICKED SO A SWEEP CAN SEE THEM. Both shas sat bare here while `13f5429` three lines
-    //   below was backticked, and the repository's sha census matched only the backticked form, so
+    //   BACKTICKED SO A SWEEP CAN SEE THEM. Both shas sat bare here while `13f5429` below was
+    //   backticked, and the repository's sha census matched only the backticked form, so
     //   these two live anchors were invisible to it and its totals were short by two. Neither is an
     //   ancestor of `origin/main` and `git name-rev` returns `undefined` for both, so they are
     //   already unreferenced objects rather than commits on some branch. They are listed in

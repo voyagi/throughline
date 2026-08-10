@@ -115,9 +115,11 @@ const RECEIPT_CHECKS: FieldChecks<MemoryListReceiptView> = {
  * one. A review proved the ROW half: `memories: [null, 3, 'x']` was accepted, classified as three
  * rows, and crashed the island's render.
  *
- * The `supersededBy` one is the sibling this sentence lost twice. It said TWO while a review was
- * re-deriving the other number in the same sentence, and the truncation guards on `=== null`, which
- * an ABSENT field does not satisfy, so an undefined value walks past the guard into `.slice`.
+ * The `supersededBy` one is the sibling this sentence lost twice. It OMITTED `supersededBy` while a
+ * review was re-deriving the other number in the same sentence, and the truncation guards on
+ * `=== null`, which an ABSENT field does not satisfy, so an undefined value walks past the guard
+ * into `.slice`. (The sentence said "it said TWO", which collided with the TWO this docblock opens
+ * with and which is correct: one numeral reading as both the count and the defect it records.)
  *
  * NAMED RATHER THAN CITED BY LINE, and the count names its exception for the same reason. Both
  * numbers here were wrong: the reads were seventeen and this said sixteen, and the key citation

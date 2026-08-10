@@ -270,14 +270,17 @@ describe('getMemories', () => {
  *
  * A `{}` on `/agent/turn` reached `Console.tsx` as an answer and `response.recalls.map` threw
  * during render: a blank pane, which is the silent absence this site argues against. A `{}` on
- * `/status` is non-null, so the holder above `StatusBoard`'s `Last looked` and `Answering` cells lit
- * beside three UNKNOWN fallback lamps. (That cited a line in `StatusBoard.tsx` which is the opening
- * of a docblock: the element had moved a hundred lines down. It is named by those CELLS rather than
- * as "the receipt strip", which a correction reached for first and which is not an identifier in
- * that file at all: the element is an anonymous `div` and only the cells carry words a reader can
- * grep. Naming a thing that does not exist is no better than naming a line that moved. The old
- * number is not quoted here either, because a sweep for stale citations cannot tell a live one from
- * a specimen of a dead one.)
+ * `/status` is non-null, so the holder above `StatusBoard`'s `Last looked`, `Answering` and `Probe`
+ * cells lit beside three UNKNOWN fallback lamps. (That cited a line in `StatusBoard.tsx` which is
+ * the opening of a docblock: the element had moved a hundred lines down. The correction reached
+ * first for "the receipt strip", which is not an identifier in that file at all, and the sentence
+ * that replaced THAT called the element an anonymous `div` with only the cells carrying words a
+ * reader can grep. Both were false. It is a `span` whose class is `holder h-tomb` or `holder h-res`,
+ * inside the only `class="strip"` in `StatusBoard.tsx`, so the very word the sentence uses to name
+ * it is the word to grep for. THREE ATTEMPTS AT ONE LOCATOR, and the first two named a thing that does not exist
+ * and then a thing that is not there, which is how a citation gets worse than the line number it
+ * replaced. The old number is not quoted here either, because a sweep for stale citations cannot
+ * tell a live one from a specimen of a dead one.)
  */
 describe('getStatus', () => {
   it('accepts a well formed status', () => {

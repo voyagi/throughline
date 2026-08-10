@@ -25,14 +25,21 @@ import type { Coverage, MemoryKind } from './types.ts';
  * consequence: the PRE-`labelled` form `(PATH_LABEL[retrievalPath] ?? retrievalPath).toUpperCase()`,
  * on the ONE PATH reading that uppercases it in `Console.tsx`, threw `TypeError: ... is not a
  * function`, and a page that throws during render is the blank pane this console exists to argue
- * against. `Console.tsx` reads `retrievalPath` THREE times: two look a label up, at the receipt
- * strip and at the recall strip, and only the recall strip ever called `.toUpperCase()`. The third
- * compares the raw value to `'none'` and looks nothing up, so it was never exposed to this at all.
- * Naming the exclusion is the same rule a count in prose follows. THE ERA MATTERS BECAUSE THE
- * EXPRESSION IS GONE: both label readings call `labelled` now, so a reader grepping
- * `Console.tsx` for the quoted form finds nothing and cannot tell a fixed defect from a wrong
- * citation. This carried a line number until a review found the line had moved, and dropping the
- * number without dating the expression traded one unfollowable reference for another.
+ * against. `Console.tsx` reads `retrievalPath` THREE times: two look a label up, one in
+ * `UnknownSlip` and one in `TurnVerdicts`, and only the `TurnVerdicts` chip ever called
+ * `.toUpperCase()`. The third compares the raw value to `'none'`, in `UnknownSlip` as well, and
+ * looks nothing up, so it was never exposed to this at all. Naming the exclusion is the same rule a
+ * count in prose follows. (THE TWO COMPONENTS WERE NAMED "the receipt strip" and "the recall strip"
+ * until a review resolved them, and neither name led anywhere a reader could use. `RecalledStrip`
+ * is a real identifier in `Console.tsx` and never touches a path. "The receipt strip" resolves to
+ * `ReceiptStrip`, which is real as well and lives in `Archive.tsx`, a different page that reads no
+ * path at all. The count was right and both places it pointed at were wrong, which is the failure
+ * this paragraph already records for line numbers. A second review corrected the correction: it had
+ * offered `ReceiptRecord` as the near miss, when `ReceiptStrip` is the exact name a reader greps.)
+ * THE ERA MATTERS BECAUSE THE EXPRESSION IS GONE: both label readings call `labelled` now, so a
+ * reader grepping `Console.tsx` for the quoted form finds nothing and cannot tell a fixed defect
+ * from a wrong citation. This carried a line number until a review found the line had moved, and
+ * dropping the number without dating the expression traded one unfollowable reference for another.
  *
  * THE SAME CLASS OF MISTAKE, TWICE IN ONE FILE, IS WHY THIS IS A HELPER AND NOT A FIX AT ONE SITE.
  * `isCoverage` in `shapes.ts` tests `=== true` and is immune; `isTurnView`, written an hour later in

@@ -1,9 +1,9 @@
 import { useRef, useState } from 'preact/hooks';
 import { postTurn, type ApiFailure } from '../scripts/api.ts';
+import { isBlank, readText, type ContradictionKind } from '../scripts/contradiction.ts';
 import { clock, HOLDER, KIND_LABEL, labelled, verdictClass } from '../scripts/presentation.ts';
 import { readRecall } from '../scripts/recall-state.ts';
 import { KindAgeCells } from './cells.tsx';
-import type { ContradictionKind } from '../scripts/contradiction.ts';
 import type {
   AgentTurnResponse,
   CoverageCause,
@@ -136,7 +136,12 @@ function RecalledStrip({ memory }: { memory: RecalledMemoryView }) {
           </div>
           <div class="cell">
             <b>Incident</b>
-            <span class="val">{memory.incidentId ?? 'not recorded'}</span>
+            {/* THE CLASS FOLLOWS THE WORDS, because on this design the class is a claim. The archive
+                twin marks a blank incident as doubt and this one printed it in the confident class,
+                so two boards typed one absence two ways. */}
+            <span class={isBlank(memory.incidentId ?? '') ? 'val doubt' : 'val'}>
+              {readText(memory.incidentId ?? '', 'not recorded')}
+            </span>
           </div>
           <div class="cell">
             <b>Similarity</b>
@@ -172,10 +177,13 @@ function UnknownSlip({ event, at }: { event: RecallEventView; at: string }) {
         </div>
         <div class="fields">
           <div>
-            <span>QUERY</span> {receipt.query}
+            <span>QUERY</span>{' '}
+            {readText(receipt.query, 'none recorded, so this slip cannot say what was searched for')}
           </div>
           <div>
-            <span>PATH</span> {labelled(PATH_LABEL, receipt.retrievalPath) ?? receipt.retrievalPath}
+            <span>PATH</span>{' '}
+            {labelled(PATH_LABEL, receipt.retrievalPath) ??
+              readText(receipt.retrievalPath, 'a path this receipt did not name')}
           </div>
           <div>
             <span>EXAMINED</span> {receipt.candidatesConsidered} candidates
@@ -186,11 +194,16 @@ function UnknownSlip({ event, at }: { event: RecallEventView; at: string }) {
           <div>
             {/* Fallback to the raw code rather than rendering nothing. A cause the server adds
                 later would otherwise print as an empty cell, which reads as "no reason" on the
-                one slip whose entire job is to carry the reason. */}
+                one slip whose entire job is to carry the reason. THAT FALLBACK DID THE THING IT
+                WAS WRITTEN TO PREVENT for one value: a cause of pure whitespace is non-null, so it
+                took this arm, and both the label lookup and the raw code printed nothing. A BLANK
+                CAUSE IS NOT THE SAME FACT AS A MISSING ONE, so it does not borrow "not recorded":
+                the field arrived and named no stage. */}
             <span>STOPPED BY</span>{' '}
             {receipt.coverageCause === null
               ? 'not recorded'
-              : (labelled(CAUSE, receipt.coverageCause) ?? receipt.coverageCause)}
+              : (labelled(CAUSE, receipt.coverageCause) ??
+                readText(receipt.coverageCause, 'a stage this receipt did not name'))}
           </div>
           <div>
             <span>RETURNED</span> {receipt.returned}
@@ -250,7 +263,10 @@ function TurnVerdicts({ at, response }: { readonly at: string; readonly response
           </span>
         ) : (
           <span class={verdictClass(strip.event.receipt.coverage)} key={`${at}-${index}`}>
-            {(labelled(PATH_LABEL, strip.event.receipt.retrievalPath) ?? strip.event.receipt.retrievalPath).toUpperCase()}{' '}
+            {(
+              labelled(PATH_LABEL, strip.event.receipt.retrievalPath) ??
+              readText(strip.event.receipt.retrievalPath, 'a path this receipt did not name')
+            ).toUpperCase()}{' '}
             &middot; {strip.event.receipt.candidatesConsidered} EXAMINED &middot;{' '}
             {strip.event.receipt.returned} RETURNED &middot; {strip.event.receipt.elapsedMs} MS &middot;{' '}
             {strip.event.receipt.coverage}
@@ -284,12 +300,24 @@ function TurnVerdicts({ at, response }: { readonly at: string; readonly response
   );
 }
 
-/** The receipt as the model saw it, verbatim. Instrument type inside a record, which is its cage. */
+/**
+ * The receipt as the model saw it, verbatim. Instrument type inside a record, which is its cage.
+ *
+ * THE THIRD READER OF `tool_result.content`, and the sweep guarded the other two first. A blank one
+ * drew the `Receipts, verbatim` heading over a disclosure labelled "What the agent was shown" that
+ * opens onto nothing, while the same field twenty lines away in `writeAttempts` reads "This tool
+ * answered with nothing at all." One field, three readers, and two of them honest is the shape this
+ * repository keeps paying for.
+ *
+ * SUBSTITUTED RATHER THAN SUPPRESSED. Dropping the record when it is blank would take the heading
+ * with it and hide that the agent was shown something empty, which is a fact about the turn worth
+ * seeing. VERBATIM SURVIVES for every value that has anything in it.
+ */
 function ReceiptRecord({ content }: { content: string }) {
   return (
     <details class="receipt">
       <summary>What the agent was shown</summary>
-      <pre class="mono">{content}</pre>
+      <pre class="mono">{readText(content, 'This receipt came back with nothing in it.')}</pre>
     </details>
   );
 }
@@ -333,18 +361,35 @@ function writeAttempts(transcript: readonly TurnView[]): readonly WriteAttempt[]
     if (turn.role !== 'tool_call') continue;
     if (turn.name !== 'remember' && turn.name !== 'supersede') continue;
     // Read defensively: this is the one place on the board fed by values the MODEL chose, so
-    // nothing is assumed about their shape or their type.
+    // nothing is assumed about their shape or their type. ALL FOUR VALUES HERE WERE BLANK
+    // VULNERABLE, three through a TYPE test and the fourth through a NULLISH read, and neither kind
+    // of test is an emptiness test: `'   '` is a string and is not nullish, so it walked past both
+    // and printed a labelled cell with nothing in it. Blank is folded into the substitute the
+    // missing value already had, because a `content` of pure whitespace supplies no content either.
+    //
+    // THE FIRST VERSION OF THIS COMMENT SAID THREE AND CONVERTED TWO, leaving `kind` behind under a
+    // sentence claiming it was done. Two reviewers found it independently. `kind` cannot go through
+    // `readText`, whose return type is a string, so it folds blank into the NULL that the cell and
+    // the holder already have words for.
     const args = (turn.args ?? {}) as Record<string, unknown>;
-    const content = typeof args['content'] === 'string' ? args['content'] : '(no content supplied)';
-    const kind = typeof args['kind'] === 'string' ? (args['kind'] as MemoryKind) : null;
-    const assertedBy = typeof args['assertedBy'] === 'string' ? args['assertedBy'] : 'not supplied';
+    const content = readText(typeof args['content'] === 'string' ? args['content'] : '', '(no content supplied)');
+    const kind = typeof args['kind'] === 'string' && !isBlank(args['kind']) ? (args['kind'] as MemoryKind) : null;
+    const assertedBy = readText(typeof args['assertedBy'] === 'string' ? args['assertedBy'] : '', 'not supplied');
+    // THE ANSWER IS THE ONE FIELD WHOSE TWO ABSENCES ARE DIFFERENT FACTS, so it does not reuse the
+    // sentence above it. No entry means the turn ended first. A blank entry means the tool ANSWERED
+    // and said nothing, and printing "the turn ended before this tool answered" over that would be
+    // this board reporting a sequence of events that did not happen.
+    const answer = results.get(turn.id);
     attempts.push({
       id: turn.id,
       content,
       kind,
       assertedBy,
       tool: turn.name,
-      outcome: results.get(turn.id) ?? 'The turn ended before this tool answered.',
+      outcome:
+        answer === undefined
+          ? 'The turn ended before this tool answered.'
+          : readText(answer, 'This tool answered with nothing at all.'),
     });
   }
   return attempts;
@@ -377,10 +422,19 @@ function failedRecalls(
   for (const turn of transcript) {
     if (turn.role !== 'tool_call' || turn.name !== 'recall' || done.has(turn.id)) continue;
     const args = (turn.args ?? {}) as Record<string, unknown>;
+    // THE SIBLING OF `writeAttempts`, GUARDED THE SAME WAY AND FOR THE SAME REASON. Both build the
+    // same map off the same `tool_result` turns, so the same CLASS of value reaches both readers,
+    // each on its own tool's ids. (Not the same VALUE: this one reads `recall` ids and that one
+    // reads `remember` and `supersede`, so no single blank result is read by both, and a test over
+    // one of them proves nothing about the other.)
+    const answer = results.get(turn.id);
     failed.push({
       id: turn.id,
-      query: typeof args['query'] === 'string' ? args['query'] : '(no query recorded)',
-      reason: results.get(turn.id) ?? 'The turn ended before this search answered.',
+      query: readText(typeof args['query'] === 'string' ? args['query'] : '', '(no query recorded)'),
+      reason:
+        answer === undefined
+          ? 'The turn ended before this search answered.'
+          : readText(answer, 'This search answered with nothing at all.'),
     });
   }
   return failed;
@@ -519,7 +573,19 @@ export default function Console({ apiBase }: Props) {
                   <time>{clock(exchange.at)}</time>
                   <div>
                     <p class="who">Throughline</p>
-                    <p class="said">{exchange.outcome.response.text}</p>
+                    {/* THE ONE FREE TEXT FIELD THE LOOP DOES NOT AUTHOR, and the sweep that closed
+                        every other blank on this page walked past it twice. `TURN_CHECKS.text` is a
+                        bare `isString`, `loop.ts` copies the model's reply into it verbatim, and
+                        `judgeAnswer` deliberately does not police length, so a model answering with
+                        whitespace drew a speaker with nothing said, directly above a TURN COVERAGE
+                        chip in the green class. Every other blank on this board needs a body this
+                        API does not produce. This one does not. */}
+                    <p class="said">
+                      {readText(
+                        exchange.outcome.response.text,
+                        'This turn came back with no answer in it. What the search did is on the board.',
+                      )}
+                    </p>
                     <TurnVerdicts at={exchange.at} response={exchange.outcome.response} />
                     {exchange.outcome.response.refusedAnAbsenceClaim && (
                       <p class="said">
@@ -621,7 +687,8 @@ export default function Console({ apiBase }: Props) {
                       question, which is the one overclaim this slip had left. Every measurement is
                       withheld: they are what could not be believed. */}
                   <div>
-                    <span>QUERY THE RECEIPT CLAIMS</span> {strip.event.receipt.query}
+                    <span>QUERY THE RECEIPT CLAIMS</span>{' '}
+                    {readText(strip.event.receipt.query, 'none, this receipt records no query')}
                   </div>
                   <div>
                     <span>MEASUREMENTS</span> none, because nothing on this receipt can be read as one
@@ -638,9 +705,12 @@ export default function Console({ apiBase }: Props) {
           ))}
 
           {refusals.length > 0 && <h3 class="subbay">Refused</h3>}
+          {/* A REFUSAL IS COUNTED IN `stripCount`, so a blank one is a strip the header promises and
+              the rack does not draw: an empty chip under a heading saying the loop refused
+              something. `TURN_ROLE_CHECKS.refusal` checks `content` as a bare string. */}
           {refusals.map((refusal, index) => (
             <div key={`refusal-${index}`}>
-              <span class="tag">{refusal}</span>
+              <span class="tag">{readText(refusal, 'A refusal was recorded with no words in it.')}</span>
             </div>
           ))}
 

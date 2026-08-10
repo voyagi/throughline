@@ -2,9 +2,12 @@ import { parseHTML } from 'linkedom';
 import { afterEach, describe, expect, it } from 'vitest';
 import type {
   AgentTurnResponse,
+  CoverageCause,
+  MemoryKind,
   RecallEventView,
   RecallReceiptView,
   RecalledMemoryView,
+  RetrievalPath,
 } from '../src/scripts/types.ts';
 
 /**
@@ -30,12 +33,16 @@ import type {
  * WHAT THIS FILE ACTUALLY RESTS ON is the round trip. The console fetches NOTHING on mount: it
  * answers a submitted question, so nothing exists to assert until a form that only exists after
  * render has been driven and an answer has come back through `api.ts` and `shapes.ts`. MEASURED on
- * 2026-08-09: dropping the submit dispatch out of `ask`, which is the whole of what a dead island
- * does, reddens 17 OF 17 by name. Every test here depends on a completed round trip.
+ * 2026-08-10: dropping the submit dispatch out of `ask`, which is the whole of what a dead island
+ * does, reddens 31 OF 31 by name. Every test here depends on a completed round trip. Removing the
+ * `cancelAnimationFrame` install still reddens 0 OF 31, re-measured in the same run.
  *
- * BOTH NUMBERS HAVE NOW BEEN RE-MEASURED TWICE, at 8 tests, at 12 and at 17, each time in the change
- * that grew the file. A number written once and left alone is exactly what the sibling file records
- * being wrong about four times, and this file would already have been wrong twice.
+ * BOTH NUMBERS HAVE NOW BEEN RE-MEASURED THREE TIMES, at 8 tests, at 12, at 17 and at 31, each time
+ * in the change that grew the file. A number written once and left alone is exactly what the sibling
+ * file records being wrong about four times, and this file would already have been wrong three
+ * times. The 17 stood while thirteen tests were added under it, and a REVIEW caught it rather than
+ * this file's own GIVEAWAY rule, which is the argument for measuring in the same run that adds the
+ * tests rather than trusting anyone to remember.
  *
  * THE GIVEAWAY FOR ANY TEST ADDED HERE is one whose expected values a dead page also produces: an
  * absence, an unlit class, or the untouched "No strips on this board yet". Give it a post-answer
@@ -188,6 +195,30 @@ const logWords = (container: HTMLElement): string => paneWords(container, '.log'
 const strips = (container: HTMLElement): number => container.querySelectorAll('.rack.live .strip').length;
 
 /**
+ * The words inside a labelled cell's span, which are not the words the PANE reads.
+ *
+ * JSX EATS THE WHITESPACE between a `<b>` label and the `<span>` beside it, so the pane reads
+ * `Content(no content supplied)` with no gap, and an assertion written the way a person would say it
+ * fails against a page rendering perfectly. The slip fields are unaffected because each keeps its
+ * value on the SAME LINE as the label or carries an explicit `{' '}`, which a review had to correct
+ * here: the first version credited the `{' '}` alone, and only the four fields this change touched
+ * have one. The strip cells have neither. Reading the span keeps each assertion about the VALUE, and
+ * scoping it to the label stops a substitute that two cells share from vouching for the wrong one.
+ * A missing cell and a missing span both throw, for the reason `paneWords` throws: a helper that
+ * returns `''` turns every assertion built on it into one that cannot fail.
+ */
+function cellWords(container: HTMLElement, label: string): string {
+  for (const one of container.querySelectorAll('.cell')) {
+    const name = (one.querySelector('b')?.textContent ?? '').replace(/\s+/gu, ' ').trim();
+    if (name !== label) continue;
+    const span = one.querySelector('span');
+    if (span === null) throw new Error(`the cell labelled ${label} has no span to read`);
+    return (span.textContent ?? '').replace(/\s+/gu, ' ').trim();
+  }
+  throw new Error(`no cell is labelled ${label}`);
+}
+
+/**
  * The class on every verdict chip in the log, which is where a reader takes the claim from.
  *
  * `hasAttribute` RATHER THAN A NULL CHECK. linkedom returns `''` from `getAttribute('class')` for an
@@ -257,7 +288,7 @@ function slipClosing(container: HTMLElement): string {
   return (last.textContent ?? '').replace(/\s+/gu, ' ').trim();
 }
 
-const memory = (id: string): RecalledMemoryView => ({
+const memory = (id: string, overrides: Partial<RecalledMemoryView> = {}): RecalledMemoryView => ({
   id,
   kind: 'observation',
   content: `the checkout pods were evicted at 02:1${id}`,
@@ -272,6 +303,7 @@ const memory = (id: string): RecalledMemoryView => ({
   assertedBy: 'human:oncall-ana',
   incidentId: 'INC-42',
   supersededBy: null,
+  ...overrides,
 });
 
 /** A receipt that agrees with the rack it is given, unless a test overrides a field to break it. */
@@ -289,10 +321,14 @@ const receipt = (returned: number, overrides: Partial<RecallReceiptView> = {}): 
   ...overrides,
 });
 
-const recall = (memoryCount: number, overrides: Partial<RecallReceiptView> = {}): RecallEventView => ({
+const recall = (
+  memoryCount: number,
+  overrides: Partial<RecallReceiptView> = {},
+  rowOverrides: Partial<RecalledMemoryView> = {},
+): RecallEventView => ({
   callId: 'recall-1',
   receipt: receipt(memoryCount, overrides),
-  memories: Array.from({ length: memoryCount }, (_unused, index) => memory(String(index))),
+  memories: Array.from({ length: memoryCount }, (_unused, index) => memory(String(index), rowOverrides)),
 });
 
 const turn = (recalls: readonly RecallEventView[]): AgentTurnResponse => ({
@@ -304,6 +340,62 @@ const turn = (recalls: readonly RecallEventView[]): AgentTurnResponse => ({
   transcript: [],
   recalls,
   budget: { used: 1, limit: 50, day: '2026-08-09' },
+});
+
+/**
+ * A turn whose WRITE arguments and whose tool answer are all whitespace.
+ *
+ * A FACTORY AND NOT A CONSTANT, for the reason this file's own afterEach exists: a module level
+ * object is shared, so the first test to touch it decides what the second one sees. `kind` is
+ * supplied deliberately, so the only cell reading "not supplied" is the one under test.
+ */
+const blankWriteTurn = (): AgentTurnResponse => ({
+  ...turn([]),
+  transcript: [
+    {
+      role: 'tool_call',
+      id: 'w1',
+      given: 'w1',
+      name: 'remember',
+      args: { content: '   ', assertedBy: '  ', kind: 'observation' },
+    },
+    { role: 'tool_result', id: 'w1', name: 'remember', content: '   ' },
+  ],
+});
+
+/**
+ * A write attempt whose KIND is blank while its other arguments are good.
+ *
+ * SEPARATE FROM `blankWriteTurn` ON PURPOSE. That one supplies a real kind so the only cell reading
+ * "not supplied" is the one it tests. This one blanks the kind alone, so a fix that folded blank
+ * into null everywhere and a fix that missed `kind` cannot both pass.
+ */
+const blankKindWriteTurn = (): AgentTurnResponse => ({
+  ...turn([]),
+  transcript: [
+    {
+      role: 'tool_call',
+      id: 'w2',
+      given: 'w2',
+      name: 'remember',
+      args: { content: 'the pods were evicted', assertedBy: 'human:ana', kind: '   ' },
+    },
+    { role: 'tool_result', id: 'w2', name: 'remember', content: 'stored' },
+  ],
+});
+
+/**
+ * A turn that asked for a recall with a blank query, got a blank answer, and no receipt at all.
+ *
+ * `recalls` stays empty on purpose: `failedRecalls` keys off a `tool_call` id that never comes back,
+ * which is the only route to the slip these two tests read.
+ */
+const blankRecallTurn = (): AgentTurnResponse => ({
+  ...turn([]),
+  transcript: [
+    { role: 'tool_call', id: 'r1', given: 'r1', name: 'recall', args: { query: '   ' } },
+    { role: 'tool_result', id: 'r1', name: 'recall', content: '  ' },
+  ],
 });
 
 describe('the console island, hydrated', () => {
@@ -609,6 +701,171 @@ describe('the console island, hydrated', () => {
     expect(boardWords(container)).toContain('the embedding provider did not answer');
     expect(boardWords(container)).not.toContain('RECEIPT REFUSED');
     expect(boardWords(container)).not.toContain('that is a real absence');
+  });
+});
+
+/**
+ * The blank printed string, on every surface of this page that prints one.
+ *
+ * THE SHAPE IS THE DATE DEFECT'S, ONE FIELD OVER. `shapes.ts` checks `query` and `retrievalPath` as
+ * bare strings, deliberately and for the reason written there, so `'   '` passes every guard between
+ * the wire and a cell. `coverageCause` is `nullOr(isString)`, which this file said was a bare string
+ * until a review read the map. A cell labelled QUERY with nothing after it does not read as a
+ * missing value to anybody: it reads as a page that failed to render.
+ *
+ * THE SITES WERE ENUMERATED BY MECHANISM rather than by grepping for the three the previous
+ * session's handoff named. Two mechanisms reach a cell here: a wire string printed raw, and a
+ * `typeof` test in `writeAttempts` or `failedRecalls` that a blank string satisfies. The second was
+ * invisible to any search for the first, and it is where the mechanism B tests below land.
+ *
+ * NOT ONE TEST PER SITE, which is what this paragraph claimed until it was counted: the write
+ * attempt test asserts two cells at once, so the block is nine tests over ten sites. The number
+ * that matters is the plant, and every site has its own.
+ *
+ * WHY THE ASSERTIONS ARE POSITIVE. A `not.toContain('')` is vacuous against every page, including
+ * one that rendered nothing at all, which is the trap this file's own helper docblock records. Each
+ * test names the substitute it expects, so a plant that removes the substitute reddens THIS test by
+ * name rather than reddening the whole file.
+ */
+describe('a blank string arriving where the console prints one', () => {
+  it('says the receipt recorded no query rather than printing an empty QUERY cell', async () => {
+    answers(turn([recall(1, { coverage: 'PARTIAL', query: '   ' })]));
+    const container = await mountAndAsk('anything');
+
+    expect(boardWords(container)).toContain('QUERY none recorded, so this slip cannot say what was searched for');
+  });
+
+  it('says the receipt named no path rather than printing an empty PATH cell', async () => {
+    // THE CAST IS THE EVIDENCE, NOT A CONVENIENCE. `RetrievalPath` is a closed union in the
+    // contract while `shapes.ts` checks the field with `isString`, so a blank one cannot be
+    // WRITTEN here without a cast and arrives at runtime without one. The disagreement between the
+    // declared type and the runtime guard is the whole reason this value reached a cell unnoticed.
+    answers(turn([recall(1, { coverage: 'PARTIAL', retrievalPath: '  ' as RetrievalPath })]));
+    const container = await mountAndAsk('anything');
+
+    expect(boardWords(container)).toContain('PATH a path this receipt did not name');
+  });
+
+  it('does not borrow "not recorded" for a cause that arrived and named no stage', async () => {
+    // A BLANK CAUSE IS NOT A MISSING ONE. `coverageCause` is `nullOr(isString)`, so null already
+    // prints "not recorded"; a whitespace cause is non-null, took the other arm, and printed
+    // nothing at all through a fallback written to stop exactly that.
+    answers(turn([recall(0, { coverage: 'UNKNOWN', coverageCause: '   ' as CoverageCause })]));
+    const container = await mountAndAsk('anything');
+
+    expect(boardWords(container)).toContain('STOPPED BY a stage this receipt did not name');
+    expect(boardWords(container)).not.toContain('STOPPED BY not recorded');
+  });
+
+  it('names the missing path on the verdict chip too, not only on the slip', async () => {
+    // THE SIBLING SITE, IN A DIFFERENT COMPONENT. `UnknownSlip` and `TurnVerdicts` read the same
+    // field through the same fallback, and a COVERED receipt draws no slip at all, so the chip is
+    // the only place this value reaches a reader on this path.
+    answers(turn([recall(1, { retrievalPath: '   ' as RetrievalPath })]));
+    const container = await mountAndAsk('anything');
+
+    expect(logWords(container)).toContain('A PATH THIS RECEIPT DID NOT NAME');
+  });
+
+  it('says a refused receipt records no query rather than labelling an empty cell', async () => {
+    answers(turn([{ callId: 'recall-1', receipt: receipt(9, { query: '  ' }), memories: [memory('0')] }]));
+    const container = await mountAndAsk('anything');
+
+    expect(boardWords(container)).toContain('QUERY THE RECEIPT CLAIMS none, this receipt records no query');
+  });
+
+  it('reads a blank write argument as no argument at all', async () => {
+    answers(blankWriteTurn());
+    const container = await mountAndAsk('anything');
+
+    // READ PER CELL, NOT OFF THE PANE. A bare `toContain('not supplied')` would also pass off the
+    // Kind cell, which prints those two words for a null kind, so it would hold on a page where the
+    // field under test rendered nothing at all.
+    expect(cellWords(container, 'Content')).toBe('(no content supplied)');
+    expect(cellWords(container, 'Asserted by')).toBe('not supplied');
+  });
+
+  it('does not say the turn ended early when the tool answered with nothing', async () => {
+    // THE ONE FIELD WHOSE TWO ABSENCES ARE DIFFERENT FACTS. No `tool_result` means the turn ended
+    // first. A blank one means the tool ANSWERED and said nothing, and reporting the first over the
+    // second is this board describing a sequence of events that did not happen.
+    answers(blankWriteTurn());
+    const container = await mountAndAsk('anything');
+
+    expect(cellWords(container, 'What the tool answered')).toBe('This tool answered with nothing at all.');
+    expect(boardWords(container)).not.toContain('The turn ended before this tool answered.');
+  });
+
+  it('reads a blank recall argument as no query recorded', async () => {
+    answers(blankRecallTurn());
+    const container = await mountAndAsk('anything');
+
+    expect(boardWords(container)).toContain('QUERY (no query recorded)');
+  });
+
+  it('does not say the turn ended early when the search answered with nothing', async () => {
+    answers(blankRecallTurn());
+    const container = await mountAndAsk('anything');
+
+    expect(boardWords(container)).toContain('This search answered with nothing at all.');
+    expect(boardWords(container)).not.toContain('The turn ended before this search answered.');
+  });
+
+  it('folds a blank write kind into the null the cell already has words for', async () => {
+    // THE SITE THIS BLOCK MISSED ON ITS FIRST PASS, found by two reviewers independently. `kind`
+    // kept a bare `typeof` test, so `'   '` was non-null, the label lookup missed it and the Kind
+    // cell printed nothing, under a comment claiming the sweep was complete.
+    answers(blankKindWriteTurn());
+    const container = await mountAndAsk('anything');
+
+    expect(cellWords(container, 'Kind')).toBe('not supplied');
+  });
+
+  it('gives a blank recalled incident the words a missing one already had', async () => {
+    answers(turn([recall(1, {}, { incidentId: '   ' })]));
+    const container = await mountAndAsk('anything');
+
+    expect(cellWords(container, 'Incident')).toBe('not recorded');
+  });
+
+  it('gives a blank recalled kind a word rather than an empty cell on both boards', async () => {
+    // `cells.tsx` IS IMPORTED BY BOTH BOARDS, so this one blank emptied a cell on the console rack
+    // and on the archive rack at once. The archive half is pinned in `archive-island.test.ts`.
+    answers(turn([recall(1, {}, { kind: '  ' as MemoryKind })]));
+    const container = await mountAndAsk('anything');
+
+    expect(cellWords(container, 'Kind')).toBe('a kind this row did not name');
+  });
+
+  it('says the turn came back with no answer rather than printing an empty speaker', async () => {
+    // THE ONLY FREE TEXT FIELD ON THIS API THE LOOP DOES NOT AUTHOR, and the one blank on this page
+    // reachable from this product's own producer rather than only from a foreign body. `loop.ts`
+    // copies the model's reply into `text` verbatim and `judgeAnswer` does not police its length.
+    answers({ ...turn([]), text: '   ' });
+    const container = await mountAndAsk('anything');
+
+    expect(logWords(container)).toContain('This turn came back with no answer in it.');
+  });
+
+  it('says a verbatim receipt came back empty rather than opening onto nothing', async () => {
+    // THE THIRD READER OF `tool_result.content`. The other two were guarded first, which is the
+    // sibling shape this repository keeps paying for.
+    answers({
+      ...turn([]),
+      transcript: [{ role: 'tool_result', id: 'r9', name: 'recall', content: '   ' }],
+    });
+    const container = await mountAndAsk('anything');
+
+    expect(boardWords(container)).toContain('This receipt came back with nothing in it.');
+  });
+
+  it('says a refusal carried no words rather than racking an empty chip', async () => {
+    // The chip is counted in `stripCount`, so a blank one is a strip the header promises and the
+    // rack does not draw.
+    answers({ ...turn([]), transcript: [{ role: 'refusal', content: '   ' }] });
+    const container = await mountAndAsk('anything');
+
+    expect(boardWords(container)).toContain('A refusal was recorded with no words in it.');
   });
 });
 

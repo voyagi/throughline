@@ -89,17 +89,79 @@ export const isCount = (value: number): boolean => Number.isInteger(value) && va
  * copied into a second file is the case this repository settles with one module rather than with a
  * comment asking for care.
  *
- * FIVE CALLERS, and this list is the sort of enumeration that goes stale silently, so it is written
- * as what it is: a reader's map, not a guarantee. The guarantee is that there is one predicate.
+ * NO CALLER COUNT IS QUOTED HERE ANY MORE, and the number that stood here is why. It said FIVE, and
+ * it was a reader's map that went stale in the ordinary course of using the predicate. What a reader
+ * wants is `git grep -n 'isBlank(' -- apps/web/src`, which is a command rather than a claim. The
+ * guarantee this module can keep is the one it was made for: there is ONE predicate.
+ *
+ * MOST SURFACE SUBSTITUTES ARRIVE THROUGH `readText`, AND FOUR DO NOT, which matters to anyone
+ * sweeping this category: a `readText(` grep alone misses them. They call this predicate directly,
+ * because what they produce is not a string. The write attempt's `kind` fold and the archive's
+ * `incidentId` fold both produce a NULL that their cells already have words for, `successorWords`
+ * produces one of three sentences, and the archive's Why cell produces a CLASS. (The sentence here
+ * claimed every substitute routed through `readText`. It was true when written and the very next
+ * commit falsified it, which is the failure this module documents rather than a new one.)
  *
  * `shapes.ts` validates the three STATUS fields as bare strings, on purpose, so a value of pure
- * whitespace reaches a page and this is the predicate that stops it being printed as a reason. It
- * covers three of the five, and the sentence here claimed all five for one commit. The other two
- * arrive by a different route: `shapes.ts` exports a guard for the listing, one for the status body
- * and one for the agent turn, and none at all for a failure body, so a failure's `error` and
- * `detail` are typechecked inside `asFailure` rather than by a shape guard.
+ * whitespace reaches a page and this is the predicate that stops it being printed as a reason. A
+ * failure's two fields arrive by a different route: `shapes.ts` exports a guard for the listing, one
+ * for the status body and one for the agent turn, and none at all for a failure body, so a failure's
+ * `error` and `detail` are typechecked inside `asFailure` rather than by a shape guard.
  */
 export const isBlank = (value: string): boolean => value.trim() === '';
+
+/**
+ * One free text string a surface is about to print, or a substitute saying what is true instead.
+ *
+ * THE PREDICATE ABOVE ALREADY EXISTED AND THE PAGES DID NOT ASK IT, which is the whole of the defect
+ * this closes. `shapes.ts` checks `coverageReason`, `query`, `retrievalPath`, `kind` and a row's
+ * `state` as bare strings, deliberately and for the reason written there, so pure whitespace passes
+ * every guard between the wire and a cell. `coverageCause`, `incidentId`, `supersededBy` and
+ * `evictionReason` are `nullOr(isString)`, which is the same hole with a second door: every cell
+ * reading them keyed on `=== null` alone, so a blank took the arm meant for a real value.
+ *
+ * A cell labelled QUERY with nothing after it does not read as a missing value to anybody: it reads
+ * as a page that failed to render, on the one product whose argument is that a reader can check what
+ * it did.
+ *
+ * A SUBSTITUTE RATHER THAN A REFUSAL, and the direction matches every other reader in this module's
+ * orbit. `readDay` marks one cell rather than refusing a listing, `readLamp` unlights one lamp
+ * rather than refusing a status body, and one blank string is worth exactly one substituted cell.
+ *
+ * THE SUBSTITUTE BELONGS TO THE CALLER because only the caller knows what its cell claims. "none
+ * recorded" is true under QUERY and says nothing under Why, and a shared sentence would have to be
+ * vague enough to be true in both places, which is how a substitute stops being a measurement.
+ *
+ * WHAT THIS DOES NOT COVER, named because an enumeration that hides its exclusions is a sample
+ * wearing an enumeration's clothes: the ROW strips on both pages print `content` and `assertedBy`
+ * straight out of the row, and a blank one still renders an empty cell there. That is left as its
+ * own decision rather than swept in here, because a memory whose body is blank raises the question
+ * of whether the archive should rack that row at all, which is a different question from what a
+ * refusal slip is entitled to claim.
+ *
+ * THIS EXCLUSION HAS BEEN TOO SHORT TWICE, AND BOTH TIMES A REVIEW MEASURED IT. The first version
+ * named two fields and stood over eight unguarded ones: the row's `kind` in `cells.tsx`, which BOTH
+ * boards import, the row's `state`, the receipt's `kinds`, `incidentId` on both pages,
+ * `supersededBy`, `evictionReason`, a refusal chip's own words, and a write attempt's `kind`. The
+ * second version guarded those eight and then claimed the unguarded set had been COUNTED, while two
+ * more stood outside it: `AgentTurnResponse.text` and the verbatim receipt record.
+ *
+ * `text` IS THE ONE THAT MATTERED. It is the only free text field on this API the loop does not
+ * author, it is `isString` like the rest, and a blank one drew a speaker with nothing said under a
+ * COVERED chip in the green class. Every other blank on these boards needs a body this API cannot
+ * produce. That one did not.
+ *
+ * So the claim this paragraph makes now is narrower and checkable: `content` and `assertedBy` on the
+ * ROW strips are excluded ON PURPOSE, and nothing else prints a received string unguarded. A reader
+ * doubting that should run the sweep rather than trust the sentence, which is the whole lesson of
+ * having written it wrong twice.
+ *
+ * TWO PAGES SHARING ONE SUBSTITUTE WORD FOR WORD IS DELIBERATE, not a copy that drifted. The
+ * substitute belongs to the CELL, and where two cells on two pages make the identical claim about
+ * the identical field, the honest sentence is the identical sentence. It is `gate:dup` invisible at
+ * this size, so this paragraph is the only thing recording that it was a decision.
+ */
+export const readText = (value: string, substitute: string): string => (isBlank(value) ? substitute : value);
 
 /**
  * The shape `Date.prototype.toISOString` produces for the years 0000 to 9999, which is what the

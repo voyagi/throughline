@@ -9,6 +9,7 @@ import {
   verdictWord,
   type ListingState,
 } from '../scripts/archive-state.ts';
+import { isBlank, readText } from '../scripts/contradiction.ts';
 import { HOLDER, KIND_LABEL, labelled, verdictClass } from '../scripts/presentation.ts';
 import { KindAgeCells } from './cells.tsx';
 import type {
@@ -105,6 +106,13 @@ function ArchiveStrip({ memory }: { memory: MemoryRowView }) {
   const validUntil = memory.validUntil === null ? null : readDay(memory.validUntil);
   const evictedAt = memory.evictedAt === null ? null : readDay(memory.evictedAt);
 
+  // A BLANK ID IS FOLDED INTO THE NULL IT CANNOT BE TOLD APART FROM, once per row, so the class and
+  // the text below cannot disagree about it. `ROW_CHECKS` types both as `nullOr(isString)`, which
+  // admits `'   '`, and every cell reading them keyed on `=== null` alone. `supersededBy` keeps its
+  // own arm rather than joining this one, because a blank there is NOT the same fact: the row does
+  // claim to be superseded, and only the successor is missing.
+  const incident = memory.incidentId === null || isBlank(memory.incidentId) ? null : memory.incidentId;
+
   return (
     <div class={memory.stale ? `strip cocked${retired}` : `strip${retired}`}>
       {/* Guarded like every lookup on this page: a kind the server adds later renders a holder with
@@ -119,7 +127,7 @@ function ArchiveStrip({ memory }: { memory: MemoryRowView }) {
           <div class="cell">
             <b>State</b>
             <span class={labelled(STATE_STAMP, memory.state) ?? 'stamp grey'}>
-              {labelled(STATE_LABEL, memory.state) ?? memory.state}
+              {labelled(STATE_LABEL, memory.state) ?? readText(memory.state, 'a state this row did not name')}
             </span>
           </div>
         </div>
@@ -144,9 +152,11 @@ function ArchiveStrip({ memory }: { memory: MemoryRowView }) {
           </div>
           <div class="cell">
             <b>Incident</b>
-            <span class={memory.incidentId === null ? 'val doubt' : 'val'}>
-              {memory.incidentId ?? 'none recorded'}
-            </span>
+            {/* THE CLASS AND THE TEXT BOTH KEYED ON `=== null`, so a blank id took the CONFIDENT
+                class and printed nothing: an empty cell that reads as a recorded incident. A field
+                that arrived empty records no incident, so it takes the same arm a missing one does,
+                class included. */}
+            <span class={incident === null ? 'val doubt' : 'val'}>{incident ?? 'none recorded'}</span>
           </div>
           <div class="cell">
             <b>Confirmed / argued with</b>
@@ -177,9 +187,7 @@ function ArchiveStrip({ memory }: { memory: MemoryRowView }) {
           <div class="cell">
             <b>Superseded by</b>
             <span class={memory.supersededBy === null ? 'val' : 'val doubt'}>
-              {/* The id is truncated because a UUID at full width pushes every other cell off a
-                  phone, and the first segment is enough to match one strip to another by eye. */}
-              {memory.supersededBy === null ? 'nothing' : `${memory.supersededBy.slice(0, 8)}…`}
+              {successorWords(memory.supersededBy)}
             </span>
           </div>
         </div>
@@ -193,7 +201,10 @@ function ArchiveStrip({ memory }: { memory: MemoryRowView }) {
               <span class="say doubt">
                 {evictedAt === null ? 'no date recorded' : evictedAt.text}
                 {' · '}
-                {memory.evictionReason ?? 'no reason recorded'}
+                {/* Blank folds into the same words as missing, because neither records a reason.
+                    Left raw, this printed the separator with nothing after it, which is the failure
+                    the Why cell on this same page was fixed for. */}
+                {readText(memory.evictionReason ?? '', 'no reason recorded')}
               </span>
             </div>
           </div>
@@ -203,9 +214,33 @@ function ArchiveStrip({ memory }: { memory: MemoryRowView }) {
   );
 }
 
-/** The kinds in a receipt, as words. Falls back to the raw value so an unknown kind still prints. */
+/**
+ * What the Superseded by cell says, in three arms, because a blank successor is its own fact.
+ *
+ * `nothing` claims the row was never replaced, and a blank does not support that: the row DOES say
+ * it was superseded and simply does not say by what. Left raw it sliced the blank and printed a lone
+ * ellipsis. The id is truncated because a UUID at full width pushes every other cell off a phone,
+ * and the first segment is enough to match one strip to another by eye.
+ *
+ * EXTRACTED RATHER THAN EXEMPTED. Written inline as a nested ternary it took `ArchiveStrip` to a
+ * cognitive complexity of 26 against this repository's cap of 25, and the cap is not the sort of
+ * thing to widen for one cell.
+ */
+function successorWords(supersededBy: string | null): string {
+  if (supersededBy === null) return 'nothing';
+  if (isBlank(supersededBy)) return 'a row this listing did not name';
+  return `${supersededBy.slice(0, 8)}…`;
+}
+
+/**
+ * The kinds in a receipt, as words. Falls back to the raw value so an unknown kind still prints.
+ *
+ * `RECEIPT_CHECKS.kinds` is `arrayOf(isString)`, so a blank kind passes and the raw fallback printed
+ * nothing: the Filter cell named a filter it could not name, on the same strip as the Why cell, and
+ * a mixed list left a dangling comma.
+ */
 const kindWords = (kinds: readonly MemoryKind[]): string =>
-  kinds.map((one) => labelled(KIND_LABEL, one) ?? one).join(', ');
+  kinds.map((one) => labelled(KIND_LABEL, one) ?? readText(one, 'a kind this receipt did not name')).join(', ');
 
 /**
  * Which filter to name, and it is read off the RECEIPT whenever there is one.
@@ -304,12 +339,27 @@ function ReceiptStrip({
         {receipt !== null && (
           <div class="row r-main">
             <div class="cell">
+              {/* A BLANK REASON IS DOUBT EVEN UNDER COVERED, which is the whole of why the class
+                  asks two questions rather than one. `shapes.ts` checks `coverageReason` as a bare
+                  string, so `'   '` passes it, and this cell printed a confident empty Why under
+                  the one verdict that licenses an absence claim. Where the cause was also set it
+                  was worse than empty, because the line opened on the separator with nothing before
+                  it. (A first version of this comment QUOTED that rendering and invented it: it
+                  wrote a full stop for the middot below and "the listing query did not complete"
+                  for a label that reads "the archive query did not complete", back-formed from the
+                  enum key. Two reviewers found it independently. The quotation is gone rather than
+                  repaired, since the sentence before it already says what went wrong.) `readLamp`
+                  in `status-state.ts` already refuses to light a lamp whose reason is blank, and
+                  this is that same claim on the archive's receipt. */}
               <b>Why</b>
-              <span class={receipt.coverage === 'COVERED' ? 'say' : 'say doubt'}>
-                {receipt.coverageReason}
+              <span class={receipt.coverage === 'COVERED' && !isBlank(receipt.coverageReason) ? 'say' : 'say doubt'}>
+                {readText(
+                  receipt.coverageReason,
+                  'This receipt arrived with no reason beside it, so there is nothing here to stand on.',
+                )}
                 {receipt.coverageCause === null
                   ? ''
-                  : ` · stopped by ${labelled(CAUSE, receipt.coverageCause) ?? receipt.coverageCause}`}
+                  : ` · stopped by ${labelled(CAUSE, receipt.coverageCause) ?? readText(receipt.coverageCause, 'a stage this receipt did not name')}`}
               </span>
             </div>
           </div>
