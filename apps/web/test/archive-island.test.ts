@@ -56,13 +56,22 @@ import type {
  * **44 of 44**; the first review of that commit added a test and it measured **45 of 45**; the
  * second review found a defect in that test's own fix, which added another, and it measured
  * **46 of 46**. A number written once and left alone would have been wrong twice inside an hour,
- * after being wrong twice before that. Removing `cancelAnimationFrame` reddens 46 of 46: every test
- * in this file depends on hydration having happened.
+ * after being wrong twice before that.
+ *
+ * THEN 46 STOOD WHILE THE FILE GREW TO 61, fifteen tests past the last measurement. All three
+ * re-measurements above happened in ONE SITTING, as the sentence before them says, so what looked
+ * like the rule holding was one sitting's attention holding, and the rule below is addressed to
+ * whoever grows the file next. Re-measured: removing `cancelAnimationFrame` reddens **61 of 61**,
+ * every test in this file, which depends on hydration having happened. The answer has kept the same
+ * shape at every size, and only the denominator moves, which is exactly what makes it a thing to
+ * measure rather than a thing to reason about.
  *
  * ANY TEST ADDED BELOW MUST BE RE-MEASURED AGAINST THAT MUTATION, and the giveaway is a test whose
- * expected values a dead page also produces: an absence, an unlit class, or the word NOT ASKED. All
- * five of the new ones assert an absence somewhere and were given a post-effect anchor for exactly
- * that reason. Give the next one an anchor too, then re-measure and correct this number.
+ * expected values a dead page also produces: an absence, an unlit class, or the word NOT ASKED. The
+ * five tests added by the change that wrote this paragraph each assert an absence somewhere and
+ * were given a post-effect anchor for exactly that reason. They are NOT the newest five now, and
+ * saying "the new ones" in a file that keeps growing is how a sentence outlives the tests it was
+ * about. Give the next one an anchor too, then re-measure and correct this number.
  *
  * Two things defend against that, and the second is the one that would survive a rewrite:
  *

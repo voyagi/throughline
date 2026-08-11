@@ -16,30 +16,41 @@ import type { LampView, StatusResponse } from '../src/scripts/types.ts';
  * measurement corrected the paragraph that stood here. The console's island file records that
  * removing `cancelAnimationFrame` reddens 0 of its tests, because the console fetches nothing on
  * mount. Both of these islands DO fetch from a mount effect, so the obvious sentence to write was
- * that the frame scheduler pair is load bearing here. HALF OF THAT IS FALSE. Re-measured at the 17
+ * that the frame scheduler pair is load bearing here. HALF OF THAT IS FALSE. Re-measured at the 18
  * tests this file now holds:
  *
- *   - removing `cancelAnimationFrame` reddens 17 OF 17;
- *   - removing `requestAnimationFrame` reddens 0 OF 17, because preact falls back to a timeout and
+ *   - removing `cancelAnimationFrame` reddens 18 OF 18;
+ *   - removing `requestAnimationFrame` reddens 0 OF 18, because preact falls back to a timeout and
  *     `settle` below drains timeouts. It is installed for correctness of description, not as a
  *     defence this file leans on.
  *
  * WHAT IT ACTUALLY RESTS ON IS THE ROUND TRIP, and each surface carries its own share, which is the
- * point of mounting both. Dropping the probe out of `StatusBoard` reddens 17 OF 17, with no survivor
+ * point of mounting both. Dropping the probe out of `StatusBoard` reddens 18 OF 18, with no survivor
  * at all: the one test that used to assert only on the rail now asserts the board's slip as well.
- * Dropping it out of `Annunciator` reddens 15 OF 17, and the two survivors are the two tests that
+ * Dropping it out of `Annunciator` reddens 16 OF 18, and the two survivors are the two tests that
  * assert only on the board, `does not light a lamp claiming OK with no reason beside it` and
  * `refuses a body carrying two lamps under one name`.
  *
- * ALL FOUR WERE RE-MEASURED TWICE IN ONE BRANCH, at 16 tests and again at 17, and the count was not
- * what made them stale either time. The dead rail figure first moved because a new test was written
- * asserting only the board, which would have made it a THIRD survivor until a rail assertion was
- * added to it, and the same check on the next new test is why the survivor list is unchanged now.
- * Naming the survivors here rather than counting them is what makes that checkable: a bare figure
- * cannot tell a lost test from a gained one.
+ * ALL FOUR WERE RE-MEASURED THREE TIMES IN ONE BRANCH, at 16 tests, at 17 and again at 18, and the
+ * count was not what made them stale the first two times. The dead rail figure first moved because a
+ * new test was written asserting only the board, which would have made it a THIRD survivor until a
+ * rail assertion was added to it, and the same check on the next new test is why the survivor list
+ * is unchanged now. Naming the survivors here rather than counting them is what makes that
+ * checkable: a bare figure cannot tell a lost test from a gained one, and it was the NAMES that
+ * carried the third re-measurement, which found both of them still standing.
  *
- * EVERY ONE OF THOSE FOUR FIGURES HAS BEEN WRONG ONCE, and both ways it happened are recorded here
- * because both will happen again. The dead-rail figure was 7, under a sentence saying the survivors
+ * THE THIRD TIME, THE RULE BELOW WAS SIMPLY NOT FOLLOWED, which is a way of going stale the two
+ * paragraphs above do not cover. The change that added the eighteenth test left all four figures at
+ * 17 and shipped, and nothing independent read it, so they were corrected a commit later instead of
+ * in the change that earned them. A rule addressed to whoever grows the file is worth exactly as
+ * much as the next person's memory of it, which is why the figures are measured here rather than
+ * argued: 18 OF 18, 0 OF 18, 18 OF 18 and 16 OF 18, re-measured with the same two survivors named.
+ *
+ * EVERY ONE OF THOSE FOUR FIGURES HAS BEEN WRONG MORE THAN ONCE, and the two ways recorded in this
+ * paragraph are not all of them: the third is the paragraph above, where the rule was simply not
+ * run. That count was `ONCE` here until the third time made it false, in a paragraph whose whole
+ * subject is figures going stale, which is the shape this file exists to catch and is not exempt
+ * from. The dead-rail figure was 7, under a sentence saying the survivors
  * were the board-only assertions. Two of the four were. The other two asserted four unlit lamps on
  * the rail, which is byte-identical to what a rail that never fetched renders, and that is the
  * hazard named three paragraphs above, committed twice in the file that names it. Giving both a rail
@@ -47,11 +58,17 @@ import type { LampView, StatusResponse } from '../src/scripts/types.ts';
  * four figures went stale in the same stroke, and two more tests did it again. The last move was not
  * a new test at all: CHANGING WHAT ONE EXISTING TEST ASSERTS took the dead-board figure from 13 to
  * 14 and removed its only survivor. The figures have been carried at 11, at 12 and at 14 tests, and
- * every move was re-measured rather than adjusted.
+ * every move NAMED IN THIS PARAGRAPH was re-measured rather than adjusted. The move to 18 was
+ * neither: it was not noticed at all until the range had already merged.
  *
  * RE-MEASURE ALL FOUR WHENEVER THIS FILE GROWS, in the change that grows it. The sibling file
- * records being wrong about its own numbers until they were re-measured twice, at 8 tests, 12
- * and 17.
+ * carries the same rule over its own two figures and records having been wrong about them more
+ * than once.
+ *
+ * NO HISTORY OF THE SIBLING'S SIZES IS QUOTED HERE ANY MORE. This said it had been re-measured
+ * twice, at 8 tests, 12 and 17, while that file's own header already recorded five sizes. A recital
+ * of another file's numbers goes stale every time THAT file grows, and nothing in this one moves
+ * when it does, so the citation names the sibling's rule and lets the sibling carry its own count.
  *
  * THE GIVEAWAY FOR ANY TEST ADDED HERE is one whose expected values a dead page also produces. That
  * is a real hazard on this page and not a theoretical one: an unlit lamp reading UNKNOWN is what
