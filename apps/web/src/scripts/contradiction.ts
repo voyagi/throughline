@@ -166,13 +166,37 @@ export const isBlank = (value: string): boolean => value.trim() === '';
  * stale OR it is tombstoned. On a stale row the words and the class are both exactly what a
  * substitution produces, and nothing on the cell says which of the two happened.
  *
- * THE LAMP'S `state` IS THE ONE SUBSTITUTE ON THESE SURFACES THAT CANNOT COLLIDE, and the
- * difference is instructive: an unrecognised state gets a NOTE that quotes the word back, so a lamp
- * whose state really is `no state sent` reads differently from one that arrived blank. A table cell
- * has nowhere to put that note. The alternative is a `given` twin for each field, two more values
- * carried on every row for a collision no producer on this API can currently cause, since the write
- * schemas trim both fields and refuse them empty. So it is written down instead of defended
- * against, and it is the first thing to revisit if a wire that is not this API ever writes a memory.
+ * THE COLLISION IS REACHABLE FROM THIS API'S OWN PRODUCER, and the sentence that stood here said the
+ * opposite. It claimed no producer could currently cause it, on the grounds that the write schemas
+ * trim both fields and refuse them empty. THAT REASONING CONFUSES EMPTY WITH CHOSEN.
+ * `rememberSchema.content`, `supersedeSchema.content` and the shared `assertedBy` in
+ * `apps/api/src/agent/tools.ts` are each `z.string().trim().min(1)`, which refuses a blank and
+ * accepts any non blank string, including the two this module substitutes. A model calling
+ * `remember` with a content of `This memory arrived with no content.` is writing a memory the
+ * schema is happy with, and the row it produces is the ambiguous one.
+ *
+ * THE STALE ROW IS WHERE IT ACTUALLY BITES, which the paragraph above already established and the
+ * deleted sentence then contradicted two lines later. A stale row carrying that content as its real
+ * body renders the same words AND the same `say doubt` class as a blank bodied row, so on that one
+ * cell there is nothing left to tell them apart. A false impossibility claim is worse here than no
+ * claim, because it hands the next reader a reason not to address something that can happen.
+ *
+ * THE LAMP'S `state` IS THE ONE SUBSTITUTE ON THESE SURFACES THAT DOES NOT HAVE THIS PROBLEM, and
+ * the difference is instructive: an unrecognised state gets a NOTE that quotes the word back, so a
+ * lamp whose state really is `no state sent` reads differently from one that arrived blank. A table
+ * cell has nowhere to put that note.
+ *
+ * SO THE OPEN AMBIGUITY IS ONE CELL AND NOT TWO, AND THIS SAID TWO. Provenance carries its own
+ * discriminator already: both boards read `isBlank(assertedBy) ? 'val doubt' : 'val'`, so a row
+ * asserting the literal string `nobody named` takes the CONFIDENT class while a blank one does not.
+ * The words collide there and the class does not. That is the split stated three paragraphs up, and
+ * the conclusion then widened straight past it, which is the same self contradiction inside one
+ * docblock that this whole change was written to correct. What is left with nothing to separate it
+ * is the CONTENT cell on a stale or tombstoned row, where the doubt class is produced either way.
+ *
+ * A `given` TWIN IS THEREFORE REDUNDANT ON PROVENANCE AND IS NOT PROPOSED THERE. If the remaining
+ * cell is worth closing, the twin belongs on `content` alone, the way `name` has one. It is NOT
+ * done here, and the reason is scope rather than impossibility.
  *
  * THIS HAS BEEN TOO SHORT THREE TIMES, AND EVERY TIME A REVIEW MEASURED IT. The first version named
  * two fields and stood over eight unguarded ones: the row's `kind` in `cells.tsx`, which BOTH boards
