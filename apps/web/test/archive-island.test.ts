@@ -1170,6 +1170,54 @@ describe('the archive island, hydrated', () => {
     expect(cellClass(stripAt(container, 2), 'Content')).toBe('say');
   });
 
+  it('still racks a row whose body arrived blank rather than dropping it', async () => {
+    // THE DECISION, PINNED SEPARATELY FROM THE WORDING, and it is a regression guard rather than a
+    // proof of the change beside it: this page has never dropped a row, so this test was green
+    // before the substitute existed. It is here because dropping the row is the one repair that
+    // looks tidiest and is provably wrong. `Archive.tsx` passes `rowCount: rows.length` into
+    // `readListing`, whose last rule refuses the receipt when `receipt.returned` disagrees with
+    // that count. So a page that dropped this row would refuse a receipt that was telling the
+    // truth, and the reader would be shown a contradiction the page had just invented.
+    answers(listing([row({ content: '   ' })]));
+    const container = await mountAndSettle();
+
+    expect(strips(container)).toHaveLength(1);
+    expect(cellText(receiptStrip(container), 'Rows shown')).toBe('1');
+  });
+
+  it('substitutes and marks the Content cell when a row arrives with no body', async () => {
+    // `ROW_CHECKS.content` is a bare `isString`, on purpose, so whitespace reaches this cell. It is
+    // one of the last two received strings on this strip that printed raw, and an empty Content cell
+    // under a confident class reads as a page that failed to render rather than as a row that says
+    // nothing.
+    answers(listing([row({ content: '   ' })]));
+    const container = await mountAndSettle();
+
+    expect(cellText(stripAt(container, 0), 'Content')).toBe('This memory arrived with no content.');
+    expect(cellClass(stripAt(container, 0), 'Content')).toBe('say doubt');
+  });
+
+  it('substitutes and marks the Asserted by cell when a row names nobody', async () => {
+    // The other half, and it fails in the more dangerous direction: this cell had NO conditional
+    // class at all, so a blank provenance printed nothing in the confident class on the column that
+    // says where a row came from. The console prints the identical substitute for the identical
+    // field, which `contradiction.ts` records as a decision rather than a copy.
+    answers(listing([row({ assertedBy: '   ' })]));
+    const container = await mountAndSettle();
+
+    expect(cellText(stripAt(container, 0), 'Asserted by')).toBe('nobody named');
+    expect(cellClass(stripAt(container, 0), 'Asserted by')).toBe('val doubt');
+  });
+
+  it('leaves a filled Asserted by cell in the confident class', async () => {
+    // THE POSITIVE CONTROL FOR THE TEST ABOVE, named rather than placed: a widening that simply
+    // doubted every provenance cell would leave that one green while reddening this one.
+    answers(listing([row({ assertedBy: 'human:oncall-ana' })]));
+    const container = await mountAndSettle();
+
+    expect(cellClass(stripAt(container, 0), 'Asserted by')).toBe('val');
+  });
+
   it('lights the receipt holder once something has been measured and leaves it dark before', async () => {
     answers(listing([row()]));
     const container = mount();

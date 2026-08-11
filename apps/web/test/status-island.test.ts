@@ -478,6 +478,27 @@ describe('both status surfaces, hydrated from one body', () => {
     expect(hasSlip(board)).toBe(false);
   });
 
+  it('draws words in the chip on both surfaces when a lamp arrives with no state', async () => {
+    // AN EMPTY CHIP ON TWO PAGES AT ONCE, which is why this is asserted on the board AND the rail
+    // rather than on whichever one was open. `readLamp` is the single reading both surfaces print,
+    // so a blank reaching it reached both, exactly as one blank kind emptied a cell on the console
+    // rack and the archive rack together. The phrase asserted here appears in no note, so it can
+    // only have come from the chip.
+    answers({
+      ...OK_BODY,
+      lamps: [lamp('Vector index', '   ', 'The planner chooses the vector index.'), ...OK_BODY.lamps.slice(1)],
+    });
+    const { board, rail } = await mountBoth();
+
+    expect(boardWords(board)).toContain('no state sent');
+    expect(railWords(rail)).toContain('no state sent');
+    expect(boardWords(board)).toContain('This lamp arrived with no state, so there is nothing here to light it on.');
+    expect(boardLamps(board)[0]).toBe('state s-unk');
+    expect(railLamps(rail)[0]).toBe('state s-unk');
+    // THE NEIGHBOURS ARE UNTOUCHED, for the reason the unrecognised-state test gives.
+    expect(hasSlip(board)).toBe(false);
+  });
+
   it('does not light a lamp on either surface when the body names no capability for it', async () => {
     answers({ ...OK_BODY, lamps: [lamp('  ', 'OK', 'The planner chooses it.'), ...OK_BODY.lamps.slice(1)] });
     const { board, rail } = await mountBoth();

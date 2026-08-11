@@ -101,6 +101,13 @@ const PATH_LABEL: Readonly<Record<string, string>> = {
 
 /** A recalled memory, as a strip in its holder. Stale rows are COCKED, never dropped or dimmed. */
 function RecalledStrip({ memory }: { memory: RecalledMemoryView }) {
+  // THE ROW'S OWN TWO WORDS, which are the memory's claim about itself rather than the receipt's
+  // claim about the memory, and the last two received strings on this board that printed raw. The
+  // archive strip decides the identical thing about the identical two fields; the argument for
+  // substituting rather than dropping the strip is in `contradiction.ts` beside `readText`.
+  const contentIsBlank = isBlank(memory.content);
+  const assertedByIsBlank = isBlank(memory.assertedBy);
+
   return (
     <div class={memory.stale ? 'strip cocked posted' : 'strip posted'}>
       {/* Guarded, like every other lookup on this board. A kind the server adds later would
@@ -111,7 +118,13 @@ function RecalledStrip({ memory }: { memory: RecalledMemoryView }) {
         <div class="row r-main">
           <div class="cell">
             <b>Content</b>
-            <span class={memory.stale ? 'say doubt' : 'say'}>{memory.content}</span>
+            {/* A MEMORY WITH NO BODY IS STILL RACKED, and that is the decision rather than an
+                omission. Dropping the strip would take the rack below the `returned` this receipt
+                counted, and `readRecall` refuses a receipt whose count disagrees with the memories
+                beside it, so the board would refuse a receipt that was telling the truth. */}
+            <span class={contentIsBlank || memory.stale ? 'say doubt' : 'say'}>
+              {readText(memory.content, 'This memory arrived with no content.')}
+            </span>
           </div>
           <div class="cell">
             <b>Score</b>
@@ -132,15 +145,25 @@ function RecalledStrip({ memory }: { memory: RecalledMemoryView }) {
         <div class="row r-three">
           <div class="cell">
             <b>Asserted by</b>
-            <span class="val">{memory.assertedBy}</span>
+            {/* THE CLASS FOLLOWS THE WORDS, as it does on the Incident cell beside it. Provenance is
+                the column that says where a memory came from, so an unmarked empty one is the worst
+                cell on the board to leave looking confident. */}
+            <span class={assertedByIsBlank ? 'val doubt' : 'val'}>
+              {readText(memory.assertedBy, 'nobody named')}
+            </span>
           </div>
           <div class="cell">
             <b>Incident</b>
             {/* THE CLASS FOLLOWS THE WORDS, because on this design the class is a claim. The archive
                 twin marks a blank incident as doubt and this one printed it in the confident class,
-                so two boards typed one absence two ways. */}
+                so two boards typed one absence two ways.
+                THE WORDS THEN STILL DIFFERED, which was the same defect one layer down and it
+                survived the fix that named it: the class was made to agree while this cell said "not
+                recorded" and the archive's said "none recorded" about the same field, the same
+                absence and the same label. It reads as "none" here now, which claims the row names
+                no incident rather than leaving open whether one existed and went unwritten. */}
             <span class={isBlank(memory.incidentId ?? '') ? 'val doubt' : 'val'}>
-              {readText(memory.incidentId ?? '', 'not recorded')}
+              {readText(memory.incidentId ?? '', 'none recorded')}
             </span>
           </div>
           <div class="cell">
@@ -305,9 +328,11 @@ function TurnVerdicts({ at, response }: { readonly at: string; readonly response
  *
  * THE THIRD READER OF `tool_result.content`, and the sweep guarded the other two first. A blank one
  * drew the `Receipts, verbatim` heading over a disclosure labelled "What the agent was shown" that
- * opens onto nothing, while the same field twenty lines away in `writeAttempts` reads "This tool
- * answered with nothing at all." One field, three readers, and two of them honest is the shape this
- * repository keeps paying for.
+ * opens onto nothing, while the same field read by `writeAttempts` says "This tool answered with
+ * nothing at all." One field, three readers, and two of them honest is the shape this repository
+ * keeps paying for. (That citation gave a line distance, and it was wrong by more than three times
+ * over on the tree that carried it. No distance is quoted in its place and none should be: the
+ * function is named instead, which is the one locator an insertion above it cannot falsify.)
  *
  * SUBSTITUTED RATHER THAN SUPPRESSED. Dropping the record when it is blank would take the heading
  * with it and hide that the agent was shown something empty, which is a fact about the turn worth
@@ -573,13 +598,17 @@ export default function Console({ apiBase }: Props) {
                   <time>{clock(exchange.at)}</time>
                   <div>
                     <p class="who">Throughline</p>
-                    {/* THE ONE FREE TEXT FIELD THE LOOP DOES NOT AUTHOR, and the sweep that closed
-                        every other blank on this page walked past it twice. `TURN_CHECKS.text` is a
-                        bare `isString`, `loop.ts` copies the model's reply into it verbatim, and
-                        `judgeAnswer` deliberately does not police length, so a model answering with
-                        whitespace drew a speaker with nothing said, directly above a TURN COVERAGE
-                        chip in the green class. Every other blank on this board needs a body this
-                        API does not produce. This one does not. */}
+                    {/* THE ONE FREE TEXT FIELD THE LOOP NEITHER AUTHORS NOR VALIDATES, and the sweep
+                        that closed every other blank on this page walked past it twice.
+                        `TURN_CHECKS.text` is a bare `isString`, `loop.ts` copies the model's reply
+                        into it verbatim, and `judgeAnswer` deliberately does not police length, so a
+                        model answering with whitespace drew a speaker with nothing said, directly
+                        above a TURN COVERAGE chip in the green class. Every other blank on this
+                        board needs a body this API does not produce. This one does not.
+                        NOT "DOES NOT AUTHOR", WHICH IS WHAT THIS SAID AND WAS FALSE. A recalled
+                        memory's `content` and `assertedBy` are not authored by the loop either;
+                        they are read back out of the store. The difference is that the write
+                        schemas trim those two and refuse them empty, and nothing trims this one. */}
                     <p class="said">
                       {readText(
                         exchange.outcome.response.text,

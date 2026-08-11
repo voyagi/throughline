@@ -300,6 +300,34 @@ describe('a lamp is read once, so its class and its prose cannot disagree', () =
     expect(only?.detail).toBe('The planner chooses it.');
   });
 
+  it('says a lamp arrived with no state rather than printing an empty chip', () => {
+    // "PRINTED AS ITSELF" COVERS A WORD, AND WHITESPACE IS NOT ONE. This reading was reasoned about
+    // once already: a comment in `readLamp` records that a blank `state` lands in the unrecognised
+    // arm, which is true and fixes the CLASS. Both status islands print `state` into the chip, so
+    // the WORDS were still blank and one body emptied a chip on two pages at once.
+    const only = shown(answered(body({ lamps: [lamp('Vector index', '   ', 'The planner chooses it.')] })))
+      .lamps[0];
+
+    expect(only?.state).toBe('no state sent');
+    expect(only?.stateClass).toBe('state s-unk');
+    expect(only?.doubted).toBe(true);
+    // NOT the unrecognised note. Being sent no state and being sent a word this board cannot place
+    // are different facts, and quoting an empty string back as a state it does not know claims the
+    // second for the first.
+    expect(only?.note).toBe('This lamp arrived with no state, so there is nothing here to light it on.');
+    expect(only?.detail).toBe('The planner chooses it.');
+  });
+
+  it('still substitutes the state on a lamp that also names no capability', () => {
+    // THE SIBLING ARM. `nameless` returns before the unrecognised arm is reached, so a lamp that is
+    // both nameless and stateless leaves by a different door, and the substitute has to be computed
+    // once for every door rather than inside the one that was being fixed.
+    const only = shown(answered(body({ lamps: [lamp('  ', '   ', 'The planner chooses it.')] }))).lamps[0];
+
+    expect(only?.name).toBe('This lamp arrived with no name');
+    expect(only?.state).toBe('no state sent');
+  });
+
   it('refuses to light a lamp claiming OK with no reason beside it', () => {
     // The first draft of `readLamp` took the class from the state and the doubt from the reason, so
     // this lamp came back green and doubted at once. One derivation is what stops that.

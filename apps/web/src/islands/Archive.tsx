@@ -113,6 +113,11 @@ function ArchiveStrip({ memory }: { memory: MemoryRowView }) {
   // claim to be superseded, and only the successor is missing.
   const incident = memory.incidentId === null || isBlank(memory.incidentId) ? null : memory.incidentId;
 
+  // THE ROW'S OWN TWO WORDS, read together so the class and the text of each cannot disagree. The
+  // argument for substituting rather than refusing the row is in `contradiction.ts` beside
+  // `readText`, because the console decides the identical thing about the identical two fields.
+  const own = rowWords(memory, tombstoned);
+
   return (
     <div class={memory.stale ? `strip cocked${retired}` : `strip${retired}`}>
       {/* Guarded like every lookup on this page: a kind the server adds later renders a holder with
@@ -122,7 +127,11 @@ function ArchiveStrip({ memory }: { memory: MemoryRowView }) {
         <div class="row r-main">
           <div class="cell">
             <b>Content</b>
-            <span class={memory.stale || tombstoned ? 'say doubt' : 'say'}>{memory.content}</span>
+            {/* A ROW WITH NO BODY IS STILL RACKED, and that is the decision rather than an omission.
+                Dropping it would take this page's `rowCount` below the `returned` the API counted,
+                and the receipt rule that compares those two would then refuse a receipt that was
+                telling the truth: the page would manufacture the contradiction it exists to detect. */}
+            <span class={own.contentClass}>{own.content}</span>
           </div>
           <div class="cell">
             <b>State</b>
@@ -148,7 +157,10 @@ function ArchiveStrip({ memory }: { memory: MemoryRowView }) {
         <div class="row r-three">
           <div class="cell">
             <b>Asserted by</b>
-            <span class="val">{memory.assertedBy}</span>
+            {/* THE CLASS FOLLOWS THE WORDS, as it does on the Incident cell beside it. Provenance is
+                the column that says where a row came from, so an unmarked empty one is the worst
+                cell on the page to leave looking confident. */}
+            <span class={own.assertedByClass}>{own.assertedBy}</span>
           </div>
           <div class="cell">
             <b>Incident</b>
@@ -212,6 +224,39 @@ function ArchiveStrip({ memory }: { memory: MemoryRowView }) {
       </div>
     </div>
   );
+}
+
+/** What the row's own two cells say, and whether each is dressed as a claim this row can support. */
+interface RowWords {
+  readonly content: string;
+  readonly contentClass: string;
+  readonly assertedBy: string;
+  readonly assertedByClass: string;
+}
+
+/**
+ * The row's `content` and `assertedBy`, each with the class its own words have earned.
+ *
+ * EXTRACTED RATHER THAN EXEMPTED, which is the second time this component has asked for it and the
+ * answer is the same one `successorWords` got. Computing these two inline took `ArchiveStrip` to a
+ * cognitive complexity of 26 against this repository's cap of 25, and a cap widened once for a cell
+ * is a cap that does not hold the next time.
+ *
+ * BOTH READINGS IN ONE PLACE, because the failure being closed here is a class and a text that
+ * disagree about the same value. Returning them together is what makes disagreeing require an edit
+ * to this function rather than an oversight in the markup.
+ *
+ * `tombstoned` IS PASSED IN RATHER THAN DERIVED AGAIN. The component already computes it for the
+ * holder and the strip class, and a second derivation of one fact is exactly what this file keeps
+ * being corrected for.
+ */
+function rowWords(memory: MemoryRowView, tombstoned: boolean): RowWords {
+  return {
+    content: readText(memory.content, 'This memory arrived with no content.'),
+    contentClass: isBlank(memory.content) || memory.stale || tombstoned ? 'say doubt' : 'say',
+    assertedBy: readText(memory.assertedBy, 'nobody named'),
+    assertedByClass: isBlank(memory.assertedBy) ? 'val doubt' : 'val',
+  };
 }
 
 /**
@@ -433,7 +478,11 @@ function StateSlip({ state }: { readonly state: ListingState }) {
     // answered too slowly to wait for. The fixed paragraph here said "The API could not be reached
     // from this browser", so a slow cold start past the eight second timeout printed the timeout
     // sentence and then denied it on the next line. That is the same shape as the `refused` branch
-    // below, twenty lines away, found by the review of the commit that fixed the other one.
+    // in this same switch, found by the review of the commit that fixed the other one. (That
+    // citation read "twenty lines away". Measured on the tree that wrote it: forty-one lines to
+    // `case 'refused':`, so it was wrong by about double, and it is the sibling of the line
+    // distance `Console.tsx` was corrected for. A branch can be named; a distance cannot be kept
+    // true, and no replacement distance is written here.)
     //
     // The detail line above is the half that knows which event happened. This paragraph now says
     // only what both events share, which is that no answer arrived here.

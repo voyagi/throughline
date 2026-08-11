@@ -94,13 +94,18 @@ export const isCount = (value: number): boolean => Number.isInteger(value) && va
  * wants is `git grep -n 'isBlank(' -- apps/web/src`, which is a command rather than a claim. The
  * guarantee this module can keep is the one it was made for: there is ONE predicate.
  *
- * MOST SURFACE SUBSTITUTES ARRIVE THROUGH `readText`, AND FOUR DO NOT, which matters to anyone
- * sweeping this category: a `readText(` grep alone misses them. They call this predicate directly,
- * because what they produce is not a string. The write attempt's `kind` fold and the archive's
- * `incidentId` fold both produce a NULL that their cells already have words for, `successorWords`
- * produces one of three sentences, and the archive's Why cell produces a CLASS. (The sentence here
- * claimed every substitute routed through `readText`. It was true when written and the very next
- * commit falsified it, which is the failure this module documents rather than a new one.)
+ * NOT EVERY SURFACE SUBSTITUTE ARRIVES THROUGH `readText`, which matters to anyone sweeping this
+ * category: a `readText(` grep alone misses the ones that call this predicate directly. They do
+ * that because what they produce is not a string. Some fold a blank into a NULL the cell already
+ * has words for, some choose between whole sentences, and some produce only a CLASS. The sweep
+ * that finds all of them is the same command the paragraph above names, for the same reason.
+ *
+ * NO COUNT OF THOSE IS QUOTED EITHER, AND THE ONE THAT STOOD HERE IS WHY. It gave a number and
+ * named that many sites, directly underneath the argument that a caller count in this file goes
+ * stale in the ordinary course of using the predicate. The commit that wrote it added another
+ * direct caller in the same diff and left it off the list; the change that deleted the number
+ * added several more. A figure nobody can check from this line is the thing this file keeps being
+ * wrong about, and writing one in the paragraph that says so is how it happened the last time.
  *
  * `shapes.ts` validates the three STATUS fields as bare strings, on purpose, so a value of pure
  * whitespace reaches a page and this is the predicate that stops it being printed as a reason. A
@@ -132,29 +137,67 @@ export const isBlank = (value: string): boolean => value.trim() === '';
  * recorded" is true under QUERY and says nothing under Why, and a shared sentence would have to be
  * vague enough to be true in both places, which is how a substitute stops being a measurement.
  *
- * WHAT THIS DOES NOT COVER, named because an enumeration that hides its exclusions is a sample
- * wearing an enumeration's clothes: the ROW strips on both pages print `content` and `assertedBy`
- * straight out of the row, and a blank one still renders an empty cell there. That is left as its
- * own decision rather than swept in here, because a memory whose body is blank raises the question
- * of whether the archive should rack that row at all, which is a different question from what a
- * refusal slip is entitled to claim.
+ * THE ROW STRIPS ARE IN NOW, AND THE DECISION THEY WERE WAITING FOR IS SUBSTITUTE AND MARK.
+ * `content` and `assertedBy` on the row strips of both pages were held out of this on purpose,
+ * because a memory whose body is blank raises a question no refusal slip raises: whether the page
+ * should rack that row at all. It should, and the reason is a mechanism rather than a preference.
  *
- * THIS EXCLUSION HAS BEEN TOO SHORT TWICE, AND BOTH TIMES A REVIEW MEASURED IT. The first version
- * named two fields and stood over eight unguarded ones: the row's `kind` in `cells.tsx`, which BOTH
- * boards import, the row's `state`, the receipt's `kinds`, `incidentId` on both pages,
- * `supersededBy`, `evictionReason`, a refusal chip's own words, and a write attempt's `kind`. The
- * second version guarded those eight and then claimed the unguarded set had been COUNTED, while two
- * more stood outside it: `AgentTurnResponse.text` and the verbatim receipt record.
+ * DROPPING THE ROW WOULD MAKE EACH PAGE MANUFACTURE THE CONTRADICTION IT EXISTS TO DETECT. The
+ * archive hands `readListing` the number of rows it is about to rack and the console hands
+ * `readRecall` the number of memories it is about to rack, and both refuse the receipt when that
+ * number disagrees with the `returned` the API counted. So a page that dropped a blank bodied row
+ * would refuse a receipt that was telling the truth, and print a disagreement it had just created
+ * itself, on the one product whose argument is that a reader can check what it did. The archive's
+ * tombstone doctrine says the same thing from the other side: an evicted row stays racked so the
+ * archive is auditable rather than shorter, and a blank body is a worse reason to disappear than an
+ * eviction, not a better one.
  *
- * `text` IS THE ONE THAT MATTERED. It is the only free text field on this API the loop does not
- * author, it is `isString` like the rest, and a blank one drew a speaker with nothing said under a
- * COVERED chip in the green class. Every other blank on these boards needs a body this API cannot
- * produce. That one did not.
+ * SO ONE BLANK STRING IS WORTH ONE SUBSTITUTED CELL HERE TOO, and the class follows the words, which
+ * is what each page's Incident cell already does. The row is left saying exactly what it can
+ * support: this memory arrived with no content, nobody is named as asserting it, and neither cell
+ * is wearing the confident class while it says so.
  *
- * So the claim this paragraph makes now is narrower and checkable: `content` and `assertedBy` on the
- * ROW strips are excluded ON PURPOSE, and nothing else prints a received string unguarded. A reader
- * doubting that should run the sweep rather than trust the sentence, which is the whole lesson of
- * having written it wrong twice.
+ * THIS HAS BEEN TOO SHORT THREE TIMES, AND EVERY TIME A REVIEW MEASURED IT. The first version named
+ * two fields and stood over eight unguarded ones: the row's `kind` in `cells.tsx`, which BOTH boards
+ * import, the row's `state`, the receipt's `kinds`, `incidentId` on both pages, `supersededBy`,
+ * `evictionReason`, a refusal chip's own words, and a write attempt's `kind`. The second version
+ * guarded those eight and then claimed the unguarded set had been COUNTED, while two more stood
+ * outside it: `AgentTurnResponse.text` and the verbatim receipt record. The third said nothing else
+ * printed a received string unguarded, and a lamp's `state` did, on two islands at once.
+ *
+ * `text` IS STILL THE ONE THAT MATTERED, AND THE SENTENCE SAYING SO NEEDED NARROWING. It called
+ * `text` the only free text field on this API the loop does not author, which is not true: a row's
+ * `content` and `assertedBy` are not authored by the loop either, they are read back out of the
+ * store. What is true is the part that bit. `text` is the only one the loop neither authors NOR
+ * validates: `rememberSchema` and `supersedeSchema` trim `content` and `assertedBy` and refuse them
+ * empty, and the repository refuses a blank `assertedBy` once more before the write, while
+ * `judgeAnswer` deliberately does not police the length of an answer. So a blank `text` is the one
+ * blank on these boards this API's own producer can emit, and the row fields are the ordinary case:
+ * they need a wire that is not this API, exactly like everything else guarded here.
+ *
+ * DO NOT READ THE DATABASE AS A SECOND GUARANTEE ON THOSE TWO. `content_is_present` and
+ * `provenance_is_present` both test `length(...) > 0`, and three spaces have length three, so
+ * whitespace satisfies both constraints. What keeps a blank `content` out of the store is the
+ * schema at the tool boundary, by itself. `assertedBy` has the repository's own trim behind it as
+ * well, which is the asymmetry: two fields that look identical from a cell are not identically held.
+ *
+ * SO THIS PARAGRAPH NAMES ITS METHOD RATHER THAN ITS CONCLUSION, which is what three wrong
+ * conclusions bought. The sweep is every interpolation of a dotted field under
+ * `apps/web/src/islands`, each one resolved to the value behind it rather than grepped for the
+ * guarded form, because both misses that got through were fields nobody thought to look at. Say
+ * what that form does NOT reach, so the next reader widens it rather than trusting it: a bare local,
+ * a template literal, and an interpolation carrying its own `??` arm are all outside it, and each of
+ * those was read here by other means.
+ *
+ * WHAT IS OUTSIDE THE CATEGORY IS NAMED RATHER THAN COUNTED. `Exchange.question` is the operator's
+ * own typing and never crossed the wire. Everything else that form reaches resolves to a number, a
+ * key, a coverage verdict `isCoverage` has already narrowed to the three the contract declares, or
+ * a string some reader has already put through this predicate: `readLamp` and `readDay` for the
+ * status and archive values, `asFailure` for a failure's two fields, and the console's own
+ * `writeAttempts`, `failedRecalls` and `ReceiptRecord` for the transcript's. (That last one is the
+ * reader, not `receipts`, which only collects: naming the collector would send a checker to a
+ * function with no guard in it.) A reader doubting any of that should re-run the sweep rather than
+ * trust this sentence.
  *
  * TWO PAGES SHARING ONE SUBSTITUTE WORD FOR WORD IS DELIBERATE, not a copy that drifted. The
  * substitute belongs to the CELL, and where two cells on two pages make the identical claim about

@@ -57,7 +57,16 @@ export interface LampReading {
    * one, which also shows the whitespace when whitespace is what collided.
    */
   readonly given: string;
-  /** The state word AS IT ARRIVED, never a word chosen here. An odd word printed is odd and true. */
+  /**
+   * The state word as it arrived, or this board's own words when none did.
+   *
+   * THIS SAID "NEVER A WORD CHOSEN HERE", and the guard that gave a blank state its own words made
+   * that false in the same change. An odd WORD is still printed as itself, which is the decision
+   * `shapes.ts` records at `LAMP_CHECKS`; whitespace is not a word, and printing it as itself put an
+   * empty chip on both status surfaces. No `given` twin is kept for this the way `name` has one:
+   * the only value ever substituted here is whitespace, and quoting it back at a reader shows them
+   * nothing they did not already have.
+   */
   readonly state: string;
   /** The reason as it arrived, or this board's own sentence when none did. */
   readonly detail: string;
@@ -339,6 +348,8 @@ function unlit(silence: Silence, failure: FailureResponse | null): StatusView {
  * NOT A REFUSAL, AND THAT IS A DECISION WITH A REASON WRITTEN DOWN. `shapes.ts` validates a lamp's
  * `state` as a bare string on purpose and says why at `LAMP_CHECKS`. So an unrecognised word is
  * printed as itself, unlit, with this board's remark beside it, and the other lamps are untouched.
+ * A word is what that covers. A `state` of pure whitespace is not one, and "printed as itself" put
+ * an EMPTY chip on both status islands until this function was made to say so instead.
  *
  * THE ORDER IS NAME, THEN STATE, THEN REASON, and each step is a wider claim than the one before.
  * A lamp nobody can name cannot be reporting on a capability at all, so nothing else about it is
@@ -363,11 +374,27 @@ function readLamp(lamp: LampView): LampReading {
   const nameless = isBlank(lamp.name);
   const name = nameless ? 'This lamp arrived with no name' : lamp.name;
 
+  // THE CHIP ITSELF WAS PRINTED RAW, and the comment above is why it went unnoticed through two
+  // sweeps: this file had already reasoned that a blank `state` lands in the unrecognised arm, which
+  // is true, and stopped there. That arm fixes the CLASS and writes a note. (No claim here that this
+  // was the LAST such string on the board. Three completeness claims about this category have been
+  // falsified already, and `contradiction.ts` now records the sweep rather than the conclusion.)
+  // It does not fix the WORDS, and both status islands print `state` into a chip, so a blank one
+  // rendered an empty chip on two pages at once. `ArchiveStrip` guards its own row's `state` the
+  // same way, by substituting rather than by leaving the class to carry the whole fact.
+  //
+  // SUBSTITUTED IN ONE PLACE AND USED BY EVERY ARM, because a lamp can be nameless AND stateless and
+  // the first arm returns before the second is reached. In the last arm `known` is defined, so the
+  // state is a word this board recognised and the substitute cannot fire there; it reads from the
+  // same value anyway rather than leaving one arm asking a different question from the other two.
+  const stateless = isBlank(lamp.state);
+  const state = stateless ? 'no state sent' : lamp.state;
+
   if (nameless) {
     return {
       name,
       given: lamp.name,
-      state: lamp.state,
+      state,
       detail,
       note: 'A lamp that names no capability cannot report on one, so it is not lit.',
       stateClass: LAMP_CLASS.UNKNOWN,
@@ -379,9 +406,14 @@ function readLamp(lamp: LampView): LampReading {
     return {
       name,
       given: lamp.name,
-      state: lamp.state,
+      state,
       detail,
-      note: `This board does not know the state ${JSON.stringify(lamp.state)}, so the lamp is not lit.`,
+      // NOT KNOWING A STATE AND BEING SENT NONE ARE DIFFERENT FACTS, and one note claimed the first
+      // for both. Quoting an empty string back at a reader as a state this board does not know is
+      // the same species of wrong as printing the empty chip it sits under.
+      note: stateless
+        ? 'This lamp arrived with no state, so there is nothing here to light it on.'
+        : `This board does not know the state ${JSON.stringify(lamp.state)}, so the lamp is not lit.`,
       stateClass: LAMP_CLASS.UNKNOWN,
       doubted: true,
     };
@@ -396,7 +428,7 @@ function readLamp(lamp: LampView): LampReading {
   return {
     name,
     given: lamp.name,
-    state: lamp.state,
+    state,
     detail,
     note: blank ? 'A lamp with no reason is not a measurement, so it is not lit.' : null,
     stateClass: doubted ? LAMP_CLASS.UNKNOWN : known,

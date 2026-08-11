@@ -21,10 +21,11 @@ import type {
  * THE SIBLING FILE'S CONTROL IS NOT THIS FILE'S CONTROL, and that was measured rather than
  * inherited. `archive-island.test.ts` rests on the frame scheduler pair, because the archive fetches
  * from a mount effect and preact decides at module load whether the host has one. Removing
- * `cancelAnimationFrame` from THIS file reddens 0 of 17. Copying the sibling's paragraph would have
- * put a false claim at the top of a new file on the strength of it being true next door, which is
- * the failure this repository keeps finding in its own prose. `Console.tsx` uses `useRef` and
- * `useState` and no `useEffect` at all, so preact never reaches the frame scheduler here.
+ * `cancelAnimationFrame` from THIS file reddens NONE of its tests, and the exact figure is measured
+ * below rather than twice. Copying the sibling's paragraph would have put a false claim at the top
+ * of a new file on the strength of it being true next door, which is the failure this repository
+ * keeps finding in its own prose. `Console.tsx` uses `useRef` and `useState` and no `useEffect` at
+ * all, so preact never reaches the frame scheduler here.
  *
  * Both halves are still installed, before preact is imported, which is why the imports below are
  * dynamic. Their value here is correctness of description and readiness for the first test that
@@ -33,16 +34,19 @@ import type {
  * WHAT THIS FILE ACTUALLY RESTS ON is the round trip. The console fetches NOTHING on mount: it
  * answers a submitted question, so nothing exists to assert until a form that only exists after
  * render has been driven and an answer has come back through `api.ts` and `shapes.ts`. MEASURED on
- * 2026-08-10: dropping the submit dispatch out of `ask`, which is the whole of what a dead island
- * does, reddens 31 OF 31 by name. Every test here depends on a completed round trip. Removing the
- * `cancelAnimationFrame` install still reddens 0 OF 31, re-measured in the same run.
+ * 2026-08-11: dropping the submit dispatch out of `ask`, which is the whole of what a dead island
+ * does, reddens 38 OF 38 by name. Every test here depends on a completed round trip. Removing the
+ * `cancelAnimationFrame` install still reddens 0 OF 38, re-measured in the same run.
  *
- * BOTH NUMBERS HAVE NOW BEEN RE-MEASURED THREE TIMES, at 8 tests, at 12, at 17 and at 31, each time
- * in the change that grew the file. A number written once and left alone is exactly what the sibling
- * file records being wrong about four times, and this file would already have been wrong three
- * times. The 17 stood while thirteen tests were added under it, and a REVIEW caught it rather than
- * this file's own GIVEAWAY rule, which is the argument for measuring in the same run that adds the
- * tests rather than trusting anyone to remember.
+ * BOTH NUMBERS HAVE NOW BEEN WRITTEN AT FIVE SIZES, at 8 tests, at 12, at 17, at 31 and at 38, and
+ * NOT every one of those was a measurement of the tree it was published on. A number written once
+ * and left alone is exactly what the sibling file records being wrong about four times, and this
+ * file has now been wrong twice. The 17 stood while thirteen tests were added under it. The 31 was
+ * true of the PARENT tree and was published by a commit that took the file to 33 in the same diff,
+ * so it was false the moment it was typed, and it survived the merge because nothing independent
+ * read that commit. A REVIEW caught both, rather than this file's own GIVEAWAY rule, which is the
+ * argument for measuring in the same run that adds the tests rather than trusting anyone to
+ * remember.
  *
  * THE GIVEAWAY FOR ANY TEST ADDED HERE is one whose expected values a dead page also produces: an
  * absence, an unlit class, or the untouched "No strips on this board yet". Give it a post-answer
@@ -214,6 +218,30 @@ function cellWords(container: HTMLElement, label: string): string {
     const span = one.querySelector('span');
     if (span === null) throw new Error(`the cell labelled ${label} has no span to read`);
     return (span.textContent ?? '').replace(/\s+/gu, ' ').trim();
+  }
+  throw new Error(`no cell is labelled ${label}`);
+}
+
+/**
+ * The class on a labelled cell's span, which on this design is a claim and not decoration.
+ *
+ * THIS FILE HAD NO WAY TO READ A CLASS AND THE GAP WAS MEASURED: a review counted zero occurrences
+ * of the word `doubt` in this file while the console had just been given a `val doubt` arm on its
+ * Incident cell, so that arm shipped pinned by nothing and reverting it reddened no test. The
+ * archive's twin file HAS one, which is why the same guard is pinned there and was not pinned here.
+ *
+ * `hasAttribute` RATHER THAN A NULL CHECK, for the reason `verdictClasses` gives: linkedom returns
+ * `''` from `getAttribute('class')` for an attribute that is absent, so a span with no class at all
+ * would otherwise satisfy every assertion written against an empty one.
+ */
+function cellClass(container: HTMLElement, label: string): string {
+  for (const one of container.querySelectorAll('.cell')) {
+    const name = (one.querySelector('b')?.textContent ?? '').replace(/\s+/gu, ' ').trim();
+    if (name !== label) continue;
+    const span = one.querySelector('span');
+    if (span === null) throw new Error(`the cell labelled ${label} has no span to read`);
+    if (!span.hasAttribute('class')) throw new Error(`the cell labelled ${label} carries no class attribute`);
+    return (span.getAttribute('class') ?? '').replace(/\s+/gu, ' ').trim();
   }
   throw new Error(`no cell is labelled ${label}`);
 }
@@ -822,10 +850,25 @@ describe('a blank string arriving where the console prints one', () => {
   });
 
   it('gives a blank recalled incident the words a missing one already had', async () => {
+    // THE CLASS SHIPPED PINNED BY NOTHING, and the words disagreed with the archive's. Both halves
+    // are asserted here now: reverting the `val doubt` arm reddens this test, and so does changing
+    // the substitute back to a wording the twin cell does not use. The archive's twin test is
+    // "gives a blank incident the words and the class a missing one already had".
     answers(turn([recall(1, {}, { incidentId: '   ' })]));
     const container = await mountAndAsk('anything');
 
-    expect(cellWords(container, 'Incident')).toBe('not recorded');
+    expect(cellWords(container, 'Incident')).toBe('none recorded');
+    expect(cellClass(container, 'Incident')).toBe('val doubt');
+  });
+
+  it('leaves a recalled incident that names one in the confident class', async () => {
+    // THE POSITIVE CONTROL FOR THE TEST ABOVE, named rather than placed: a widening that doubted
+    // every Incident cell would leave that one green while reddening this one.
+    answers(turn([recall(1, {}, { incidentId: 'INC-42' })]));
+    const container = await mountAndAsk('anything');
+
+    expect(cellWords(container, 'Incident')).toBe('INC-42');
+    expect(cellClass(container, 'Incident')).toBe('val');
   });
 
   it('gives a blank recalled kind a word rather than an empty cell on both boards', async () => {
@@ -837,10 +880,56 @@ describe('a blank string arriving where the console prints one', () => {
     expect(cellWords(container, 'Kind')).toBe('a kind this row did not name');
   });
 
+  it('still racks a recalled memory whose body arrived blank rather than dropping the strip', async () => {
+    // THE DECISION, PINNED SEPARATELY FROM THE WORDING, and it is a regression guard rather than a
+    // proof of the change beside it: this board has never dropped a strip, so this was green before
+    // the substitute existed. It is here because dropping the strip is the repair that looks
+    // tidiest and is provably wrong. `readRecall` is handed the number of memories the board is
+    // about to rack and refuses the receipt when it disagrees with `receipt.returned`, so a board
+    // that dropped this one would refuse a receipt that was telling the truth.
+    answers(turn([recall(1, {}, { content: '   ' })]));
+    const container = await mountAndAsk('anything');
+
+    expect(strips(container)).toBe(1);
+    expect(boardWords(container)).not.toContain('RECEIPT REFUSED');
+  });
+
+  it('says a recalled memory arrived with no content rather than printing an empty cell', async () => {
+    // `RECALLED_MEMORY_CHECKS.content` is a bare `isString`, on purpose, so whitespace reaches this
+    // cell. It is one of the last two received strings on this strip that printed raw, and the
+    // archive strip prints the identical substitute for the identical field.
+    answers(turn([recall(1, {}, { content: '   ' })]));
+    const container = await mountAndAsk('anything');
+
+    expect(cellWords(container, 'Content')).toBe('This memory arrived with no content.');
+    expect(cellClass(container, 'Content')).toBe('say doubt');
+  });
+
+  it('marks a recalled memory that names nobody as asserting it', async () => {
+    // The other half, and it failed in the more dangerous direction: this cell had no conditional
+    // class at all, so a blank provenance printed nothing in the confident class on the column that
+    // says where a memory came from.
+    answers(turn([recall(1, {}, { assertedBy: '   ' })]));
+    const container = await mountAndAsk('anything');
+
+    expect(cellWords(container, 'Asserted by')).toBe('nobody named');
+    expect(cellClass(container, 'Asserted by')).toBe('val doubt');
+  });
+
+  it('leaves a filled Asserted by cell on a recalled memory in the confident class', async () => {
+    // THE POSITIVE CONTROL FOR THE TEST ABOVE, named rather than placed.
+    answers(turn([recall(1, {}, { assertedBy: 'human:oncall-ana' })]));
+    const container = await mountAndAsk('anything');
+
+    expect(cellClass(container, 'Asserted by')).toBe('val');
+  });
+
   it('says the turn came back with no answer rather than printing an empty speaker', async () => {
-    // THE ONLY FREE TEXT FIELD ON THIS API THE LOOP DOES NOT AUTHOR, and the one blank on this page
-    // reachable from this product's own producer rather than only from a foreign body. `loop.ts`
-    // copies the model's reply into `text` verbatim and `judgeAnswer` does not police its length.
+    // THE ONE FREE TEXT FIELD ON THIS API THE LOOP NEITHER AUTHORS NOR VALIDATES, which is the
+    // narrower claim: a row's `content` and `assertedBy` are not authored by the loop either, but
+    // the remember and supersede schemas trim them and refuse them empty. Nothing trims this one.
+    // `loop.ts` copies the model's reply into `text` verbatim and `judgeAnswer` does not police its
+    // length, so it is the one blank on this page this product's own producer can emit.
     answers({ ...turn([]), text: '   ' });
     const container = await mountAndAsk('anything');
 
