@@ -157,6 +157,23 @@ export const isBlank = (value: string): boolean => value.trim() === '';
  * support: this memory arrived with no content, nobody is named as asserting it, and neither cell
  * is wearing the confident class while it says so.
  *
+ * BOTH SUBSTITUTES CAN COLLIDE WITH A REAL VALUE, WHICH IS ACCEPTED HERE RATHER THAN UNNOTICED. A
+ * row whose `assertedBy` really is the string `nobody named` prints the same words as one that
+ * arrived with none, and a body reading `This memory arrived with no content.` does the same. THE
+ * CLASS SEPARATES THEM ON ONE OF THE TWO AND NOT THE OTHER, which is worth knowing before trusting
+ * either: provenance takes the doubt class only when the field is blank, so there the class is the
+ * discriminator, while the content cell takes that class when the field is blank OR the row is
+ * stale OR it is tombstoned. On a stale row the words and the class are both exactly what a
+ * substitution produces, and nothing on the cell says which of the two happened.
+ *
+ * THE LAMP'S `state` IS THE ONE SUBSTITUTE ON THESE SURFACES THAT CANNOT COLLIDE, and the
+ * difference is instructive: an unrecognised state gets a NOTE that quotes the word back, so a lamp
+ * whose state really is `no state sent` reads differently from one that arrived blank. A table cell
+ * has nowhere to put that note. The alternative is a `given` twin for each field, two more values
+ * carried on every row for a collision no producer on this API can currently cause, since the write
+ * schemas trim both fields and refuse them empty. So it is written down instead of defended
+ * against, and it is the first thing to revisit if a wire that is not this API ever writes a memory.
+ *
  * THIS HAS BEEN TOO SHORT THREE TIMES, AND EVERY TIME A REVIEW MEASURED IT. The first version named
  * two fields and stood over eight unguarded ones: the row's `kind` in `cells.tsx`, which BOTH boards
  * import, the row's `state`, the receipt's `kinds`, `incidentId` on both pages, `supersededBy`,
@@ -191,13 +208,22 @@ export const isBlank = (value: string): boolean => value.trim() === '';
  *
  * WHAT IS OUTSIDE THE CATEGORY IS NAMED RATHER THAN COUNTED. `Exchange.question` is the operator's
  * own typing and never crossed the wire. Everything else that form reaches resolves to a number, a
- * key, a coverage verdict `isCoverage` has already narrowed to the three the contract declares, or
- * a string some reader has already put through this predicate: `readLamp` and `readDay` for the
- * status and archive values, `asFailure` for a failure's two fields, and the console's own
- * `writeAttempts`, `failedRecalls` and `ReceiptRecord` for the transcript's. (That last one is the
- * reader, not `receipts`, which only collects: naming the collector would send a checker to a
- * function with no guard in it.) A reader doubting any of that should re-run the sweep rather than
- * trust this sentence.
+ * key, a coverage verdict `isCoverage` has already narrowed to the three the contract declares, a
+ * string an EQUALITY FILTER has already narrowed to named literals, or a string some reader has
+ * already put through this predicate: `readLamp` and `readDay` for the status and archive values,
+ * `asFailure` for a failure's two fields, and the console's own `writeAttempts`, `failedRecalls`
+ * and `ReceiptRecord` for the transcript's. (That last one is the reader, not `receipts`, which
+ * only collects: naming the collector would send a checker to a function with no guard in it.)
+ *
+ * THE EQUALITY FILTER IS THE FIFTH MECHANISM AND THE LIST WAS WRITTEN WITHOUT IT, which matters
+ * because the list is the thing a checker works from. `entry.tool` is printed on the console's
+ * write attempt strip and it is a received transcript string: no reader puts it through this
+ * predicate, and it is not a number, a key or a verdict. What makes it safe is that `writeAttempts`
+ * skips every turn whose `name` is neither `remember` nor `supersede`, so the only values that can
+ * reach that cell are two literals this repository wrote itself. A guard by exclusion is still a
+ * guard, and an enumeration that does not know the shape of one either reports it as a hole or
+ * walks past the next field held the same way. A reader doubting any of this should re-run the
+ * sweep rather than trust the sentence.
  *
  * TWO PAGES SHARING ONE SUBSTITUTE WORD FOR WORD IS DELIBERATE, not a copy that drifted. The
  * substitute belongs to the CELL, and where two cells on two pages make the identical claim about

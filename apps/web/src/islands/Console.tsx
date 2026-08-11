@@ -102,9 +102,16 @@ const PATH_LABEL: Readonly<Record<string, string>> = {
 /** A recalled memory, as a strip in its holder. Stale rows are COCKED, never dropped or dimmed. */
 function RecalledStrip({ memory }: { memory: RecalledMemoryView }) {
   // THE ROW'S OWN TWO WORDS, which are the memory's claim about itself rather than the receipt's
-  // claim about the memory, and the last two received strings on this board that printed raw. The
-  // archive strip decides the identical thing about the identical two fields; the argument for
-  // substituting rather than dropping the strip is in `contradiction.ts` beside `readText`.
+  // claim about the memory. The archive strip decides the identical thing about the identical two
+  // fields; the argument for substituting rather than dropping the strip is in `contradiction.ts`
+  // beside `readText`.
+  //
+  // NO COUNT OF WHAT IS LEFT IS CLAIMED HERE, AND ONE WAS. This called them the last two received
+  // strings on this board that printed raw. Re-swept since, against every interpolation the board
+  // renders, that sentence was true; it is the SPECIES that keeps being wrong, three times so far,
+  // and the change that wrote it had already refused to make the same claim next door in
+  // `status-state.ts` for that reason. A sentence a reader cannot check from the line it sits on is
+  // what this file keeps paying for, so `contradiction.ts` records the sweep instead of the total.
   const contentIsBlank = isBlank(memory.content);
   const assertedByIsBlank = isBlank(memory.assertedBy);
 

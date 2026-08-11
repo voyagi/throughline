@@ -35,18 +35,24 @@ import type {
  * answers a submitted question, so nothing exists to assert until a form that only exists after
  * render has been driven and an answer has come back through `api.ts` and `shapes.ts`. MEASURED on
  * 2026-08-11: dropping the submit dispatch out of `ask`, which is the whole of what a dead island
- * does, reddens 38 OF 38 by name. Every test here depends on a completed round trip. Removing the
- * `cancelAnimationFrame` install still reddens 0 OF 38, re-measured in the same run.
+ * does, reddens 39 OF 39 by name. Every test here depends on a completed round trip. Removing the
+ * `cancelAnimationFrame` install still reddens 0 OF 39, re-measured in the same run.
  *
- * BOTH NUMBERS HAVE NOW BEEN WRITTEN AT FIVE SIZES, at 8 tests, at 12, at 17, at 31 and at 38, and
- * NOT every one of those was a measurement of the tree it was published on. A number written once
- * and left alone is exactly what the sibling file records being wrong about four times, and this
- * file has now been wrong twice. The 17 stood while thirteen tests were added under it. The 31 was
- * true of the PARENT tree and was published by a commit that took the file to 33 in the same diff,
- * so it was false the moment it was typed, and it survived the merge because nothing independent
- * read that commit. A REVIEW caught both, rather than this file's own GIVEAWAY rule, which is the
+ * BOTH NUMBERS HAVE NOW BEEN WRITTEN AT SIX SIZES, at 8 tests, at 12, at 17, at 31, at 38 and at
+ * 39, and NOT every one of those was a measurement of the tree it was published on. A number
+ * written once and left alone is what the sibling file carries the same rule against, and this file
+ * has been wrong twice. The 17 stood while thirteen tests were added under it. The 31 was true of
+ * the PARENT tree and was published by a commit that took the file to 33 in the same diff, so it
+ * was false the moment it was typed, and it survived the merge because nothing independent read
+ * that commit. A REVIEW caught both, rather than this file's own GIVEAWAY rule, which is the
  * argument for measuring in the same run that adds the tests rather than trusting anyone to
  * remember.
+ *
+ * THE 39 IS THE FIRST ONE THE RULE ACTUALLY PRODUCED, measured in the same run as the test that
+ * caused it rather than a commit later by a reader who noticed. That is one data point and not a
+ * habit, and it happened because the same session was already re-measuring two other files for the
+ * same reason. NO COUNT OF THE SIBLING'S OWN EPISODES IS QUOTED HERE ANY MORE: a recital of another
+ * file's history goes stale every time THAT file grows, and nothing here moves when it does.
  *
  * THE GIVEAWAY FOR ANY TEST ADDED HERE is one whose expected values a dead page also produces: an
  * absence, an unlit class, or the untouched "No strips on this board yet". Give it a post-answer
@@ -199,6 +205,33 @@ const logWords = (container: HTMLElement): string => paneWords(container, '.log'
 const strips = (container: HTMLElement): number => container.querySelectorAll('.rack.live .strip').length;
 
 /**
+ * The nth strip in the live rack, so an assertion can say WHICH strip it is about.
+ *
+ * THE ARCHIVE TWIN HAS SCOPED EVERY CELL READ AND THIS FILE DID NOT, which is a difference with
+ * teeth rather than a style gap. THREE labels appear on two different strips of this rack: a
+ * recalled memory and a write attempt both carry a Content cell, an Asserted by cell and a Kind
+ * cell. `cellWords` and `cellClass` search the whole container and return the FIRST match, so an
+ * unscoped assertion lands on whichever strip the markup happens to render first, and it is the
+ * FIXTURE rather than the assertion that decides which guard was tested.
+ *
+ * THE DANGEROUS DIRECTION IS A POSITIVE CONTROL, not a substitute test. The write attempt strip
+ * hardcodes `class="say"` on its Content cell and `class="val"` on its Asserted by cell, which are
+ * the exact two strings a positive control for the recalled strip asserts. An unscoped positive
+ * control can therefore go green against a hardcoded class on the wrong strip while the guard it
+ * claims to pin is broken. The substitute tests were never exposed the same way, because the two
+ * strips print DIFFERENT words for the same absence, so reading the wrong one reddens.
+ *
+ * IT THROWS RATHER THAN RETURNING SOMETHING, for the reason `paneWords` throws: a helper that hands
+ * back an empty value turns every assertion built on it into one that cannot fail.
+ */
+const stripAt = (container: HTMLElement, index: number): HTMLElement => {
+  const all = [...container.querySelectorAll('.rack.live .strip')];
+  const one = all[index];
+  if (one === undefined) throw new Error(`this rack drew ${all.length} strips, so strip ${index} does not exist`);
+  return asElement(one);
+};
+
+/**
  * The words inside a labelled cell's span, which are not the words the PANE reads.
  *
  * JSX EATS THE WHITESPACE between a `<b>` label and the `<span>` beside it, so the pane reads
@@ -210,6 +243,11 @@ const strips = (container: HTMLElement): number => container.querySelectorAll('.
  * scoping it to the label stops a substitute that two cells share from vouching for the wrong one.
  * A missing cell and a missing span both throw, for the reason `paneWords` throws: a helper that
  * returns `''` turns every assertion built on it into one that cannot fail.
+ *
+ * SCOPING IT TO THE LABEL IS NOT SCOPING IT TO A STRIP. This searches the whole container and
+ * returns the FIRST cell carrying the label, and three labels on this rack appear on two strips.
+ * Pass `stripAt(container, n)` rather than the container whenever the label is one of those, and
+ * read the argument beside `stripAt` before deciding it does not matter for a new assertion.
  */
 function cellWords(container: HTMLElement, label: string): string {
   for (const one of container.querySelectorAll('.cell')) {
@@ -233,6 +271,11 @@ function cellWords(container: HTMLElement, label: string): string {
  * `hasAttribute` RATHER THAN A NULL CHECK, for the reason `verdictClasses` gives: linkedom returns
  * `''` from `getAttribute('class')` for an attribute that is absent, so a span with no class at all
  * would otherwise satisfy every assertion written against an empty one.
+ *
+ * PASS `stripAt` RATHER THAN THE CONTAINER, and for this helper it is load bearing rather than
+ * tidy: the write attempt strip carries hardcoded `say` and `val` classes on the same two labels
+ * the recalled strip guards, so an unscoped POSITIVE control here can pass against the wrong strip
+ * while the guard it names is broken. The full argument is beside `stripAt`.
  */
 function cellClass(container: HTMLElement, label: string): string {
   for (const one of container.querySelectorAll('.cell')) {
@@ -809,8 +852,12 @@ describe('a blank string arriving where the console prints one', () => {
     // READ PER CELL, NOT OFF THE PANE. A bare `toContain('not supplied')` would also pass off the
     // Kind cell, which prints those two words for a null kind, so it would hold on a page where the
     // field under test rendered nothing at all.
-    expect(cellWords(container, 'Content')).toBe('(no content supplied)');
-    expect(cellWords(container, 'Asserted by')).toBe('not supplied');
+    //
+    // AND PER STRIP, because both these labels also sit on the recalled strip. This fixture holds
+    // no recalled memory, so the unscoped read landed here by fixture composition rather than by
+    // saying so. `stripAt` makes the write attempt the thing under test in the assertion itself.
+    expect(cellWords(stripAt(container, 0), 'Content')).toBe('(no content supplied)');
+    expect(cellWords(stripAt(container, 0), 'Asserted by')).toBe('not supplied');
   });
 
   it('does not say the turn ended early when the tool answered with nothing', async () => {
@@ -846,7 +893,7 @@ describe('a blank string arriving where the console prints one', () => {
     answers(blankKindWriteTurn());
     const container = await mountAndAsk('anything');
 
-    expect(cellWords(container, 'Kind')).toBe('not supplied');
+    expect(cellWords(stripAt(container, 0), 'Kind')).toBe('not supplied');
   });
 
   it('gives a blank recalled incident the words a missing one already had', async () => {
@@ -877,7 +924,7 @@ describe('a blank string arriving where the console prints one', () => {
     answers(turn([recall(1, {}, { kind: '  ' as MemoryKind })]));
     const container = await mountAndAsk('anything');
 
-    expect(cellWords(container, 'Kind')).toBe('a kind this row did not name');
+    expect(cellWords(stripAt(container, 0), 'Kind')).toBe('a kind this row did not name');
   });
 
   it('still racks a recalled memory whose body arrived blank rather than dropping the strip', async () => {
@@ -896,13 +943,33 @@ describe('a blank string arriving where the console prints one', () => {
 
   it('says a recalled memory arrived with no content rather than printing an empty cell', async () => {
     // `RECALLED_MEMORY_CHECKS.content` is a bare `isString`, on purpose, so whitespace reaches this
-    // cell. It is one of the last two received strings on this strip that printed raw, and the
-    // archive strip prints the identical substitute for the identical field.
+    // cell, and the archive strip prints the identical substitute for the identical field. (This
+    // called it one of the last two received strings on this strip that printed raw. The claim was
+    // true when swept and is still the species that keeps being wrong, so it says what the fixture
+    // proves instead. The argument is in `Console.tsx` beside the same two readings.)
     answers(turn([recall(1, {}, { content: '   ' })]));
     const container = await mountAndAsk('anything');
 
-    expect(cellWords(container, 'Content')).toBe('This memory arrived with no content.');
-    expect(cellClass(container, 'Content')).toBe('say doubt');
+    expect(cellWords(stripAt(container, 0), 'Content')).toBe('This memory arrived with no content.');
+    expect(cellClass(stripAt(container, 0), 'Content')).toBe('say doubt');
+  });
+
+  it('leaves a filled Content cell on a recalled memory in the confident class', async () => {
+    // THE POSITIVE CONTROL FOR THE TEST ABOVE, and Content was the one guarded cell on this strip
+    // that never got one. Incident and Asserted by were each given theirs in the change that added
+    // the guards, and Content was left with only its doubt arm asserted. MEASURED: widening the
+    // condition at `RecalledStrip` to doubt EVERY Content cell reddens this test and nothing else,
+    // and before it existed that widening reddened nothing at all on this board.
+    //
+    // SCOPED, AND THAT IS THE WHOLE POINT OF IT BEING HERE. The write attempt strip prints
+    // `class="say"` unconditionally on its own Content cell, so this exact assertion passes against
+    // that strip whatever the recalled one does. An unscoped positive control would be the shape it
+    // is meant to catch.
+    answers(turn([recall(1, {}, { content: 'the pager fired and nobody acknowledged it' })]));
+    const container = await mountAndAsk('anything');
+
+    expect(cellWords(stripAt(container, 0), 'Content')).toBe('the pager fired and nobody acknowledged it');
+    expect(cellClass(stripAt(container, 0), 'Content')).toBe('say');
   });
 
   it('marks a recalled memory that names nobody as asserting it', async () => {
@@ -912,16 +979,17 @@ describe('a blank string arriving where the console prints one', () => {
     answers(turn([recall(1, {}, { assertedBy: '   ' })]));
     const container = await mountAndAsk('anything');
 
-    expect(cellWords(container, 'Asserted by')).toBe('nobody named');
-    expect(cellClass(container, 'Asserted by')).toBe('val doubt');
+    expect(cellWords(stripAt(container, 0), 'Asserted by')).toBe('nobody named');
+    expect(cellClass(stripAt(container, 0), 'Asserted by')).toBe('val doubt');
   });
 
   it('leaves a filled Asserted by cell on a recalled memory in the confident class', async () => {
-    // THE POSITIVE CONTROL FOR THE TEST ABOVE, named rather than placed.
+    // THE POSITIVE CONTROL FOR THE TEST ABOVE, named rather than placed. Scoped for the reason
+    // beside `stripAt`: the write attempt strip hardcodes this same class on this same label.
     answers(turn([recall(1, {}, { assertedBy: 'human:oncall-ana' })]));
     const container = await mountAndAsk('anything');
 
-    expect(cellClass(container, 'Asserted by')).toBe('val');
+    expect(cellClass(stripAt(container, 0), 'Asserted by')).toBe('val');
   });
 
   it('says the turn came back with no answer rather than printing an empty speaker', async () => {
