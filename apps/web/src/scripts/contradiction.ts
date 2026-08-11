@@ -97,8 +97,9 @@ export const isCount = (value: number): boolean => Number.isInteger(value) && va
  * NOT EVERY SURFACE SUBSTITUTE ARRIVES THROUGH `readText`, which matters to anyone sweeping this
  * category: a `readText(` grep alone misses the ones that call this predicate directly. They do
  * that because what they produce is not a string. Some fold a blank into a NULL the cell already
- * has words for, some choose between whole sentences, and some produce only a CLASS. The sweep
- * that finds all of them is the same command the paragraph above names, for the same reason.
+ * has words for, some choose between whole sentences, and some produce only a CLASS. The sweep that
+ * finds all of them is the same command the NO CALLER COUNT IS QUOTED paragraph names, for the same
+ * reason.
  *
  * NO COUNT OF THOSE IS QUOTED EITHER, AND THE ONE THAT STOOD HERE IS WHY. It gave a number and
  * named that many sites, directly underneath the argument that a caller count in this file goes
@@ -163,8 +164,11 @@ export const isBlank = (value: string): boolean => value.trim() === '';
  * CLASS SEPARATES THEM ON ONE OF THE TWO AND NOT THE OTHER, which is worth knowing before trusting
  * either: provenance takes the doubt class only when the field is blank, so there the class is the
  * discriminator, while the content cell takes that class when the field is blank OR the row is
- * stale OR it is tombstoned. On a stale row the words and the class are both exactly what a
- * substitution produces, and nothing on the cell says which of the two happened.
+ * stale, and on the archive when it is tombstoned as well. THE THIRD DISJUNCT IS THE ARCHIVE'S
+ * ALONE, and the reason is the type rather than an omission: `RecalledMemoryView` carries no `state`
+ * field, so a recalled row has no tombstoned condition to test. On a stale row the words and the
+ * class are both exactly what a substitution produces, and nothing on the cell says which of the
+ * two happened.
  *
  * THE COLLISION IS REACHABLE FROM THIS API'S OWN PRODUCER, and the sentence that stood here said the
  * opposite. It claimed no producer could currently cause it, on the grounds that the write schemas
@@ -175,11 +179,12 @@ export const isBlank = (value: string): boolean => value.trim() === '';
  * `remember` with a content of `This memory arrived with no content.` is writing a memory the
  * schema is happy with, and the row it produces is the ambiguous one.
  *
- * THE STALE ROW IS WHERE IT ACTUALLY BITES, which the paragraph above already established and the
- * deleted sentence then contradicted two lines later. A stale row carrying that content as its real
- * body renders the same words AND the same `say doubt` class as a blank bodied row, so on that one
- * cell there is nothing left to tell them apart. A false impossibility claim is worse here than no
- * claim, because it hands the next reader a reason not to address something that can happen.
+ * THE STALE ROW IS WHERE IT ACTUALLY BITES, which the BOTH SUBSTITUTES CAN COLLIDE paragraph
+ * established and the impossibility claim quoted in THE COLLISION IS REACHABLE then contradicted. A
+ * stale row carrying that content as its real body renders the same words AND the same `say doubt`
+ * class as a blank bodied row, so on that one cell there is nothing left to tell them apart. A false
+ * impossibility claim is worse here than no claim, because it hands the next reader a reason not to
+ * address something that can happen.
  *
  * THE LAMP'S `state` IS THE ONE SUBSTITUTE ON THESE SURFACES THAT DOES NOT HAVE THIS PROBLEM, and
  * the difference is instructive: an unrecognised state gets a NOTE that quotes the word back, so a
@@ -189,14 +194,35 @@ export const isBlank = (value: string): boolean => value.trim() === '';
  * SO THE OPEN AMBIGUITY IS ONE CELL AND NOT TWO, AND THIS SAID TWO. Provenance carries its own
  * discriminator already: both boards read `isBlank(assertedBy) ? 'val doubt' : 'val'`, so a row
  * asserting the literal string `nobody named` takes the CONFIDENT class while a blank one does not.
- * The words collide there and the class does not. That is the split stated three paragraphs up, and
- * the conclusion then widened straight past it, which is the same self contradiction inside one
- * docblock that this whole change was written to correct. What is left with nothing to separate it
- * is the CONTENT cell on a stale or tombstoned row, where the doubt class is produced either way.
+ * The words collide there and the class does not. That is the split the BOTH SUBSTITUTES CAN COLLIDE
+ * paragraph states, and the conclusion then widened straight past it, which is the same self
+ * contradiction inside one docblock that this whole change was written to correct. What is left
+ * with nothing to separate it is the CONTENT cell on a stale or tombstoned row, where the doubt
+ * class is produced either way.
  *
  * A `given` TWIN IS THEREFORE REDUNDANT ON PROVENANCE AND IS NOT PROPOSED THERE. If the remaining
  * cell is worth closing, the twin belongs on `content` alone, the way `name` has one. It is NOT
  * done here, and the reason is scope rather than impossibility.
+ *
+ * NO PARAGRAPH IN THIS FILE IS CITED BY DISTANCE ANY MORE, AND TWO WRONG COUNTS ARE WHY. Both
+ * paragraph citations in this docblock used to count rather than name. The stale row paragraph
+ * credited `the paragraph above` and the conclusion credited `three paragraphs up`, and each was
+ * falsified by the very commit that wrote it: `f78e38f` wrote the stale row paragraph with a second
+ * new paragraph already standing between it and the one it credits, and `2eac2e6` lifted the
+ * conclusion out of the lamp paragraph into one of its own, which moved the split it cites one
+ * further up. A distance is measured against a layout, and a layout is the thing an edit here
+ * changes, so a neighbour is named by its opening words instead.
+ *
+ * TWO FURTHER DISTANCES WENT IN THE SAME PASS AND ARE NOT IN THAT COUNT, BECAUSE NEITHER WAS WRONG.
+ * `two lines later` stood in the stale row paragraph and pointed at a sentence rather than at a
+ * paragraph, and `isBlank`'s NOT EVERY SURFACE SUBSTITUTE paragraph credited `the paragraph above`
+ * for the sweep command. Both were TRUE on the tree that carried them, which is the argument rather
+ * than an exception to it: a true distance is one nothing has edited past YET. What the rule does
+ * not reach is a reference to CODE, which moves with its own definition, and a sentence recording
+ * where a DELETED text once stood; `the three constructors below` and `directly underneath the
+ * argument` are one of each and both stay. That is the rule the caller counts in `isBlank` already
+ * follow, reached here a second time by the same route: a figure nobody can check from the line it
+ * sits on.
  *
  * THIS HAS BEEN TOO SHORT THREE TIMES, AND EVERY TIME A REVIEW MEASURED IT. The first version named
  * two fields and stood over eight unguarded ones: the row's `kind` in `cells.tsx`, which BOTH boards

@@ -520,8 +520,8 @@ function statusContradiction(
  * the two raw names really are identical.
  *
  * `BY NAME` IS LOAD BEARING AND WAS MISSING FOR ONE COMMIT. Without it the sentence claimed a reader
- * cannot tell the two LAMPS apart, and the paragraph below this one says the opposite in the same
- * file: each keeps its own state word and its own reason, so they print different text. What cannot
+ * cannot tell the two LAMPS apart, and the NO BLANKS TO SKIP paragraph below says the opposite in
+ * the same file: each keeps its own state word and its own reason, so they print different text. What cannot
  * be told apart is which capability each one reports on, which is what rule 4 in this module's own
  * header already said and what the rewrite dropped. (That cited a line number in the same file,
  * which this session's edits moved before anything else did.)
