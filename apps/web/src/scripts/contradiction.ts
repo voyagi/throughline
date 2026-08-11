@@ -184,10 +184,19 @@ export const isBlank = (value: string): boolean => value.trim() === '';
  * THE LAMP'S `state` IS THE ONE SUBSTITUTE ON THESE SURFACES THAT DOES NOT HAVE THIS PROBLEM, and
  * the difference is instructive: an unrecognised state gets a NOTE that quotes the word back, so a
  * lamp whose state really is `no state sent` reads differently from one that arrived blank. A table
- * cell has nowhere to put that note. The fix available is a `given` twin for each field, the way
- * `name` has one, carried on every row so a substituted cell can be told from a quoted one. It is
- * NOT done here, and the reason is scope rather than impossibility: this is a reachable ambiguity
- * on two cells, recorded so it can be chosen deliberately, not argued away.
+ * cell has nowhere to put that note.
+ *
+ * SO THE OPEN AMBIGUITY IS ONE CELL AND NOT TWO, AND THIS SAID TWO. Provenance carries its own
+ * discriminator already: both boards read `isBlank(assertedBy) ? 'val doubt' : 'val'`, so a row
+ * asserting the literal string `nobody named` takes the CONFIDENT class while a blank one does not.
+ * The words collide there and the class does not. That is the split stated three paragraphs up, and
+ * the conclusion then widened straight past it, which is the same self contradiction inside one
+ * docblock that this whole change was written to correct. What is left with nothing to separate it
+ * is the CONTENT cell on a stale or tombstoned row, where the doubt class is produced either way.
+ *
+ * A `given` TWIN IS THEREFORE REDUNDANT ON PROVENANCE AND IS NOT PROPOSED THERE. If the remaining
+ * cell is worth closing, the twin belongs on `content` alone, the way `name` has one. It is NOT
+ * done here, and the reason is scope rather than impossibility.
  *
  * THIS HAS BEEN TOO SHORT THREE TIMES, AND EVERY TIME A REVIEW MEASURED IT. The first version named
  * two fields and stood over eight unguarded ones: the row's `kind` in `cells.tsx`, which BOTH boards
