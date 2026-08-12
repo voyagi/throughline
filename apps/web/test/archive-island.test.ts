@@ -402,6 +402,16 @@ const strips = (container: HTMLElement): HTMLElement[] => elements(container, '.
  * of arguments (undefined and string) is invalid". The real reasons are that this names WHICH
  * strip was missing instead of failing somewhere downstream, and that the same shape one level
  * down, an empty string rather than `undefined`, genuinely is vacuous. See `cellClass`.
+ *
+ * AN INDEX WITHOUT A COUNT BESIDE IT IS A CLAIM ABOUT RACK ORDER, and rack order is layout. The
+ * throw above does NOT cover that: `strips(container)[index]` is undefined only when the rack drew
+ * too FEW strips, and it is blind to too many, so a row racked twice leaves every assertion in a
+ * one-row test green. Index 0 is also whichever strip the rack drew first, which is a fact about
+ * the layout rather than about the fixture. Every `stripAt` read in this file therefore stands
+ * beside a `strips` count. The console twin's `stripAt` docblock states the same rule and obeyed it
+ * a round earlier, while naming THIS file as the twin that had scoped every cell read: it praised
+ * this file for the half it was ahead on and never checked the half it was behind on, which is this
+ * repository's one recurring defect appearing inside the comment that describes it.
  */
 function stripAt(container: HTMLElement, index: number): HTMLElement {
   const found = strips(container)[index];
@@ -579,6 +589,7 @@ describe('the archive island, hydrated', () => {
     answers(listing([row({ freshness: 0.5, stale: true })]));
     const container = await mountAndSettle();
 
+    expect(strips(container)).toHaveLength(1);
     const strip = stripAt(container, 0);
     // `0.5` reaching a page as `0.5` rather than `0.50` would be a measurement rendered at a
     // precision nobody chose, and the stale word has to be beside it rather than replacing it.
@@ -591,6 +602,7 @@ describe('the archive island, hydrated', () => {
     answers(listing([row({ freshness: 0.94, stale: false })]));
     const container = await mountAndSettle();
 
+    expect(strips(container)).toHaveLength(1);
     const strip = stripAt(container, 0);
     expect(cellText(strip, 'Freshness')).toBe('0.94');
     expect(strip.getAttribute('class')).not.toContain('cocked');
@@ -606,6 +618,7 @@ describe('the archive island, hydrated', () => {
     );
     const container = await mountAndSettle();
 
+    expect(strips(container)).toHaveLength(2);
     const tombstoned = stripAt(container, 0);
     const superseded = stripAt(container, 1);
     expect(holderClass(tombstoned)).toBe('holder h-tomb');
@@ -624,6 +637,7 @@ describe('the archive island, hydrated', () => {
     );
     const container = await mountAndSettle();
 
+    expect(strips(container)).toHaveLength(2);
     expect(cellText(stripAt(container, 0), 'Tombstoned')).toBe('2026-07-02 · the sweep');
     expect(cellText(stripAt(container, 1), 'Tombstoned')).toBe('no date recorded · no reason recorded');
   });
@@ -642,6 +656,7 @@ describe('the archive island, hydrated', () => {
     );
     const container = await mountAndSettle();
 
+    expect(strips(container)).toHaveLength(2);
     expect(cellText(stripAt(container, 0), 'Tombstoned')).toBe('a date this console cannot read · the sweep');
     expect(cellText(stripAt(container, 1), 'Tombstoned')).toBe('no date recorded · the sweep');
   });
@@ -650,6 +665,7 @@ describe('the archive island, hydrated', () => {
     answers(listing([row({ state: 'current' })]));
     const container = await mountAndSettle();
 
+    expect(strips(container)).toHaveLength(1);
     const strip = stripAt(container, 0);
     expect(cell(strip, 'Tombstoned')).toBeNull();
     expect(cellText(strip, 'State')).toBe('Current');
@@ -672,6 +688,7 @@ describe('the archive island, hydrated', () => {
     );
     const container = await mountAndSettle();
 
+    expect(strips(container)).toHaveLength(2);
     // A full UUID pushes every other cell off a phone. Eight characters still match strip to strip.
     const replaced = stripAt(container, 0);
     const standing = stripAt(container, 1);
@@ -687,6 +704,7 @@ describe('the archive island, hydrated', () => {
     answers(listing([row({ confirmations: 7, contradictions: 3 })]));
     const container = await mountAndSettle();
 
+    expect(strips(container)).toHaveLength(1);
     // Contradiction subtracts more than confirmation adds, so one number alone would misrepresent it.
     expect(cellText(stripAt(container, 0), 'Confirmed / argued with')).toBe('7 / 3');
   });
@@ -700,6 +718,7 @@ describe('the archive island, hydrated', () => {
     );
     const container = await mountAndSettle();
 
+    expect(strips(container)).toHaveLength(2);
     const open = stripAt(container, 0);
     const closed = stripAt(container, 1);
     expect(cellText(open, 'Valid from')).toBe('2026-08-01');
@@ -726,6 +745,7 @@ describe('the archive island, hydrated', () => {
     );
     const container = await mountAndSettle();
 
+    expect(strips(container)).toHaveLength(2);
     const unreadable = stripAt(container, 0);
     const readable = stripAt(container, 1);
     expect(cellText(unreadable, 'Valid from')).toBe('a date this console cannot read');
@@ -743,6 +763,7 @@ describe('the archive island, hydrated', () => {
     answers(listing([row({ id: 'a', incidentId: null }), row({ id: 'b', incidentId: 'INC-42' })]));
     const container = await mountAndSettle();
 
+    expect(strips(container)).toHaveLength(2);
     const missing = stripAt(container, 0);
     const recorded = stripAt(container, 1);
     expect(cellText(missing, 'Incident')).toBe('none recorded');
@@ -759,6 +780,7 @@ describe('the archive island, hydrated', () => {
     answers(listing([row({ kind: 'weather_report' as MemoryKind })]));
     const container = await mountAndSettle();
 
+    expect(strips(container)).toHaveLength(1);
     const strip = stripAt(container, 0);
     expect(holderClass(strip)).toBe('holder');
     expect(cellText(strip, 'Kind')).toBe('weather_report');
@@ -1127,6 +1149,7 @@ describe('the archive island, hydrated', () => {
     answers(listing([row({ kind: 'runbook_fact', ageDays: 12, halfLifeDays: 90 })]));
     const container = await mountAndSettle();
 
+    expect(strips(container)).toHaveLength(1);
     const strip = stripAt(container, 0);
     expect(cellText(strip, 'Kind')).toBe('RUNBOOK FACT');
     expect(cellText(strip, 'Age')).toBe('12 d');
@@ -1143,6 +1166,7 @@ describe('the archive island, hydrated', () => {
     );
     const container = await mountAndSettle();
 
+    expect(strips(container)).toHaveLength(2);
     const superseded = stripAt(container, 0);
     expect(cellText(superseded, 'State')).toBe('Superseded');
     expect(cellClass(superseded, 'State')).toBe('stamp grey');
@@ -1159,6 +1183,7 @@ describe('the archive island, hydrated', () => {
     answers(listing([row({ assertedBy: 'system:demo-seed' })]));
     const container = await mountAndSettle();
 
+    expect(strips(container)).toHaveLength(1);
     // Provenance is the column that tells the truth about where a row came from, so it is the last
     // cell that should ever be filled with something adjacent to it.
     expect(cellText(stripAt(container, 0), 'Asserted by')).toBe('system:demo-seed');
@@ -1174,6 +1199,7 @@ describe('the archive island, hydrated', () => {
     );
     const container = await mountAndSettle();
 
+    expect(strips(container)).toHaveLength(3);
     expect(cellClass(stripAt(container, 0), 'Content')).toBe('say doubt');
     expect(cellClass(stripAt(container, 1), 'Content')).toBe('say doubt');
     expect(cellClass(stripAt(container, 2), 'Content')).toBe('say');
@@ -1202,6 +1228,7 @@ describe('the archive island, hydrated', () => {
     answers(listing([row({ content: '   ' })]));
     const container = await mountAndSettle();
 
+    expect(strips(container)).toHaveLength(1);
     expect(cellText(stripAt(container, 0), 'Content')).toBe('This memory arrived with no content.');
     expect(cellClass(stripAt(container, 0), 'Content')).toBe('say doubt');
   });
@@ -1214,6 +1241,7 @@ describe('the archive island, hydrated', () => {
     answers(listing([row({ assertedBy: '   ' })]));
     const container = await mountAndSettle();
 
+    expect(strips(container)).toHaveLength(1);
     expect(cellText(stripAt(container, 0), 'Asserted by')).toBe('nobody named');
     expect(cellClass(stripAt(container, 0), 'Asserted by')).toBe('val doubt');
   });
@@ -1224,6 +1252,7 @@ describe('the archive island, hydrated', () => {
     answers(listing([row({ assertedBy: 'human:oncall-ana' })]));
     const container = await mountAndSettle();
 
+    expect(strips(container)).toHaveLength(1);
     expect(cellClass(stripAt(container, 0), 'Asserted by')).toBe('val');
   });
 
@@ -1295,6 +1324,7 @@ describe('the archive island, hydrated', () => {
     answers(listing([row({ kind: '  ' as MemoryKind })]));
     const container = await mountAndSettle();
 
+    expect(strips(container)).toHaveLength(1);
     expect(cellText(stripAt(container, 0), 'Kind')).toBe('a kind this row did not name');
   });
 
@@ -1302,6 +1332,7 @@ describe('the archive island, hydrated', () => {
     answers(listing([row({ state: '   ' as MemoryState })]));
     const container = await mountAndSettle();
 
+    expect(strips(container)).toHaveLength(1);
     expect(cellText(stripAt(container, 0), 'State')).toBe('a state this row did not name');
   });
 
@@ -1319,6 +1350,7 @@ describe('the archive island, hydrated', () => {
     answers(listing([row({ incidentId: '  ' })]));
     const container = await mountAndSettle();
 
+    expect(strips(container)).toHaveLength(1);
     expect(cellText(stripAt(container, 0), 'Incident')).toBe('none recorded');
     expect(cellClass(stripAt(container, 0), 'Incident')).toBe('val doubt');
   });
@@ -1330,6 +1362,7 @@ describe('the archive island, hydrated', () => {
     answers(listing([row({ supersededBy: '   ' })]));
     const container = await mountAndSettle();
 
+    expect(strips(container)).toHaveLength(1);
     expect(cellText(stripAt(container, 0), 'Superseded by')).toBe('a row this listing did not name');
     expect(cellText(stripAt(container, 0), 'Superseded by')).not.toBe('nothing');
   });
@@ -1340,6 +1373,7 @@ describe('the archive island, hydrated', () => {
     );
     const container = await mountAndSettle();
 
+    expect(strips(container)).toHaveLength(1);
     expect(cellText(stripAt(container, 0), 'Tombstoned')).toContain('no reason recorded');
   });
 

@@ -39,21 +39,23 @@ import type { LampView, StatusResponse } from '../src/scripts/types.ts';
  * checkable: a bare figure cannot tell a lost test from a gained one, and it was the NAMES that
  * carried the third re-measurement, which found both of them still standing.
  *
- * THE THIRD TIME, THE RULE BELOW WAS SIMPLY NOT FOLLOWED, which is a way of going stale the two
- * paragraphs above do not cover. The change that added the eighteenth test left all four figures at
- * 17 and shipped, and nothing independent read it, so they were corrected a commit later instead of
- * in the change that earned them. A rule addressed to whoever grows the file is worth exactly as
+ * THE THIRD TIME, THE RE-MEASURE ALL FOUR RULE WAS SIMPLY NOT FOLLOWED, which is a way of going
+ * stale that neither of the other two covers. Those two are a test being ADDED and an existing test
+ * CHANGING WHAT IT ASSERTS, and both leave a trace in the diff that caused them. This one leaves
+ * none. The change that added the eighteenth test left all four figures at 17 and shipped, and
+ * nothing independent read it, so they were corrected a commit later instead of in the change that
+ * earned them. A rule addressed to whoever grows the file is worth exactly as
  * much as the next person's memory of it, which is why the figures are measured here rather than
  * argued: 18 OF 18, 0 OF 18, 18 OF 18 and 16 OF 18, re-measured with the same two survivors named.
  *
  * EVERY ONE OF THOSE FOUR FIGURES HAS BEEN WRONG MORE THAN ONCE, and the two ways recorded in this
- * paragraph are not all of them: the third is the paragraph above, where the rule was simply not
- * run. That count was `ONCE` here until the third time made it false, in a paragraph whose whole
- * subject is figures going stale, which is the shape this file exists to catch and is not exempt
- * from. The dead-rail figure was 7, under a sentence saying the survivors were the board-only
+ * paragraph are not all of them: the third is the one THE THIRD TIME paragraph records, where the
+ * rule was not run at all. That count was `ONCE` here until the third time made it false, in a
+ * paragraph whose whole subject is figures going stale, which is the shape this file exists to
+ * catch and is not exempt from. The dead-rail figure was 7, under a sentence saying the survivors were the board-only
  * assertions. Two of the four were. The other two asserted four unlit lamps on the rail, which is
  * byte-identical to what a rail that never fetched renders, and that is the hazard THE GIVEAWAY FOR
- * ANY TEST ADDED HERE names below, committed twice in the file that names it. Giving both a rail
+ * ANY TEST ADDED HERE names, committed twice in the file that names it. Giving both a rail
  * sentence that exists only after a body has been read took it to 9. Then one test was added and all
  * four figures went stale in the same stroke, and two more tests did it again. The last move was not
  * a new test at all: CHANGING WHAT ONE EXISTING TEST ASSERTS took the dead-board figure from 13 to
