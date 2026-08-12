@@ -213,16 +213,22 @@ export const isBlank = (value: string): boolean => value.trim() === '';
  * further up. A distance is measured against a layout, and a layout is the thing an edit here
  * changes, so a neighbour is named by its opening words instead.
  *
- * TWO FURTHER DISTANCES WENT IN THE SAME PASS AND ARE NOT IN THAT COUNT, BECAUSE NEITHER WAS WRONG.
- * `two lines later` stood in the stale row paragraph and pointed at a sentence rather than at a
- * paragraph, and `isBlank`'s NOT EVERY SURFACE SUBSTITUTE paragraph credited `the paragraph above`
- * for the sweep command. Both were TRUE on the tree that carried them, which is the argument rather
- * than an exception to it: a true distance is one nothing has edited past YET. What the rule does
- * not reach is a reference to CODE, which moves with its own definition, and a sentence recording
- * where a DELETED text once stood; `the three constructors below` and `directly underneath the
- * argument` are one of each and both stay. That is the rule the caller counts in `isBlank` already
- * follow, reached here a second time by the same route: a figure nobody can check from the line it
- * sits on.
+ * THREE FURTHER DISTANCES WENT IN THE SAME PASS, AND THE THIRD WAS WRONG TOO. `two lines later`
+ * stood in the stale row paragraph and pointed at a sentence rather than at a paragraph, and
+ * `isBlank`'s NOT EVERY SURFACE SUBSTITUTE paragraph credited `the paragraph above` for the sweep
+ * command. Both of those were TRUE on the tree that carried them, which is the argument rather than
+ * an exception to it: a true distance is one nothing has edited past YET. The third stood in
+ * `status-state.ts`, where the `BY NAME` IS LOAD BEARING paragraph credited `the paragraph below
+ * this one` with saying each lamp keeps its own state word and its own reason. The paragraph below
+ * it was TRIMMED, which says nothing of the kind; those words are in NO BLANKS TO SKIP, a paragraph
+ * that citation never reached. So the pass removed FIVE distances and THREE of them were false, and
+ * this paragraph read two because it enumerated the FILE it sits in rather than the pass it names,
+ * while the third sat in the sibling file the same commit edited. That is this paragraph's own
+ * subject at one file's width instead of one paragraph's. What the rule does not reach is a
+ * reference to CODE, which moves with its own definition, and a sentence recording where a DELETED
+ * text once stood; `the three constructors below` and `directly underneath the argument` are one of
+ * each and both stay. That is the rule the caller counts in `isBlank` already follow, reached here a
+ * second time by the same route: a figure nobody can check from the line it sits on.
  *
  * THIS HAS BEEN TOO SHORT THREE TIMES, AND EVERY TIME A REVIEW MEASURED IT. The first version named
  * two fields and stood over eight unguarded ones: the row's `kind` in `cells.tsx`, which BOTH boards

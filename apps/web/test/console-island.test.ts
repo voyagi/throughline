@@ -208,13 +208,18 @@ const logWords = (container: HTMLElement): string => paneWords(container, '.log'
  * drift into counting one thing and reading another, and the count would go on looking like it was
  * guarding the index.
  *
- * THE ARCHIVE TWIN'S `.rack > .strip` IS DELIBERATELY NOT COPIED. That rack carries no second class
- * and this one is `rack live`, so the two selectors differ because the two racks differ, which is
- * not a drift to close. What the twin files owe each other is the same DECISION, and there is no
- * shared decision here to put in one place: there is one per rack, and this is where this rack's
- * lives.
+ * THE ARCHIVE TWIN'S `.rack > .strip` IS DELIBERATELY NOT COPIED, AND THE COMBINATOR WAS NEVER PART
+ * OF THAT. That rack carries no second class and this one is `rack live`, so the CLASS half of the
+ * divergence is caused by the racks differing. The `>` half was caused by nothing: `RecalledStrip`
+ * and the write attempt are the only two `.strip` producers on this board and both render as direct
+ * children of the rack, so the child combinator selects the identical set. It is written that way
+ * here now, which leaves one difference between the twins and it is the one the racks explain. A
+ * sentence that explains half a divergence and calls the whole of it accounted for is the shape this
+ * file keeps catching elsewhere. What the twin files owe each other is the same DECISION, and there
+ * is no shared decision here to put in one place: there is one per rack, and this is where this
+ * rack's lives.
  */
-const RACKED_STRIP = '.rack.live .strip';
+const RACKED_STRIP = '.rack.live > .strip';
 
 /** How many memory strips the rack drew. `.strip.posted` is a recalled memory or a write attempt. */
 const strips = (container: HTMLElement): number => container.querySelectorAll(RACKED_STRIP).length;
@@ -235,6 +240,14 @@ const strips = (container: HTMLElement): number => container.querySelectorAll(RA
  * control can therefore go green against a hardcoded class on the wrong strip while the guard it
  * claims to pin is broken. The substitute tests were never exposed the same way, because the two
  * strips print DIFFERENT words for the same absence, so reading the wrong one reddens.
+ *
+ * AN INDEX WITHOUT A COUNT BESIDE IT IS A CLAIM ABOUT RACK ORDER, and rack order is layout. Every
+ * `stripAt` read in this file stands beside a `strips` assertion for that reason, and the two ways
+ * the claim goes wrong are not the same. A test reading a WRITE ATTEMPT at index 0 is true only
+ * while no recall is racked, because recalls render first and a fixture that later grows one moves
+ * the strip out from under the assertion silently. A test reading a RECALL at index 0 survives a
+ * write attempt being added and is displaced only by a SECOND recall. The count refuses both, and
+ * one line is a cheap price for a test never asserting about a strip nobody chose.
  *
  * IT THROWS RATHER THAN RETURNING SOMETHING, for the reason `paneWords` throws: a helper that hands
  * back an empty value turns every assertion built on it into one that cannot fail.
@@ -910,9 +923,15 @@ describe('a blank string arriving where the console prints one', () => {
     // THE SITE THIS BLOCK MISSED ON ITS FIRST PASS, found by two reviewers independently. `kind`
     // kept a bare `typeof` test, so `'   '` was non-null, the label lookup missed it and the Kind
     // cell printed nothing, under a comment claiming the sweep was complete.
+    //
+    // COUNTED FOR THE REASON THE BLANK ARGUMENT TEST IS COUNTED, and it was left out of the change
+    // that added that one. `Kind` prints on the recalled strip as well, this fixture racks a write
+    // attempt and nothing else, so index 0 is the write attempt by composition rather than by
+    // anything asserted here.
     answers(blankKindWriteTurn());
     const container = await mountAndAsk('anything');
 
+    expect(strips(container)).toBe(1);
     expect(cellWords(stripAt(container, 0), 'Kind')).toBe('not supplied');
   });
 
@@ -944,6 +963,7 @@ describe('a blank string arriving where the console prints one', () => {
     answers(turn([recall(1, {}, { kind: '  ' as MemoryKind })]));
     const container = await mountAndAsk('anything');
 
+    expect(strips(container)).toBe(1);
     expect(cellWords(stripAt(container, 0), 'Kind')).toBe('a kind this row did not name');
   });
 
@@ -970,6 +990,7 @@ describe('a blank string arriving where the console prints one', () => {
     answers(turn([recall(1, {}, { content: '   ' })]));
     const container = await mountAndAsk('anything');
 
+    expect(strips(container)).toBe(1);
     expect(cellWords(stripAt(container, 0), 'Content')).toBe('This memory arrived with no content.');
     expect(cellClass(stripAt(container, 0), 'Content')).toBe('say doubt');
   });
@@ -981,13 +1002,15 @@ describe('a blank string arriving where the console prints one', () => {
     // for a reason that has nothing to do with the substitute.
     //
     // NOTHING ON THIS BOARD RENDERED A STALE RECALLED MEMORY BEFORE THIS TEST. `stale` appeared in
-    // this file once, as the fixture default of `false`, so deleting `|| memory.stale` reddened
+    // this file once as a FIELD, the fixture default of `false`. The plain English word sits in the
+    // header too, so the count says which of the two it counts. Deleting `|| memory.stale` reddened
     // nothing here while `archive-island.test.ts` covered the same arm on the twin. That is the gap
     // this closes, and it is the arm the substitute docblock leans on when it says a stale row and a
     // blank bodied row are indistinguishable on this cell.
     answers(turn([recall(1, {}, { stale: true, content: 'the pager fired and nobody acknowledged it' })]));
     const container = await mountAndAsk('anything');
 
+    expect(strips(container)).toBe(1);
     expect(cellWords(stripAt(container, 0), 'Content')).toBe('the pager fired and nobody acknowledged it');
     expect(cellClass(stripAt(container, 0), 'Content')).toBe('say doubt');
   });
@@ -1006,6 +1029,7 @@ describe('a blank string arriving where the console prints one', () => {
     answers(turn([recall(1, {}, { content: 'the pager fired and nobody acknowledged it' })]));
     const container = await mountAndAsk('anything');
 
+    expect(strips(container)).toBe(1);
     expect(cellWords(stripAt(container, 0), 'Content')).toBe('the pager fired and nobody acknowledged it');
     expect(cellClass(stripAt(container, 0), 'Content')).toBe('say');
   });
@@ -1017,6 +1041,7 @@ describe('a blank string arriving where the console prints one', () => {
     answers(turn([recall(1, {}, { assertedBy: '   ' })]));
     const container = await mountAndAsk('anything');
 
+    expect(strips(container)).toBe(1);
     expect(cellWords(stripAt(container, 0), 'Asserted by')).toBe('nobody named');
     expect(cellClass(stripAt(container, 0), 'Asserted by')).toBe('val doubt');
   });
@@ -1027,6 +1052,7 @@ describe('a blank string arriving where the console prints one', () => {
     answers(turn([recall(1, {}, { assertedBy: 'human:oncall-ana' })]));
     const container = await mountAndAsk('anything');
 
+    expect(strips(container)).toBe(1);
     expect(cellClass(stripAt(container, 0), 'Asserted by')).toBe('val');
   });
 
