@@ -50,10 +50,10 @@ import type { LampView, StatusResponse } from '../src/scripts/types.ts';
  * paragraph are not all of them: the third is the paragraph above, where the rule was simply not
  * run. That count was `ONCE` here until the third time made it false, in a paragraph whose whole
  * subject is figures going stale, which is the shape this file exists to catch and is not exempt
- * from. The dead-rail figure was 7, under a sentence saying the survivors
- * were the board-only assertions. Two of the four were. The other two asserted four unlit lamps on
- * the rail, which is byte-identical to what a rail that never fetched renders, and that is the
- * hazard named three paragraphs above, committed twice in the file that names it. Giving both a rail
+ * from. The dead-rail figure was 7, under a sentence saying the survivors were the board-only
+ * assertions. Two of the four were. The other two asserted four unlit lamps on the rail, which is
+ * byte-identical to what a rail that never fetched renders, and that is the hazard THE GIVEAWAY FOR
+ * ANY TEST ADDED HERE names below, committed twice in the file that names it. Giving both a rail
  * sentence that exists only after a body has been read took it to 9. Then one test was added and all
  * four figures went stale in the same stroke, and two more tests did it again. The last move was not
  * a new test at all: CHANGING WHAT ONE EXISTING TEST ASSERTS took the dead-board figure from 13 to
@@ -327,8 +327,9 @@ describe('both status surfaces, hydrated from one body', () => {
     // renders `clockOf` over the BROWSER's own clock, so the only way it could ever fail was the one
     // second a day on which UTC reads 22:04:05. Nothing in production can put that string there from
     // this body any more: the slice is gone and a refused body never reaches `clockOf`. A rail that
-    // never fetched at all passed it identically. This file says the rule 140 lines below, that the
-    // rail is asserted by its sentence rather than by the absence of a clock.
+    // never fetched at all passed it identically. This file asserts the rail by its sentence rather
+    // than by the absence of a clock, here and again in the test that refuses a probe time whose day
+    // the engine would silently move.
     expect(railWords(rail)).toContain(
       'This page asked, an answer came back, and it could not be read as one statement.',
     );
@@ -405,8 +406,8 @@ describe('both status surfaces, hydrated from one body', () => {
     // neighbour `could not ask`, and both of those are comments in `StatusBoard.tsx`. Grepping a
     // substring and reporting its count as the count for the string that matters is how a
     // justification ends up wrong in the same pass that deletes something for being wrong. The
-    // assertion could never have fired, and the closing it was meant to guard is pinned whole with
-    // `toBe` four lines above.
+    // assertion could never have fired, and the closing it was meant to guard is pinned whole by the
+    // `slip(board).closing` assertion in this test.
     expect(railWords(rail)).toContain(
       'The console tried to reach the API and could not, so the lamps above are still unlit.',
     );
