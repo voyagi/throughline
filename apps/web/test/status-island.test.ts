@@ -31,46 +31,60 @@ import type { LampView, StatusResponse } from '../src/scripts/types.ts';
  * assert only on the board, `does not light a lamp claiming OK with no reason beside it` and
  * `refuses a body carrying two lamps under one name`.
  *
- * ALL FOUR WERE RE-MEASURED THREE TIMES IN ONE BRANCH, at 16 tests, at 17 and again at 18, and the
- * count was not what made them stale the first two times. The dead rail figure first moved because a
- * new test was written asserting only the board, which would have made it a THIRD survivor until a
- * rail assertion was added to it, and the same check on the next new test is why the survivor list
- * is unchanged now. Naming the survivors here rather than counting them is what makes that
- * checkable: a bare figure cannot tell a lost test from a gained one, and it was the NAMES that
- * carried the third re-measurement, which found both of them still standing.
+ * ALL FOUR WERE RE-MEASURED FOUR TIMES ACROSS TWO BRANCHES, at 16 tests, at 17, at 18, and once more
+ * at 18 with the count not moving at all, which is the flattest demonstration available that the
+ * count is not what makes them stale. The dead rail figure first moved because a new test was
+ * written asserting only the board, which would have made it a THIRD survivor until a rail assertion
+ * was added to it, and the same check on the next new test is why the survivor list is unchanged
+ * now. Naming the survivors here rather than counting them is what makes that checkable: a bare
+ * figure cannot tell a lost test from a gained one, and it was the NAMES that carried the third
+ * re-measurement and the fourth, both of which found the same two still standing.
  *
- * THE THIRD TIME, THE RE-MEASURE ALL FOUR RULE WAS SIMPLY NOT FOLLOWED, which is a way of going
- * stale that neither of the other two covers. Those two are a test being ADDED and an existing test
- * CHANGING WHAT IT ASSERTS, and both leave a trace in the diff that caused them. This one leaves
- * none. The change that added the eighteenth test left all four figures at 17 and shipped, and
- * nothing independent read it, so they were corrected a commit later instead of in the change that
- * earned them. A rule addressed to whoever grows the file is worth exactly as
- * much as the next person's memory of it, which is why the figures are measured here rather than
- * argued: 18 OF 18, 0 OF 18, 18 OF 18 and 16 OF 18, re-measured with the same two survivors named.
+ * THE THIRD TIME, THE RE-MEASURE ALL FOUR RULE WAS SIMPLY NOT FOLLOWED, and calling that a third
+ * WAY was this paragraph's own error. There are two ways: a test is ADDED, or an existing test
+ * CHANGES WHAT IT ASSERTS. The third time was the first of those, and an added `it(` block leaves
+ * the same ordinary trace every added block leaves. What left no trace was the re-measurement that
+ * did not happen. A diff carries a line for everything somebody wrote and no line at all for the one
+ * thing they skipped, so both ways are visible and the omission never is, and the omission is the
+ * part that actually makes a figure wrong. All four stayed at 17 and shipped, nothing independent
+ * read them, and they were corrected a commit later instead of in the change that earned them. A
+ * rule addressed to whoever grows the file is worth exactly as much as the next person's memory of
+ * it, which is why the figures are measured here rather than argued.
  *
- * EVERY ONE OF THOSE FOUR FIGURES HAS BEEN WRONG MORE THAN ONCE, and the two ways recorded in this
- * paragraph are not all of them: the third is the one THE THIRD TIME paragraph records, where the
- * rule was not run at all. That count was `ONCE` here until the third time made it false, in a
- * paragraph whose whole subject is figures going stale, which is the shape this file exists to
- * catch and is not exempt from. The dead-rail figure was 7, under a sentence saying the survivors were the board-only
- * assertions. Two of the four were. The other two asserted four unlit lamps on the rail, which is
- * byte-identical to what a rail that never fetched renders, and that is the hazard THE GIVEAWAY FOR
- * ANY TEST ADDED HERE names, committed twice in the file that names it. Giving both a rail
- * sentence that exists only after a body has been read took it to 9. Then one test was added and all
- * four figures went stale in the same stroke, and two more tests did it again. The last move was not
- * a new test at all: CHANGING WHAT ONE EXISTING TEST ASSERTS took the dead-board figure from 13 to
- * 14 and removed its only survivor. The figures have been carried at 11, at 12 and at 14 tests, and
- * every move NAMED IN THIS PARAGRAPH was re-measured rather than adjusted. The move to 18 was
- * neither: it was not noticed at all until the range had already merged.
+ * EVERY ONE OF THOSE FOUR FIGURES HAS BEEN WRONG MORE THAN ONCE. That count read `ONCE` until a
+ * later stretch of this history made it false, in a paragraph whose whole subject is figures going
+ * stale, which is the shape this file exists to catch and is not exempt from. The dead-rail figure
+ * was 7, under a sentence saying the survivors were the board-only assertions. Two of the four were.
+ * The other two asserted four unlit lamps on the rail, which is byte-identical to what a rail that
+ * never fetched renders, and that is the hazard THE GIVEAWAY FOR ANY TEST ADDED HERE names,
+ * committed twice in the file that names it. Giving both a rail sentence that exists only after a
+ * body has been read took it to 9. Then one test was added and all four figures went stale in the
+ * same stroke, and two more tests did it again. One move was not a new test at all: CHANGING WHAT
+ * ONE EXISTING TEST ASSERTS took the dead-board figure from 13 to 14 and removed its only survivor.
+ * The figures have been carried at 11, at 12 and at 14 tests, and every move NAMED IN THIS PARAGRAPH
+ * was re-measured rather than adjusted. The move to 18 was neither: it was not noticed at all until
+ * the range had already merged. THE MOVE AFTER THAT was the second way again, three tests at once
+ * trading a read of one lamp for a read of the whole array, and all four figures were re-measured in
+ * the change that did it. None of the four moved and neither did the survivors, which is a result
+ * and not a reason to have skipped the run. The figures printed at the top of this comment ARE that
+ * measurement and are not restated here, because a second copy of a number is a second thing to get
+ * wrong, and the survivors were read off a run that LISTS the tests that passed rather than counting
+ * them: the first attempt collected no names at all and printed that as though it meant none.
  *
- * RE-MEASURE ALL FOUR WHENEVER THIS FILE GROWS, in the change that grows it. The sibling file
- * carries the same rule over its own two figures and records having been wrong about them more
- * than once.
+ * RE-MEASURE ALL FOUR WHENEVER A TEST IS ADDED HERE, OR AN EXISTING ONE CHANGES WHAT IT ASSERTS, in
+ * the change that does it. This read WHENEVER THIS FILE GROWS until the line was rewritten, which
+ * named one of the two ways the paragraph above records and left the other uncovered, and the
+ * uncovered one is the way that took the dead-board figure from 13 to 14. A rule narrower than the
+ * history printed four inches above it is a rule that reads as complete and is not. The sibling file
+ * carries the same rule over its own two figures and records having been wrong about them more than
+ * once.
  *
- * NO HISTORY OF THE SIBLING'S SIZES IS QUOTED HERE ANY MORE. This said it had been re-measured
- * twice, at 8 tests, 12 and 17, while that file's own header already recorded five sizes. A recital
- * of another file's numbers goes stale every time THAT file grows, and nothing in this one moves
- * when it does, so the citation names the sibling's rule and lets the sibling carry its own count.
+ * NO HISTORY OF THE SIBLING'S SIZES IS QUOTED HERE ANY MORE, INCLUDING THE COUNT OF THEM. This used
+ * to recite how often that file had been re-measured and at which sizes, and the correction that
+ * removed the sizes kept a tally of what the sibling's own header recorded, which went stale on the
+ * sibling's very next growth exactly as the sizes had. A recital of another file's numbers goes
+ * stale every time THAT file changes and nothing in this one moves when it does, so the citation
+ * names the sibling's rule and lets the sibling carry its own count, in every form.
  *
  * THE GIVEAWAY FOR ANY TEST ADDED HERE is one whose expected values a dead page also produces. That
  * is a real hazard on this page and not a theoretical one: an unlit lamp reading UNKNOWN is what
@@ -513,9 +527,12 @@ describe('both status surfaces, hydrated from one body', () => {
     expect(boardWords(board)).toContain('no state sent');
     expect(railWords(rail)).toContain('no state sent');
     expect(boardWords(board)).toContain('This lamp arrived with no state, so there is nothing here to light it on.');
-    expect(boardLamps(board)[0]).toBe('state s-unk');
-    expect(railLamps(rail)[0]).toBe('state s-unk');
-    // THE NEIGHBOURS ARE UNTOUCHED, for the reason the unrecognised-state test gives.
+    // THE NEIGHBOURS ARE UNTOUCHED, asserted here rather than borrowed. This cited the
+    // unrecognised-state test as its authority while reading index 0 alone, and that test earns the
+    // claim by pinning its WHOLE array. An index cannot inherit it: it is blind to a neighbour
+    // changing class and blind to the surface drawing a lamp too many.
+    expect(boardLamps(board)).toEqual(['state s-unk', 'state s-deg', 'state s-unk']);
+    expect(railLamps(rail)).toEqual(['state s-unk', 'state s-deg', 'state s-unk', 'state s-ok']);
     expect(hasSlip(board)).toBe(false);
   });
 
@@ -523,9 +540,11 @@ describe('both status surfaces, hydrated from one body', () => {
     answers({ ...OK_BODY, lamps: [lamp('  ', 'OK', 'The planner chooses it.'), ...OK_BODY.lamps.slice(1)] });
     const { board, rail } = await mountBoth();
 
-    // A LIT GREEN LAMP OVER AN EMPTY HEADING is what this rendered before, on both surfaces.
-    expect(boardLamps(board)[0]).toBe('state s-unk');
-    expect(railLamps(rail)[0]).toBe('state s-unk');
+    // A LIT GREEN LAMP OVER AN EMPTY HEADING is what this rendered before, on both surfaces. The
+    // whole array is pinned rather than index 0, so the per-lamp claim below is asserted and not
+    // merely stated.
+    expect(boardLamps(board)).toEqual(['state s-unk', 'state s-deg', 'state s-unk']);
+    expect(railLamps(rail)).toEqual(['state s-unk', 'state s-deg', 'state s-unk', 'state s-ok']);
     expect(boardWords(board)).toContain('This lamp arrived with no name');
     expect(boardWords(board)).toContain(
       'A lamp that names no capability cannot report on one, so it is not lit.',
@@ -533,8 +552,6 @@ describe('both status surfaces, hydrated from one body', () => {
     expect(railWords(rail)).toContain(
       'A lamp that names no capability cannot report on one, so it is not lit.',
     );
-    // The neighbours are untouched, which is the whole reason this is per lamp.
-    expect(boardLamps(board)[1]).toBe('state s-deg');
     expect(hasSlip(board)).toBe(false);
   });
 
@@ -594,7 +611,7 @@ describe('both status surfaces, hydrated from one body', () => {
     answers({ ...OK_BODY, lamps: [lamp('Vector index', 'OK', '   '), ...OK_BODY.lamps.slice(1)] });
     const { board } = await mountBoth();
 
-    expect(boardLamps(board)[0]).toBe('state s-unk');
+    expect(boardLamps(board)).toEqual(['state s-unk', 'state s-deg', 'state s-unk']);
     expect(boardWords(board)).toContain(
       'This lamp arrived with no reason beside it, so there is nothing here to stand on.',
     );

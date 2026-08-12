@@ -116,6 +116,9 @@ describe('planEviction', () => {
       policy: DEFAULT_POLICY,
     });
     expect(plan.evict).toHaveLength(0);
+    // Counted, because one candidate went in and nothing was evicted, so exactly one refusal is the
+    // claim. Reading index 0 alone would not notice the planner refusing the same row twice.
+    expect(plan.refused).toHaveLength(1);
     expect(plan.refused[0]?.reason).toBe('already_evicted');
     expect(plan.shortfall).toBe(true);
   });

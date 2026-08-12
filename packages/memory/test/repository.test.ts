@@ -5,7 +5,7 @@ import { createLocalEmbedder, embedSync, type Embedder } from '../src/embeddings
 import { observed, type Capabilities } from '../src/types.ts';
 import { DEFAULT_POLICY, type MemoryPolicy } from '../src/policy.ts';
 import { describeCoverage } from '../src/coverage.ts';
-import { createFakeDatabase, mentions, type Responder } from './fake-database.ts';
+import { createFakeDatabase, mentions, type RecordedQuery, type Responder } from './fake-database.ts';
 
 const CAPABILITIES: Capabilities = {
   observedAt: new Date('2026-08-03T12:00:00Z'),
@@ -540,6 +540,42 @@ describe('list', () => {
       row({ id: `1111111${index}-1111-1111-1111-111111111111` }),
     );
 
+  /**
+   * THE ONE QUERY a listing issues, read with a count instead of at index 0.
+   *
+   * Every assertion in this describe used to reach index 0 of `db.queries` or `db.texts()`, and TWO
+   * OF THEM WERE NEGATIVE: they claim the statement does not mention `is_live`, and does not mention
+   * `kind = any`. An index cannot carry a negative claim. Prepend one statement and index 0 becomes
+   * that other statement, which does not mention the forbidden text either, so the assertion PASSES
+   * having checked nothing. The `?? ''` arm was the worse half: an EMPTY list also yielded a string
+   * with no forbidden text in it, so a listing that issued no query at all passed too. That is
+   * zero-result-reads-as-clean, inside the tests meant to catch it.
+   *
+   * The `?.` on the positive reads had the same shape and a milder end: they fail loudly on an empty
+   * list rather than passing, but they still name a position nothing establishes. Counting once, in
+   * one place, settles both.
+   */
+  const onlyQuery = (db: ReturnType<typeof createFakeDatabase>): RecordedQuery => {
+    const [only] = db.queries;
+    if (only === undefined || db.queries.length !== 1) {
+      throw new Error(
+        `this listing issued ${db.queries.length} statements, so index 0 names nothing in particular`,
+      );
+    }
+    return only;
+  };
+
+  /**
+   * That same query's text, taken from `texts()` so the whitespace collapse `mentions` depends on
+   * keeps coming from the fixture. Reproducing the collapse here would be a second copy of a rule
+   * that has to agree with the first one forever. The join is safe because `onlyQuery` has already
+   * refused any length but one, and it avoids re-introducing the index this helper exists to remove.
+   */
+  const onlyStatement = (db: ReturnType<typeof createFakeDatabase>): string => {
+    onlyQuery(db);
+    return db.texts().join('');
+  };
+
   it('returns rows with a receipt, and the receipt reports the filter that was applied', async () => {
     const { repository } = build(listing(rows(2)));
     const page = await repository.list({ workspaceId: 'demo', kinds: ['resolution'] });
@@ -577,7 +613,7 @@ describe('list', () => {
     await repository.list({ workspaceId: 'demo', limit: 5 });
     // The bound is the LAST parameter on the unfiltered statement. Asserting the value rather than
     // the SQL text, because the whole point is the number that reaches the database.
-    expect(db.queries[0]?.values.at(-1)).toBe(6);
+    expect(onlyQuery(db).values.at(-1)).toBe(6);
   });
 
   it('clamps a caller bound to the policy cap and reports the bound it applied', async () => {
@@ -585,7 +621,7 @@ describe('list', () => {
     const page = await repository.list({ workspaceId: 'demo', limit: 100_000 });
 
     expect(page.receipt.limit).toBe(DEFAULT_POLICY.listCap);
-    expect(db.queries[0]?.values.at(-1)).toBe(DEFAULT_POLICY.listCap + 1);
+    expect(onlyQuery(db).values.at(-1)).toBe(DEFAULT_POLICY.listCap + 1);
   });
 
   // THE CAP ITSELF, which the clamp above took on trust. Two of `boundedLimit`'s three paths
@@ -615,7 +651,7 @@ describe('list', () => {
     const page = await repository.list({ workspaceId: 'demo' });
 
     expect(page.receipt.limit).toBe(1);
-    expect(db.queries[0]?.values.at(-1)).toBe(2);
+    expect(onlyQuery(db).values.at(-1)).toBe(2);
     // The invariant, stated as the thing that must never travel: PARTIAL with an empty page. The
     // archive really does hold more than this bound, so PARTIAL is the honest verdict here, and it
     // now arrives with the row that makes the sentence true.
@@ -631,7 +667,7 @@ describe('list', () => {
     const page = await repository.list({ workspaceId: 'demo' });
 
     expect(page.receipt.limit).toBe(7);
-    expect(db.queries[0]?.values.at(-1)).toBe(8);
+    expect(onlyQuery(db).values.at(-1)).toBe(8);
   });
 
   it('still reports a COVERED empty archive under a floored cap', async () => {
@@ -683,7 +719,7 @@ describe('list', () => {
     // NO `is_live` FILTER. That column is `evicted_at IS NULL`, so filtering on it would drop every
     // tombstone, and the tombstones are half of what this archive can show that a vector store
     // cannot. Asserted on the statement, because a fixture returning three rows would pass anyway.
-    expect(db.texts()[0]).not.toContain('is_live');
+    expect(onlyStatement(db)).not.toContain('is_live');
   });
 
   it('orders newest first with a tiebreak, so a bounded page has a stable boundary', async () => {
@@ -693,21 +729,21 @@ describe('list', () => {
     // Two rows written in one transaction share a `created_at`. Without the id tiebreak their
     // relative order is whatever the storage engine returns, so the same request could reorder them
     // and a PARTIAL page's boundary would move under the reader.
-    expect(mentions(db.texts()[0] ?? '', 'order by created_at desc, id desc')).toBe(true);
+    expect(mentions(onlyStatement(db), 'order by created_at desc, id desc')).toBe(true);
   });
 
   it('passes the kind filter to the database rather than filtering in memory', async () => {
     const { db, repository } = build(listing(rows(1)));
     await repository.list({ workspaceId: 'demo', kinds: ['resolution', 'runbook_fact'], limit: 1 });
 
-    expect(mentions(db.texts()[0] ?? '', 'kind = any($2::text[])')).toBe(true);
-    expect(db.queries[0]?.values[1]).toEqual(['resolution', 'runbook_fact']);
+    expect(mentions(onlyStatement(db), 'kind = any($2::text[])')).toBe(true);
+    expect(onlyQuery(db).values[1]).toEqual(['resolution', 'runbook_fact']);
     // THE BOUND'S POSITION, asserted because the filtered branch numbers it `$3` while the unfiltered
     // one numbers it `$2`, and the docblock on `listStatement` rests its whole design on that not
     // being got wrong. `createFakeDatabase` now refuses a placeholder mismatch outright, which is the
     // broad guard; this is the narrow one that names the value.
-    expect(db.queries[0]?.values.at(-1)).toBe(2);
-    expect(mentions(db.texts()[0] ?? '', 'limit $3')).toBe(true);
+    expect(onlyQuery(db).values.at(-1)).toBe(2);
+    expect(mentions(onlyStatement(db), 'limit $3')).toBe(true);
   });
 
   it('sends no kind filter at all when none was asked for', async () => {
@@ -720,8 +756,8 @@ describe('list', () => {
     // Asserted on the PREDICATE and not on the word: `kind` is one of the selected columns, so
     // `not.toContain('kind')` fails against the correct statement. Only one parameter is bound,
     // which is the second half of the same claim.
-    expect(mentions(db.texts()[0] ?? '', 'kind = any')).toBe(false);
-    expect(db.queries[0]?.values).toHaveLength(1 + 1);
+    expect(mentions(onlyStatement(db), 'kind = any')).toBe(false);
+    expect(onlyQuery(db).values).toHaveLength(1 + 1);
   });
 
   it('reports UNKNOWN when the listing query fails, and never an empty archive', async () => {

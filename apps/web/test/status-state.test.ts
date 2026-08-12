@@ -209,8 +209,14 @@ describe('the four ways a surface can have nothing to report are four sentences'
     });
 
     expect(view.silence).toBe('unanswered');
-    expect(reasons(view)[0]).toBe(
-      'This page asked and nothing answered, so nothing here has been measured.',
+    // THE WHOLE ARRAY, not index 0, and for the reason the island twin now carries: an index is
+    // blind to the view growing a fourth reason, and every lamp carrying the SAME pending sentence
+    // is the claim these three tests are actually making. The test above already reads this way.
+    expect(reasons(view)).toEqual(
+      Array.from(
+        { length: 3 },
+        () => 'This page asked and nothing answered, so nothing here has been measured.',
+      ),
     );
   });
 
@@ -224,8 +230,11 @@ describe('the four ways a surface can have nothing to report are four sentences'
     });
 
     expect(view.silence).toBe('refused');
-    expect(reasons(view)[0]).toBe(
-      'This page asked and the API declined to report, so nothing here has been measured.',
+    expect(reasons(view)).toEqual(
+      Array.from(
+        { length: 3 },
+        () => 'This page asked and the API declined to report, so nothing here has been measured.',
+      ),
     );
   });
 
@@ -237,8 +246,11 @@ describe('the four ways a surface can have nothing to report are four sentences'
     });
 
     expect(view.silence).toBe('unreadable');
-    expect(reasons(view)[0]).toBe(
-      'This page asked, an answer came back, and it could not be read as one statement.',
+    expect(reasons(view)).toEqual(
+      Array.from(
+        { length: 3 },
+        () => 'This page asked, an answer came back, and it could not be read as one statement.',
+      ),
     );
   });
 

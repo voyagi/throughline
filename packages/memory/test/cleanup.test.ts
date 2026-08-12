@@ -172,6 +172,14 @@ describe('deleteWorkspaceRows', () => {
       workspaceId: WORKSPACE,
       secrets: [],
     });
-    expect(db.queries[0]?.text).toContain('"weird""schema"');
+    // EVERY statement, not the first one. `deleteWorkspaceRows` issues one per table and this read
+    // index 0, so a version that quoted the schema into the first statement and interpolated it raw
+    // into the second passed. The quoting is the whole defence against a schema name being treated
+    // as SQL, and half a defence tested is the half that stays broken. The count comes first so an
+    // empty list cannot satisfy a loop that never runs, which is how this assertion would go quiet.
+    expect(db.queries).toHaveLength(WORKSPACE_TABLES.length);
+    for (const query of db.queries) {
+      expect(query.text).toContain('"weird""schema"');
+    }
   });
 });
