@@ -651,7 +651,10 @@ const BUDGET_FAULTS: readonly (readonly [RuleId, string, AgentTurnResponse['budg
   // The ceiling and the spend pin the two `isCount` calls. Until the second row existed the right
   // operand had nothing at all holding it: every `used` any case fed was 3 or 51, both of them
   // counts, so it could be deleted with the suite still green. That is the same defect as the budget
-  // day shape clause, twenty lines up, in the same function, found in the round that fixed that one.
+  // day shape clause, recorded lower in this same table by the comment headed THE CASE ONLY THE
+  // SHAPE CLAUSE CATCHES, found in the round that fixed that one. (Cited as `twenty lines up` until
+  // a review measured it. That case is BELOW this one, not above, so the citation was wrong in
+  // direction as well as in size, and twenty lines up lands inside `asResponse`.)
   //
   // THE TWO VALUES ALSO SPLIT `isCount` ITSELF, which is two clauses wearing one name. `-1` fails
   // `value >= 0` and passes `Number.isInteger`, and `2.5` does the reverse, so between them the
@@ -727,10 +730,11 @@ describe('each rule fires on the fault it names, and the guard is not vacuous', 
   });
 
   it('accepts a budget spent exactly to its ceiling, which is the last permitted turn of the day', () => {
-    // THE BOUNDARY OF `used > limit`, ONE LINE BELOW THE CLAUSE THAT JUST GOT A CONTROL, and it is a
-    // let-through clause of exactly the same kind: it exists to admit a legal body, so no fault case
-    // can pin it. Mutating `>` to `>=` reports a contradiction against a body this demo produces
-    // every day.
+    // THE BOUNDARY OF `used > limit`, THE BRANCH AFTER THE CLAUSE THAT JUST GOT A CONTROL, and it is
+    // a let-through clause of exactly the same kind: it exists to admit a legal body, so no fault
+    // case can pin it. Mutating `>` to `>=` reports a contradiction against a body this demo
+    // produces every day. (This counted ONE LINE BELOW and it is two. What the argument needs is the
+    // BRANCH, which survives a reformat, so it is named rather than measured.)
     //
     // FIVE FAULT CASES REACH THIS CLAUSE AND EXACTLY ONE TRIPS IT, a distinction the first version
     // of this comment collapsed into "the one fault case that reaches it". The one that TRIPS it
@@ -773,7 +777,8 @@ describe('each rule fires on the fault it names, and the guard is not vacuous', 
 
   it.each(BUDGET_FAULTS)('%s: %s', (rule, label, budget) => {
     // THE SAME WHOLE-SET COMPARISON AS ABOVE, and it was left as `toContain` for one commit while
-    // the assertion three lines up was converted, which is this file's own subject happening to it.
+    // the `it.each(FAULTS)` assertion was converted, which is this file's own subject happening to
+    // it. (That said `three lines up` until a review measured it at seven.)
     // A mechanism that covers one of two sibling lists is not a mechanism, it is a case that got
     // attention. Every budget case fires exactly one rule, so `ALSO_FIRES` is consulted for the same
     // reason rather than because any of them needs an entry today.

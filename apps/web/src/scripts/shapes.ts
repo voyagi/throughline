@@ -215,9 +215,12 @@ const STATUS_CHECKS: FieldChecks<StatusResponse> = {
  * `Array.isArray` and nothing more, so `[null]`, `[3]` or `['an-id']` were accepted - while
  * `RecalledStrip` in `Console.tsx` keys each one by `memory.id` and calls `score.toFixed` and
  * `similarity.toFixed`. Those THROW, and the pane goes blank: exactly the failure the
- * header of this file says it closed, left open one list over from where it was closed. The listing
- * path had the identical hole and the identical fix twelve lines up, which is what makes this worth
- * writing down rather than quietly correcting.
+ * header of this file says it closed, left open one list over from where it was closed.
+ * `LISTING_CHECKS.memories` had the identical hole and the identical fix, which is what makes this
+ * worth writing down rather than quietly correcting. (The fix was cited as `twelve lines up` until a
+ * review measured it. It is not: twelve lands inside `STATUS_CHECKS`, which is not the listing path
+ * at all. The `isTurnView` paragraph in this file renounces line distances for exactly this reason,
+ * and its own count of them was short by this one until a review measured it.)
  *
  * `kind` is a string here rather than the closed union, matching `ROW_CHECKS` and for the same
  * reason: an unrecognised kind prints as itself, which is odd and true.
@@ -370,8 +373,11 @@ const TURN_ROLE_CHECKS: { [Role in TurnView['role']]: FieldChecks<Extract<TurnVi
  * `isCoverage`, elsewhere in this file, tests `=== true` and was never vulnerable. Writing the safe
  * version and the unsafe version of the same lookup in the same file, an hour apart, is the argument
  * for having one helper both call rather than two expressions that happen to agree. No line distance
- * is quoted here: this file has now carried two wrong ones, the second written sixty lines below its
- * own correction of the first.
+ * is quoted here: this file has now carried THREE wrong ones. This sentence said TWO, counting the
+ * ones a review had handed it rather than the ones the file holds. The third stood in
+ * `RECALLED_MEMORY_CHECKS`'s docblock, pointed at `LISTING_CHECKS.memories`, and missed it by
+ * twenty six lines. An enumeration scoped to what it was told, written inside the paragraph that
+ * renounces the practice, is this paragraph's own subject happening to it.
  */
 const isTurnView: Check = (value) => {
   if (!isObject(value)) return false;

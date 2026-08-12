@@ -34,24 +34,31 @@ import type {
  * WHAT THIS FILE ACTUALLY RESTS ON is the round trip. The console fetches NOTHING on mount: it
  * answers a submitted question, so nothing exists to assert until a form that only exists after
  * render has been driven and an answer has come back through `api.ts` and `shapes.ts`. MEASURED on
- * 2026-08-11: dropping the submit dispatch out of `ask`, which is the whole of what a dead island
- * does, reddens 39 OF 39 by name. Every test here depends on a completed round trip. Removing the
- * `cancelAnimationFrame` install still reddens 0 OF 39, re-measured in the same run.
+ * 2026-08-12: dropping the submit dispatch out of `ask`, which is the whole of what a dead island
+ * does, reddens 41 OF 41 by name. Every test here depends on a completed round trip. Removing the
+ * `cancelAnimationFrame` install still reddens 0 OF 41, re-measured in the same run.
  *
- * BOTH NUMBERS HAVE NOW BEEN WRITTEN AT SIX SIZES, at 8 tests, at 12, at 17, at 31, at 38 and at
- * 39, and NOT every one of those was a measurement of the tree it was published on. A number
+ * BOTH NUMBERS HAVE NOW BEEN WRITTEN AT SEVEN SIZES, at 8 tests, at 12, at 17, at 31, at 38, at 39
+ * and at 41, and NOT every one of those was a measurement of the tree it was published on. A number
  * written once and left alone is what the sibling file carries the same rule against, and this file
- * has been wrong twice. The 17 stood while thirteen tests were added under it. The 31 was true of
- * the PARENT tree and was published by a commit that took the file to 33 in the same diff, so it
- * was false the moment it was typed, and it survived the merge because nothing independent read
- * that commit. A REVIEW caught both, rather than this file's own GIVEAWAY rule, which is the
+ * has been wrong THREE times. The 17 stood while thirteen tests were added under it. The 31 was
+ * true of the PARENT tree and was published by a commit that took the file to 33 in the same diff,
+ * so it was false the moment it was typed, and it survived the merge because nothing independent
+ * read that commit. A REVIEW caught both, rather than this file's own GIVEAWAY rule, which is the
  * argument for measuring in the same run that adds the tests rather than trusting anyone to
  * remember.
  *
- * THE 39 IS THE FIRST ONE THE RULE ACTUALLY PRODUCED, measured in the same run as the test that
- * caused it rather than a commit later by a reader who noticed. That is one data point and not a
- * habit, and it happened because the same session was already re-measuring two other files for the
- * same reason. NO COUNT OF THE SIBLING'S OWN EPISODES IS QUOTED HERE ANY MORE: a recital of another
+ * THE 39 WAS THE FIRST ONE THE RULE ACTUALLY PRODUCED, AND THE NEXT COMMIT BROKE IT AGAIN. It was
+ * measured in the same run as the test that caused it, which the paragraph above called one data
+ * point rather than a habit. That was the right reading. `c280f35` then added the stale recalled
+ * memory test, took this file to 40 and left both figures here at 39, and it is the manner of it
+ * that matters: that commit planted a mutation and reported `1 of 40` for its own new assertion in
+ * the same message, so it HAD the new size in hand and corrected only the number it was looking at.
+ * A measurement scoped to the change rather than to the figures the change invalidates is the third
+ * way of going stale, and it is the one a careful commit still walks into. The 41 was re-measured
+ * by running both plants again rather than adjusted by arithmetic.
+ *
+ * NO COUNT OF THE SIBLING'S OWN EPISODES IS QUOTED HERE ANY MORE: a recital of another
  * file's history goes stale every time THAT file grows, and nothing here moves when it does.
  *
  * THE GIVEAWAY FOR ANY TEST ADDED HERE is one whose expected values a dead page also produces: an
@@ -248,6 +255,16 @@ const strips = (container: HTMLElement): number => container.querySelectorAll(RA
  * the strip out from under the assertion silently. A test reading a RECALL at index 0 survives a
  * write attempt being added and is displaced only by a SECOND recall. The count refuses both, and
  * one line is a cheap price for a test never asserting about a strip nobody chose.
+ *
+ * THAT RECALLS RENDER FIRST WAS A SENTENCE HERE BEFORE IT WAS A TEST, so the paragraph above closed
+ * a gap by reasoning from an unpinned premise about the component. Every other fixture in this file
+ * racks recalls or a write attempt and never both, which left the order the one property none of
+ * these counts could observe. `recallAndWriteTurn` and the test racking both now hold it.
+ *
+ * THE ARCHIVE TWIN WAS BEHIND THIS SAME RULE FOR A ROUND, while this docblock stated it generally
+ * and credited that file for the cell scoping it was ahead on: 24 of its tests read an index with
+ * no count beside it. They are closed, so the rule now holds on both racks rather than on the one
+ * that happened to prompt it.
  *
  * IT THROWS RATHER THAN RETURNING SOMETHING, for the reason `paneWords` throws: a helper that hands
  * back an empty value turns every assertion built on it into one that cannot fail.
@@ -497,6 +514,30 @@ const blankRecallTurn = (): AgentTurnResponse => ({
   ],
 });
 
+/**
+ * A turn that BOTH recalled a memory and attempted a write, which no other fixture in this file does.
+ *
+ * IT EXISTS TO PIN THE ONE CLAIM EVERY `stripAt` READ HERE RESTS ON. `stripAt`'s docblock says
+ * recalled strips render before write attempts, and reasons from it about which reads survive a
+ * fixture growing a strip. Until this fixture nothing here racked the two together, so the rack
+ * ORDER that every count assertion in this file is arguing about was the one property none of them
+ * could observe. Every other fixture racks recalls or a write attempt and never both, which is
+ * exactly the composition that leaves an order claim standing on nothing.
+ */
+const recallAndWriteTurn = (): AgentTurnResponse => ({
+  ...turn([recall(1)]),
+  transcript: [
+    {
+      role: 'tool_call',
+      id: 'w3',
+      given: 'w3',
+      name: 'remember',
+      args: { content: 'the pods were evicted', assertedBy: 'human:ana', kind: 'observation' },
+    },
+    { role: 'tool_result', id: 'w3', name: 'remember', content: 'stored' },
+  ],
+});
+
 describe('the console island, hydrated', () => {
   it('posts nothing before a question and racks a strip after one', async () => {
     // THE ANCHOR THIS FILE RESTS ON. The console fetches nothing on mount, so the empty board is
@@ -514,6 +555,20 @@ describe('the console island, hydrated', () => {
     expect(requested).toEqual([`${API_BASE}/agent/turn`]);
     expect(boardWords(container)).not.toContain('No strips on this board yet');
     expect(strips(container)).toBe(1);
+  });
+
+  it('racks the recalled memory ahead of the write attempt, which is what every index here assumes', async () => {
+    // THE ORDER CLAIM, ASSERTED RATHER THAN STATED. `stripAt`'s docblock argues about which index
+    // reads survive a fixture growing a strip, and the whole argument turns on recalls rendering
+    // first. That was a sentence about the component with no test under it. If this board ever
+    // reorders the two, this reddens by name here rather than quietly moving a strip out from under
+    // an index somewhere else in the file.
+    answers(recallAndWriteTurn());
+    const container = await mountAndAsk('anything');
+
+    expect(strips(container)).toBe(2);
+    expect(cellWords(stripAt(container, 0), 'Content')).toBe('the checkout pods were evicted at 02:10');
+    expect(cellWords(stripAt(container, 1), 'Content')).toBe('the pods were evicted');
   });
 
   it('prints the receipt numbers in the log beside the strips they describe', async () => {
@@ -885,9 +940,9 @@ describe('a blank string arriving where the console prints one', () => {
     // no recalled memory, so the unscoped read landed here by fixture composition rather than by
     // saying so. `stripAt` NAMES A POSITION AND NOT A KIND, which is the honest description of what
     // it bought: recalled strips render before write attempts in this rack, so index 0 is the write
-    // attempt only while no recall is racked. The count below is what makes that true rather than
-    // assumed, and it turns a fixture that later grows a recall into a red test rather than into two
-    // assertions that quietly read the wrong strip.
+    // attempt only while no recall is racked. The `strips` count beside these reads is what makes
+    // that true rather than assumed, and it turns a fixture that later grows a recall into a red
+    // test rather than into two assertions that quietly read the wrong strip.
     expect(strips(container)).toBe(1);
     expect(cellWords(stripAt(container, 0), 'Content')).toBe('(no content supplied)');
     expect(cellWords(stripAt(container, 0), 'Asserted by')).toBe('not supplied');
@@ -925,9 +980,10 @@ describe('a blank string arriving where the console prints one', () => {
     // cell printed nothing, under a comment claiming the sweep was complete.
     //
     // COUNTED FOR THE REASON THE BLANK ARGUMENT TEST IS COUNTED, and it was left out of the change
-    // that added that one. `Kind` prints on the recalled strip as well, this fixture racks a write
-    // attempt and nothing else, so index 0 is the write attempt by composition rather than by
-    // anything asserted here.
+    // that added that one. `Kind` prints on the recalled strip as well and this fixture racks a
+    // write attempt and nothing else, so index 0 WAS the write attempt by fixture composition
+    // rather than by anything asserted. The `strips` count is what asserts it, and it is what a
+    // fixture that later grows a recall has to get past.
     answers(blankKindWriteTurn());
     const container = await mountAndAsk('anything');
 
