@@ -201,8 +201,23 @@ const boardWords = (container: HTMLElement): string => paneWords(container, '.ra
 /** The R/T log, which is where the receipt's numbers and the turn's verdict are printed. */
 const logWords = (container: HTMLElement): string => paneWords(container, '.log');
 
+/**
+ * WHERE A STRIP IS, WRITTEN ONCE, because `strips` counts the very set `stripAt` indexes into. The
+ * two are a pair: the assertion pinning strip 0 to a write attempt is a COUNT standing beside an
+ * INDEX, and that is a guarantee only while both read the SAME set. Two copies of this string can
+ * drift into counting one thing and reading another, and the count would go on looking like it was
+ * guarding the index.
+ *
+ * THE ARCHIVE TWIN'S `.rack > .strip` IS DELIBERATELY NOT COPIED. That rack carries no second class
+ * and this one is `rack live`, so the two selectors differ because the two racks differ, which is
+ * not a drift to close. What the twin files owe each other is the same DECISION, and there is no
+ * shared decision here to put in one place: there is one per rack, and this is where this rack's
+ * lives.
+ */
+const RACKED_STRIP = '.rack.live .strip';
+
 /** How many memory strips the rack drew. `.strip.posted` is a recalled memory or a write attempt. */
-const strips = (container: HTMLElement): number => container.querySelectorAll('.rack.live .strip').length;
+const strips = (container: HTMLElement): number => container.querySelectorAll(RACKED_STRIP).length;
 
 /**
  * The nth strip in the live rack, so an assertion can say WHICH strip it is about.
@@ -225,7 +240,7 @@ const strips = (container: HTMLElement): number => container.querySelectorAll('.
  * back an empty value turns every assertion built on it into one that cannot fail.
  */
 const stripAt = (container: HTMLElement, index: number): HTMLElement => {
-  const all = [...container.querySelectorAll('.rack.live .strip')];
+  const all = [...container.querySelectorAll(RACKED_STRIP)];
   const one = all[index];
   if (one === undefined) throw new Error(`this rack drew ${all.length} strips, so strip ${index} does not exist`);
   return asElement(one);
@@ -855,7 +870,12 @@ describe('a blank string arriving where the console prints one', () => {
     //
     // AND PER STRIP, because both these labels also sit on the recalled strip. This fixture holds
     // no recalled memory, so the unscoped read landed here by fixture composition rather than by
-    // saying so. `stripAt` makes the write attempt the thing under test in the assertion itself.
+    // saying so. `stripAt` NAMES A POSITION AND NOT A KIND, which is the honest description of what
+    // it bought: recalled strips render before write attempts in this rack, so index 0 is the write
+    // attempt only while no recall is racked. The count below is what makes that true rather than
+    // assumed, and it turns a fixture that later grows a recall into a red test rather than into two
+    // assertions that quietly read the wrong strip.
+    expect(strips(container)).toBe(1);
     expect(cellWords(stripAt(container, 0), 'Content')).toBe('(no content supplied)');
     expect(cellWords(stripAt(container, 0), 'Asserted by')).toBe('not supplied');
   });
@@ -951,6 +971,24 @@ describe('a blank string arriving where the console prints one', () => {
     const container = await mountAndAsk('anything');
 
     expect(cellWords(stripAt(container, 0), 'Content')).toBe('This memory arrived with no content.');
+    expect(cellClass(stripAt(container, 0), 'Content')).toBe('say doubt');
+  });
+
+  it('doubts the Content cell of a stale recalled memory whose body arrived filled', async () => {
+    // THE OTHER DISJUNCT OF THE SAME TERNARY, and the change that added the positive control below
+    // levelled the blank arm with the archive and left this one where it was. `RecalledStrip` reads
+    // `contentIsBlank || memory.stale`, so a stale row carrying a real body takes the doubt class
+    // for a reason that has nothing to do with the substitute.
+    //
+    // NOTHING ON THIS BOARD RENDERED A STALE RECALLED MEMORY BEFORE THIS TEST. `stale` appeared in
+    // this file once, as the fixture default of `false`, so deleting `|| memory.stale` reddened
+    // nothing here while `archive-island.test.ts` covered the same arm on the twin. That is the gap
+    // this closes, and it is the arm the substitute docblock leans on when it says a stale row and a
+    // blank bodied row are indistinguishable on this cell.
+    answers(turn([recall(1, {}, { stale: true, content: 'the pager fired and nobody acknowledged it' })]));
+    const container = await mountAndAsk('anything');
+
+    expect(cellWords(stripAt(container, 0), 'Content')).toBe('the pager fired and nobody acknowledged it');
     expect(cellClass(stripAt(container, 0), 'Content')).toBe('say doubt');
   });
 
