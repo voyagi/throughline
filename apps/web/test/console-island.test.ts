@@ -41,12 +41,16 @@ import type {
  * BOTH NUMBERS HAVE NOW BEEN WRITTEN AT SEVEN SIZES, at 8 tests, at 12, at 17, at 31, at 38, at 39
  * and at 41, and NOT every one of those was a measurement of the tree it was published on. A number
  * written once and left alone is what the sibling file carries the same rule against, and this file
- * has been wrong THREE times. The 17 stood while thirteen tests were added under it. The 31 was
- * true of the PARENT tree and was published by a commit that took the file to 33 in the same diff,
- * so it was false the moment it was typed, and it survived the merge because nothing independent
- * read that commit. A REVIEW caught both, rather than this file's own GIVEAWAY rule, which is the
- * argument for measuring in the same run that adds the tests rather than trusting anyone to
- * remember.
+ * has been wrong THREE times, AND ONLY TWO OF THEM ARE IN THIS PARAGRAPH. The 17 stood while
+ * thirteen tests were added under it. The 31 was true of the PARENT tree and was published by a
+ * commit that took the file to 33 in the same diff, so it was false the moment it was typed, and it
+ * survived the merge because nothing independent read that commit. A REVIEW caught THOSE TWO, rather
+ * than this file's own GIVEAWAY rule, which is the argument for measuring in the same run that adds
+ * the tests rather than trusting anyone to remember. THE THIRD IS THE PARAGRAPH DIRECTLY BELOW, and
+ * no review caught that one: it came out of running the plants again. The count here read TWO until
+ * that third time, and the sentence naming the catcher was left saying `both` for a round after the
+ * count was corrected to three, three lines from the number that contradicted it. Correcting a
+ * figure and leaving the sentence built on it is the same defect as leaving the figure.
  *
  * THE 39 WAS THE FIRST ONE THE RULE ACTUALLY PRODUCED, AND THE NEXT COMMIT BROKE IT AGAIN. It was
  * measured in the same run as the test that caused it, which the paragraph above called one data

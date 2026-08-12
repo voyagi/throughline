@@ -774,6 +774,8 @@ describe('the HTTP surface', () => {
       expect(raw).not.toContain('score');
       // The numbers that ARE honest here travel: both are pure time decay, no query involved.
       const body = JSON.parse(raw) as MemoryListResponse;
+      // One row went in, so one row is the claim. The test below already reads its whole array.
+      expect(body.memories).toHaveLength(1);
       expect(body.memories[0]).toHaveProperty('freshness');
       expect(body.memories[0]).toHaveProperty('stale');
     });
@@ -817,6 +819,7 @@ describe('the HTTP surface', () => {
         }),
       );
       const body = (await (await get(app)).json()) as MemoryListResponse;
+      expect(body.memories).toHaveLength(1);
       const row = body.memories[0];
 
       expect(row?.state).toBe('tombstoned');

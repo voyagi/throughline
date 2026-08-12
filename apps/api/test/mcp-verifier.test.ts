@@ -425,6 +425,10 @@ describe('verifyMemory', () => {
   it('diverges when the application holds a row the channel cannot find', async () => {
     const report = await verifyMemory(clientReturning([]), REQUEST);
     expect(report.verdict).toBe('DIVERGES');
+    // ONE difference, counted. A verifier that reported this divergence plus a spurious second one
+    // would still satisfy a read of index 0, and a verifier crying wolf is the failure this whole
+    // surface exists to avoid.
+    expect(report.differences).toHaveLength(1);
     expect(report.differences[0]?.channel).toBe('not found');
     // Measured rather than assumed, and the wording is held to the measurement: over 50 trials in
     // two runs (`npm run measure:freshness`, 2026-08-05) every row written over pg was found by
@@ -445,6 +449,7 @@ describe('verifyMemory', () => {
   it('diverges when the channel finds a row the application says is not there', async () => {
     const report = await verifyMemory(clientReturning([channelRow()]), { ...REQUEST, memory: null });
     expect(report.verdict).toBe('DIVERGES');
+    expect(report.differences).toHaveLength(1);
     expect(report.differences[0]?.application).toBe('not found');
     expect(report.observations.length).toBeGreaterThan(0);
   });

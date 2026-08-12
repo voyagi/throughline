@@ -51,9 +51,25 @@ false claim this file exists to prevent.
   updates to `aws-cdk-lib`. Its summary line still says a fix is available, which is the
   `fixAvailable: true` field in the report and is wrong for a bundled path. Read the warnings, not
   the summary.
+- **A release did land, 2026-08-10, and it still cannot be taken.** `npm view aws-cdk-lib version`
+  now returns **2.264.0**, published **2026-08-10T17:58:12Z**, where the 2026-08-09 recheck above
+  recorded 2.263.0 as newest. At the time of writing it is under two days old, inside the three day
+  `min-release-age` cooldown, which expires **2026-08-13T17:58Z**. The cooldown is not bypassed to
+  clear a finding faster, for the reason the superseded entry below already states.
+- What the new release does and does not tell us, stated carefully because the tempting inference is
+  wrong. Its declared `minimatch` range is unchanged at `^10.2.5` and `minimatch` is still listed in
+  `bundleDependencies`. **Neither fact is evidence about the bundled brace-expansion either way.**
+  The vulnerable copy sits under `minimatch` inside the tarball, so a rebuild can pick up 5.0.9
+  without the declared range moving at all, and an unchanged range can equally sit over an unchanged
+  bundle. The only way to know is to install it and read the `version` field of
+  `node_modules/aws-cdk-lib/node_modules/brace-expansion/package.json`, which the cooldown forbids
+  until the date above. Recorded here so the next session does not re-derive it, and does not read
+  the unchanged range as a result.
 - Action, dated: re-check on or after **2026-09-09**, and record the outcome here either way. That
   is a month rather than the 90 day ceiling the gate allows, and it sits well clear of the
-  2026-08-16 submission so a recheck cannot land in the middle of it.
+  2026-08-16 submission so a recheck cannot land in the middle of it. **2.264.0 becomes installable
+  on 2026-08-13T17:58Z, which is before that date and before the submission**, so an earlier
+  opportunistic check is available and is not the same thing as the scheduled one.
 
 ### CVE-2026-14257, brace-expansion 5.0.7, HIGH, bundled inside aws-cdk-lib, SUPERSEDED
 
