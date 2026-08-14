@@ -2,7 +2,8 @@ import { loadDatabaseConfig, loadEmbeddingConfig, secretsOf } from '../config.ts
 import { deleteWorkspaceRows } from '../cleanup.ts';
 import { createDatabase } from '../db.ts';
 import { probeCapabilities, retrievalPathFor } from '../capability.ts';
-import { createLocalEmbedder, type Embedder } from '../embeddings.ts';
+import { type Embedder } from '../embeddings.ts';
+import { createOfflineEmbedder } from './offline-embedder.ts';
 import { createRepository } from '../repository.ts';
 import { DEFAULT_POLICY } from '../policy.ts';
 import { assertAnswerable, CoverageUnknownError, describeCoverage } from '../coverage.ts';
@@ -41,7 +42,10 @@ async function main(): Promise<void> {
   const config = loadDatabaseConfig(process.env);
   const embeddingConfig = loadEmbeddingConfig(process.env);
   const db = createDatabase(config);
-  const embedder = createLocalEmbedder(embeddingConfig.dimensions);
+  // The CONFIGURED embedder, or a refusal. This read `EMBEDDING_PROVIDER` on the line above and
+  // then built the local one regardless, so a bedrock deployment was VERIFIED against hash
+  // embeddings: a green report measured with an embedder recall never uses.
+  const embedder = createOfflineEmbedder(embeddingConfig);
 
   try {
     console.log(`\n  target: ${db.describe()}`);

@@ -1,7 +1,7 @@
-import { ConfigError, loadDatabaseConfig, loadEmbeddingConfig } from '../config.ts';
+import { loadDatabaseConfig, loadEmbeddingConfig } from '../config.ts';
 import { createDatabase } from '../db.ts';
 import { probeCapabilities, retrievalPathFor } from '../capability.ts';
-import { createLocalEmbedder, type Embedder } from '../embeddings.ts';
+import { createOfflineEmbedder } from './offline-embedder.ts';
 import type { Observation } from '../types.ts';
 
 /**
@@ -18,27 +18,11 @@ function render<Value>(observation: Observation<Value>): string {
     : `UNKNOWN (${observation.reason})`;
 }
 
-/**
- * Build the configured embedder.
- *
- * A hosted provider that is not implemented yet THROWS rather than quietly falling back to the
- * local one. A silent substitution would make the probe report a healthy path while measuring a
- * different embedder from the one recall would use, which is the exact class of lie this tool
- * exists to catch.
- */
-function buildEmbedder(config: ReturnType<typeof loadEmbeddingConfig>): Embedder {
-  if (config.provider === 'local') return createLocalEmbedder(config.dimensions);
-  throw new ConfigError(
-    `EMBEDDING_PROVIDER is "${config.provider}", which has no adapter yet. Set it to "local" ` +
-      'until the hosted adapter lands. It is not substituted silently on purpose.',
-  );
-}
-
 async function main(): Promise<void> {
   const config = loadDatabaseConfig(process.env);
   const embeddingConfig = loadEmbeddingConfig(process.env);
   const db = createDatabase(config);
-  const embedder = buildEmbedder(embeddingConfig);
+  const embedder = createOfflineEmbedder(embeddingConfig);
 
   try {
     const capabilities = await probeCapabilities(db, { schema: config.schema, embedder });

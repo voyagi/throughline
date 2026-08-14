@@ -1,6 +1,5 @@
 import {
   createDatabase,
-  createLocalEmbedder,
   loadDatabaseConfig,
   loadEmbeddingConfig,
   type Database,
@@ -8,6 +7,7 @@ import {
   type Embedder,
   type EmbeddingConfig,
 } from '@throughline/memory';
+import { createEmbedder } from '../embedder.ts';
 import { createMcpClient, loadMcpConfig, type McpClient, type McpConfig } from '../mcp-client.ts';
 
 /**
@@ -60,7 +60,12 @@ export function openLiveChannels(env: Record<string, string | undefined>): LiveC
     mcpConfig,
     database: databaseNameOf(dbConfig.connectionString),
     db: createDatabase(dbConfig),
-    embedder: createLocalEmbedder(embeddingConfig.dimensions),
+    // The CONFIGURED embedder, not always the local one. It read `EMBEDDING_PROVIDER` on the line
+    // above and then ignored it, so a deployment set to bedrock was verified against hash
+    // embeddings: a healthy report measured with a different embedder from the one recall uses,
+    // which is the exact class of lie these tools exist to catch. Unreachable until the server
+    // could run on bedrock at all, which is what made it worth fixing now rather than noting.
+    embedder: createEmbedder(embeddingConfig, env),
     client: createMcpClient({ config: mcpConfig }),
   };
 }

@@ -13,7 +13,7 @@ import {
 } from '@throughline/memory';
 import type { MemoryListResponse } from '@throughline/contract';
 import { createFakeDatabase, mentions } from '../../../packages/memory/test/fake-database.ts';
-import type { ChatModel, ChatReply } from '../src/agent/loop.ts';
+import { ChatResponseError, type ChatModel, type ChatReply } from '../src/agent/loop.ts';
 import { createScriptedChatModel } from '../src/agent/local-model.ts';
 import { McpError, type McpClient } from '../src/mcp-client.ts';
 import type { DemoBudget } from '../src/http/demo-budget.ts';
@@ -498,6 +498,35 @@ describe('the HTTP surface', () => {
       });
       await ask(app, { message: 'hi' });
       expect(lines.some((line) => line.includes('AccessDeniedException'))).toBe(true);
+    });
+
+    /**
+     * THE WIRING, NOT THE MECHANISM. `agent-loop.test.ts` proves the loop logs an unusable reply
+     * when it is handed a logger, and passes its own. What nothing saw is whether the SERVER hands
+     * it one: deleting `log` from the `runAgentTurn` call in `server.ts` left all 1484 tests green,
+     * because the loop takes the logger as optional and calls it with `log?.()`.
+     *
+     * With it gone, a truncated reply is a 200 carrying the loop's sentence and NOTHING anywhere
+     * records the stop reason, the provider's top level keys, or which refusal fired. That is the
+     * one channel this whole path has: the reason may not go in the body, so it reaches the
+     * operator here or nowhere. Same shape as the shipped turn budget, which was also tested
+     * everywhere except at the value production actually uses.
+     */
+    it('hands the loop the operator log, which is the only place a refusal says why', async () => {
+      const stopReason = 'stopReason was max_tokens on request 1234-abcd';
+      const { app, lines } = build({
+        model: { id: 'truncating', reply: () => Promise.reject(new ChatResponseError(stopReason)) },
+      });
+
+      const response = await ask(app, { message: 'what broke last time?' });
+
+      expect(response.status).toBe(200);
+      const raw = await response.text();
+      expect(raw).toContain('did not return a reply this server could use');
+      expect(lines.some((line) => line.includes(stopReason))).toBe(true);
+      // The reason is for the operator. A response body is not where a caller finds out what a
+      // provider called something.
+      expect(raw).not.toContain(stopReason);
     });
 
     it('reports a database failure as unavailable rather than as a mystery', async () => {

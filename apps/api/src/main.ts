@@ -2,7 +2,6 @@ import { serve } from '@hono/node-server';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import {
   createDatabase,
-  createLocalEmbedder,
   createRepository,
   loadDatabaseConfig,
   loadEmbeddingConfig,
@@ -11,6 +10,7 @@ import {
 } from '@throughline/memory';
 import { createChatModel } from './agent/local-model.ts';
 import { databaseNameOf } from './cli/live-channels.ts';
+import { createEmbedder } from './embedder.ts';
 import { createMcpClient, loadMcpConfig } from './mcp-client.ts';
 import { createDemoBudget } from './http/demo-budget.ts';
 import { loadDemoLimits, originPolicyWarning } from './http/limits.ts';
@@ -43,20 +43,12 @@ async function main(): Promise<void> {
 
   const database = createDatabase(dbConfig);
 
-  // REFUSED rather than silently substituted, matching what `createChatModel` does for the agent
-  // one call below and what `probe.ts` does for the same setting. Reading EMBEDDING_PROVIDER and
-  // then always building the local embedder would mean an operator who set `bedrock` gets hash
-  // embeddings and is told nothing, which is the same dishonesty as an offline model answering as
-  // though it were the hosted one. The Bedrock embedder exists; wiring it needs the model id and
-  // the width read off a live account, and that is blocked on the owner rather than on this file.
-  if (embeddingConfig.provider !== 'local') {
-    throw new Error(
-      `EMBEDDING_PROVIDER is "${embeddingConfig.provider}", and this server only wires the local ` +
-        'embedder today. It refuses rather than quietly using hash embeddings under a name that ' +
-        'says otherwise. Set EMBEDDING_PROVIDER=local, or wire the Bedrock embedder here.',
-    );
-  }
-  const embedder = createLocalEmbedder(embeddingConfig.dimensions);
+  // The selection itself is in `embedder.ts` so a test can drive it, for the same reason the agent
+  // side keeps `createChatModel` out of this file. What matters here is that a hosted provider is
+  // REFUSED when it cannot be built rather than downgraded to the local one: an operator who set
+  // `bedrock` and got hash embeddings would be told nothing, and that is the same dishonesty as an
+  // offline model answering as though it were the hosted one.
+  const embedder = createEmbedder(embeddingConfig, env);
   const capabilities = await probeCapabilities(database, {
     schema: dbConfig.schema,
     embedder,

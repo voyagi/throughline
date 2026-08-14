@@ -1,7 +1,7 @@
 import { loadDatabaseConfig, loadEmbeddingConfig } from '../config.ts';
 import { createDatabase } from '../db.ts';
 import { probeCapabilities, retrievalPathFor } from '../capability.ts';
-import { createLocalEmbedder } from '../embeddings.ts';
+import { createOfflineEmbedder } from './offline-embedder.ts';
 import { createRepository } from '../repository.ts';
 import { decideSeed, describeSeedDecision } from '../seed-plan.ts';
 
@@ -117,7 +117,10 @@ async function main(): Promise<void> {
   const config = loadDatabaseConfig(process.env);
   const embeddingConfig = loadEmbeddingConfig(process.env);
   const db = createDatabase(config);
-  const embedder = createLocalEmbedder(embeddingConfig.dimensions);
+  // The CONFIGURED embedder, or a refusal. Seeding is where a silent substitution does the most
+  // damage: the rows written here outlive the run, so a bedrock deployment seeded with hash vectors
+  // carries two vector spaces in one column and nothing ever throws about it.
+  const embedder = createOfflineEmbedder(embeddingConfig);
 
   try {
     console.log(`[seed] target: ${db.describe()}`);

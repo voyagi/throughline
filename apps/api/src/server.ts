@@ -278,7 +278,10 @@ export function createApp(deps: ServerDependencies): Hono {
 
     // A turn that throws does NOT refund the call. It was attempted, and a refund on failure is a
     // way to spend the provider repeatedly for free.
-    const answer = await runAgentTurn({ model, repository, workspaceId }, body.message);
+    // `log` goes in because a turn can now end on a refusal whose REASON must not be in the body.
+    // A reply the adapter could not use is answered with the loop's own sentence, and the provider
+    // detail behind it reaches the operator here or nowhere.
+    const answer = await runAgentTurn({ model, repository, workspaceId, log }, body.message);
 
     const response: AgentTurnResponse = {
       text: answer.text,

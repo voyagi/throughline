@@ -14,6 +14,7 @@ import {
   parseEmbedding,
   type InvokeModelCapableClient,
 } from '../src/bedrock-embedder.ts';
+import { TOP_LEVEL_KEY_BUDGET } from '../src/printable-name.ts';
 
 /**
  * A client double answering with the byte array the real SDK returns, rather than the string it
@@ -59,8 +60,12 @@ describe('inferRequestShape', () => {
     expect(inferRequestShape('cohere.embed-multilingual-v3')).toBe('cohere-v3');
   });
 
-  it('refuses an unrecognised vendor', () => {
-    expect(() => inferRequestShape('acme.some-new-embedder')).toThrow(/pass requestShape/);
+  // The message used to offer ONE remedy, "pass requestShape explicitly", which is a code change.
+  // Whoever reaches this got here by setting EMBEDDING_MODEL_ID, and there is no environment
+  // variable for the shape, so the only remedy they were given was one they could not reach.
+  it('refuses an unrecognised vendor, naming a remedy the reader can actually reach', () => {
+    expect(() => inferRequestShape('acme.some-new-embedder')).toThrow(/EMBEDDING_MODEL_ID/);
+    expect(() => inferRequestShape('acme.some-new-embedder')).toThrow(/no environment variable/);
     expect(() => inferRequestShape('nonsense')).toThrow(EmbeddingResponseError);
   });
 });
@@ -133,6 +138,55 @@ describe('parseEmbedding', () => {
     expect(() => parseEmbedding(null)).toThrow(/null/);
     expect(() => parseEmbedding('a string')).toThrow(/string/);
   });
+
+  // THE KEYS IT NAMES CAME OFF THE WIRE, AND THIS FILE PRINTED THEM RAW WHILE THE CHAT ADAPTER
+  // ESCAPED ITS IDENTICAL SENTENCE. Both read a body the provider sent, both list its top level keys
+  // for an operator, and the escaping went in on the side somebody had recently been looking at. The
+  // rule now lives in one module both import, which is the actual fix: two copies of one decision is
+  // how this diverged in the first place, and a comment saying "keep in sync" would not have caught
+  // it. A newline here splits one finding across two lines, so half of it reads as a separate record.
+  it('escapes and bounds those keys, which are strings the provider chose', () => {
+    const messageFor = (body: unknown): string => {
+      try {
+        parseEmbedding(body);
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error);
+      }
+      return '';
+    };
+    const newline = String.fromCodePoint(0x0a);
+    const forged = messageFor({ [`results${newline}Embedding read: ok`]: [] });
+    expect(forged).toContain('results\\x{0a}Embedding read: ok');
+    expect(forged).not.toContain(newline);
+    // AND THE LENGTH, on both axes, because a JSON body decides how long its own key list is. One
+    // name is bounded at 60 and the list stops on a whole name, never inside an escape.
+    const long = messageFor({ ['k'.repeat(200)]: [] });
+    expect(long).toContain(`${'k'.repeat(60)}\\...`);
+    expect(long).not.toContain('k'.repeat(61));
+    const many = Object.fromEntries(
+      Array.from({ length: 400 }, (_unused, at) => [`key${at}`, at]),
+    );
+    const capped = messageFor(many);
+    // AND THE COUNT, MEASURED. This row read `(\d+ of 400 shown)` with a `< 1200` length beside it,
+    // and between them they pinned nothing about the budget: measured against the real module, every
+    // value from 1 to 3087 satisfies the regex and the sentence stays under 1200 for a wide band
+    // around it too. So the 800 in the source was decoration for the third time in this file, which
+    // is the complaint that produced the whole shared module. 114 keys is what fits, the prefix
+    // before the marker is 800 exactly, and the constant is named rather than left implied by a
+    // count that would also be satisfied by a different budget with different key widths.
+    expect(capped).toContain('\\... (114 of 400 shown)');
+    // Sliced between the sentence's own two landmarks, so this measures the KEY LIST rather than the
+    // message: an earlier draft of this row measured from index 0 and silently added the 84
+    // characters of preamble to the budget it claimed to be checking. A list cannot be made to end
+    // exactly on a budget in general, so the assertion is the band one item wide, and here it lands
+    // on 800 exactly.
+    const lead = 'Top level keys were: ';
+    const keyList = capped.slice(capped.indexOf(lead) + lead.length, capped.indexOf(', \\...'));
+    expect(keyList.length).toBeLessThanOrEqual(TOP_LEVEL_KEY_BUDGET);
+    expect(keyList.length).toBeGreaterThan(TOP_LEVEL_KEY_BUDGET - 8);
+    expect(keyList.endsWith('key113')).toBe(true);
+    expect(capped.length).toBeLessThan(1200);
+  });
 });
 
 describe('assertUsableVector', () => {
@@ -143,6 +197,47 @@ describe('assertUsableVector', () => {
   it('refuses a vector carrying a non finite value, and says where', () => {
     expect(() => assertUsableVector([0.1, Number.NaN], 'm')).toThrow(/position 1/);
     expect(() => assertUsableVector([Number.POSITIVE_INFINITY], 'm')).toThrow(/position 0/);
+  });
+
+  // THE ELEMENT IS OFF THE WIRE, WHICH THE SIGNATURE HIDES. `assertUsableVector(vector: number[])`
+  // reads as though the elements are already numbers, and `parseEmbedding` reaches it by casting
+  // `record['embedding'] as number[]` with no element check at all, so a JSON array of strings walks
+  // straight through the type and lands on this loop. That is exactly what the loop is for, and the
+  // message printed the element with a bare `String(value)`, unescaped and unbounded, twenty-six
+  // lines under the call that escapes the KEYS of the same body. One rule kept and its twin dropped
+  // inside one file, for the fourth time in this pair.
+  //
+  // Driven through the real embedder as well as the helper, because the cast that makes it reachable
+  // lives in `parseEmbedding` and a helper-only row would not prove the two are connected.
+  it('escapes and bounds an element the provider chose, which the cast lets through', async () => {
+    const newline = String.fromCodePoint(0x0a);
+    const forged = `0.5${newline}Model "m" returned 0.5 at position 0. Vector read: ok`;
+    expect(() => assertUsableVector([forged] as unknown as number[], 'm')).toThrow(
+      /0\.5\\x\{0a\}Model/,
+    );
+    expect(() => assertUsableVector([forged] as unknown as number[], 'm')).not.toThrow(
+      new RegExp(newline),
+    );
+    // Bounded on the same terms as every other wire string in these two files.
+    expect(() => assertUsableVector(['L'.repeat(200)] as unknown as number[], 'm')).toThrow(
+      new RegExp(`${'L'.repeat(60)}\\\\\\.\\.\\.`),
+    );
+    expect(() => assertUsableVector(['L'.repeat(200)] as unknown as number[], 'm')).not.toThrow(
+      new RegExp('L'.repeat(61)),
+    );
+    // And the whole path, so the cast in `parseEmbedding` is what carries it here rather than an
+    // argument this test made up. A 512 long array of strings is the width the embedder expects, so
+    // nothing refuses it earlier and this loop is genuinely the first thing that looks at an element.
+    const strings = Array.from({ length: 512 }, () => '0.1');
+    strings[7] = forged;
+    const message = await createBedrockEmbedder({
+      ...OPTIONS,
+      client: clientReturning({ embedding: strings }),
+    })
+      .embed('checkout latency')
+      .catch((caught: unknown) => (caught as Error).message);
+    expect(message).toContain('at position 0');
+    expect(message).not.toContain(newline);
   });
 });
 
@@ -164,6 +259,16 @@ describe('describeProviderError', () => {
   it('falls back to a name rather than reporting undefined', () => {
     expect(describeProviderError({}).name).toBe('UnknownProviderError');
     expect(describeProviderError(null).name).toBe('UnknownProviderError');
+  });
+
+  // PRESENT AND EMPTY IS NOT ABSENT. The two metadata fields earned presence-not-truthiness one
+  // round earlier and the name is the third string of the same producer: `''` survives to render
+  // as `\empty`, only a missing or non-string name earns the fallback word, and the two states
+  // stay tellable apart. The number row keeps the rule honest about its edge: the rule is about
+  // STRINGS the provider chose, so a name that is not a string at all still falls back.
+  it('keeps a present and empty name instead of substituting the absent-name word', () => {
+    expect(describeProviderError({ name: '' }).name).toBe('');
+    expect(describeProviderError({ name: 7 }).name).toBe('UnknownProviderError');
   });
 });
 
@@ -336,6 +441,102 @@ describe('createBedrockEmbedder', () => {
     expect(message).not.toContain('arn:aws');
     // The full text stays reachable for a log that is allowed to see it.
     expect(((error as Error).cause as Error).message).toContain('123456789012');
+  });
+
+  // THE NAME AND THE REQUEST ID ARE STRINGS THE PROVIDER CHOSE TOO, and withholding its PROSE while
+  // pasting its chosen NAME in raw is one rule kept and its twin dropped, in the very file that
+  // supplies `describeProviderError` to the chat adapter that DID escape them. The name is the better
+  // carrier of the two: it lands mid-sentence in the operator's own line, so a forged continuation
+  // reads as this adapter speaking rather than as quoted content, while an ESC opens a live control
+  // sequence in whatever terminal reads the log. This is the same test the chat adapter has, on
+  // purpose, because the two messages are the same sentence and were never allowed to disagree.
+  it('escapes the provider name and request id, which the far side also chooses', async () => {
+    const newline = String.fromCodePoint(0x0a);
+    const escape = String.fromCodePoint(0x1b);
+    const forged = Object.assign(new Error('denied'), {
+      name: `AccessDenied${newline}EmbeddingProviderError: all clear`,
+      $metadata: { httpStatusCode: 403, requestId: `req-9${escape}[2K` },
+    });
+    const failing: InvokeModelCapableClient = { send: () => Promise.reject(forged) };
+    const embedder = createBedrockEmbedder({ ...OPTIONS, client: failing });
+
+    const error = await embedder.embed('checkout latency').catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(EmbeddingProviderError);
+    const message = (error as Error).message;
+    expect(message).toContain('AccessDenied\\x{0a}EmbeddingProviderError');
+    expect(message).toContain('req-9\\x{1b}[2K');
+    expect(message).not.toContain(newline);
+    expect(message).not.toContain(escape);
+    // And bounded, for the same reason values are never printed at all: a name is as long as the far
+    // side says it is, so a line whose length it decides is a line it can bury.
+    const long = Object.assign(new Error('denied'), {
+      name: 'N'.repeat(200),
+      $metadata: { httpStatusCode: 403, requestId: undefined },
+    });
+    const bounded = await createBedrockEmbedder({ ...OPTIONS, client: { send: () => Promise.reject(long) } })
+      .embed('checkout latency')
+      .catch((caught: unknown) => (caught as Error).message);
+    expect(bounded).toContain(`${'N'.repeat(60)}\\...`);
+    expect(bounded).not.toContain('N'.repeat(61));
+  });
+
+  // PRESENT AND FALSY, THE TWIN OF THE ROW THE CHAT ADAPTER NOW HAS. `describeProviderError` lives in
+  // THIS file and hands both adapters any number and any string it was given, so a `0` status and an
+  // `''` request id survive it and land on the two lines that decide whether to print them. Those two
+  // lines were `=== undefined` next door and truthy here, in the file that produces the values, which
+  // is this pair's third round of one rule kept in one place and dropped in the other. Under
+  // truthiness this message said nothing at all about the request id, so an EMPTY one and an ABSENT
+  // one read identically to whoever is on call, and they have different causes.
+  it('prints a status of zero and an empty request id rather than hiding them', async () => {
+    const stalled = Object.assign(new Error('socket hang up'), {
+      name: 'TimeoutError',
+      $metadata: { httpStatusCode: 0, requestId: '' },
+    });
+    const error = await createBedrockEmbedder({
+      ...OPTIONS,
+      client: { send: () => Promise.reject(stalled) },
+    })
+      .embed('checkout latency')
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(EmbeddingProviderError);
+    expect((error as Error).message).toContain('(HTTP 0)');
+    expect((error as Error).message).toContain(', request \\empty');
+    // WHICH ADAPTER SAID IT. The twin of the row in `agent-bedrock-model.test.ts`, for the same
+    // reason: the sentence is shared now, so the subject is a one-word argument nothing was reading.
+    expect((error as Error).message).toContain('The embedding provider rejected the call for model');
+    expect((error as Error).message).not.toContain('chat provider');
+    expect((error as EmbeddingProviderError).httpStatusCode).toBe(0);
+    expect((error as EmbeddingProviderError).requestId).toBe('');
+    // The control, so the rule does not quietly become "always print both". Genuinely absent metadata
+    // still prints neither clause, and without this row `=== undefined` could be widened unnoticed.
+    const bare = await createBedrockEmbedder({
+      ...OPTIONS,
+      client: { send: () => Promise.reject(Object.assign(new Error('x'), { name: 'WeirdError' })) },
+    })
+      .embed('checkout latency')
+      .catch((caught: unknown) => caught);
+    expect((bare as Error).message).not.toContain('HTTP');
+    expect((bare as Error).message).not.toContain('request');
+    expect((bare as EmbeddingProviderError).httpStatusCode).toBeUndefined();
+    expect((bare as EmbeddingProviderError).requestId).toBeUndefined();
+  });
+
+  // THE THIRD STRING OF THE SAME PRODUCER, ONE ROUND LATER. The status and request id above earned
+  // presence-not-truthiness while the name kept its `&& shaped.name`, so a name PRESENT AND EMPTY
+  // wore the absent-name word and the sentence lied about which of two states arrived. Same rule on
+  // the third field now: `''` reaches `printableName`, which already renders it `\empty`, and the
+  // fallback word means only "no string name arrived at all".
+  it('prints an empty provider name as \\empty rather than the absent-name word', async () => {
+    const empty = Object.assign(new Error('denied'), {
+      name: '',
+      $metadata: { httpStatusCode: 403, requestId: undefined },
+    });
+    const error = await createBedrockEmbedder({ ...OPTIONS, client: { send: () => Promise.reject(empty) } })
+      .embed('checkout latency')
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(EmbeddingProviderError);
+    expect((error as Error).message).toContain(': \\empty (HTTP 403)');
+    expect((error as Error).message).not.toContain('UnknownProviderError');
   });
 
   it('never falls back to a local vector when the provider fails', async () => {

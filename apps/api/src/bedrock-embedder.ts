@@ -31,6 +31,8 @@
 
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import type { Embedder, EmbeddingPurpose } from '@throughline/memory';
+import { joinWithinBudget, printableName, TOP_LEVEL_KEY_BUDGET } from './printable-name.ts';
+import { ProviderRejectionError, type ProviderErrorMetadata } from './provider-rejection.ts';
 
 /**
  * How a provider wants its request shaped. This is the one thing that cannot be read off the
@@ -95,37 +97,27 @@ export class EmbeddingTimeoutError extends Error {
  * This matters more than it looks. `runRecall` puts the message of whatever `embed` throws into
  * the recall's coverage reason, and the coverage reason is rendered to whoever is on call. A raw
  * Bedrock AccessDeniedException carries the caller ARN, and therefore the account id and the role
- * name. This class is the only place that knows the error came from AWS, so it is the only place
- * that can stop that. The full error stays reachable on `cause` for a log that is allowed to see
- * it.
+ * name. The base class is the only place that knows the error came from AWS, so it is the only
+ * place that can stop that. The full error stays reachable on `cause` for a log that is allowed to
+ * see it.
+ *
+ * THE BODY MOVED TO `provider-rejection.ts`, AND THAT IS THE FINDING. This class and the chat
+ * adapter's twin were the same twenty lines in two files, including two copies of the comment
+ * explaining why the metadata is present-and-undefined. They had already diverged twice: the
+ * escaping was kept next door and dropped here, and then the guard around it read as truthiness
+ * here and `=== undefined` there, so an empty request id printed as `\empty` on one path and
+ * vanished on the other. `describeProviderError`, which feeds BOTH, lives in this file. Only the
+ * word "embedding" differs now.
  */
-export class EmbeddingProviderError extends Error {
-  readonly modelId: string;
-  readonly providerErrorName: string;
-  readonly httpStatusCode: number | undefined;
-  readonly requestId: string | undefined;
-
+export class EmbeddingProviderError extends ProviderRejectionError {
   constructor(
     modelId: string,
     providerErrorName: string,
-    // Explicitly nullable rather than optional: the key is always present, and under
-    // exactOptionalPropertyTypes an optional property does not accept an explicit undefined.
-    metadata: { httpStatusCode: number | undefined; requestId: string | undefined },
+    metadata: ProviderErrorMetadata,
     cause: unknown,
   ) {
-    const status = metadata.httpStatusCode ? ` (HTTP ${metadata.httpStatusCode})` : '';
-    const request = metadata.requestId ? `, request ${metadata.requestId}` : '';
-    super(
-      `The embedding provider rejected the call for model "${modelId}": ` +
-        `${providerErrorName}${status}${request}. The provider's own message is on the cause and ` +
-        `is deliberately not repeated here, because this text reaches the on-call operator.`,
-      { cause },
-    );
+    super('embedding', modelId, providerErrorName, metadata, cause);
     this.name = 'EmbeddingProviderError';
-    this.modelId = modelId;
-    this.providerErrorName = providerErrorName;
-    this.httpStatusCode = metadata.httpStatusCode;
-    this.requestId = metadata.requestId;
   }
 }
 
@@ -169,6 +161,31 @@ const DEFAULT_TIMEOUT_MS = 2_000;
  * accepts only `inputText`; V2 adds `dimensions` and `normalize`; Titan Image is a third shape
  * again. All three begin `amazon.`. Sending the V2 body to V1 fails on the far side of the network
  * with nothing pointing back here, so an unrecognised family is refused rather than guessed at.
+ *
+ * WHY A GEOGRAPHY PREFIX IS STILL REFUSED, since this is the obvious thing to "fix" and a review
+ * asked for it. An id like `eu.cohere.embed-v4:0` names a cross-region inference profile, and this
+ * repository's own AGENT model is exactly that shape, so an operator has every reason to try the
+ * form here too. Stripping the `eu.` would let the same family table answer. It would not make the
+ * id INVOCABLE.
+ *
+ * THE SOURCE, AND WHAT IT DOES AND DOES NOT SAY, because an earlier version of this paragraph
+ * overstated it. AWS, "Supported Regions and models for inference profiles"
+ * (docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles-support.html), read 2026-08-12,
+ * says: "Some models, such as embedding models, do not support inference profiles." That sentence
+ * sits under the heading SUPPORTED REGIONS AND MODELS FOR APPLICATION INFERENCE PROFILES, and an
+ * `eu.` prefix names the OTHER kind, a cross-region (system-defined) profile, which the same page
+ * covers in its own section. So the sentence is strong evidence and not a proof about this exact
+ * form, and the page sends you to each model's own detail page to settle it per model. Quoting it
+ * as though it settled the cross-region case would be laundering a citation, which is the thing a
+ * citation is supposed to stop.
+ *
+ * WHICH IS ENOUGH, BECAUSE THE ARGUMENT DOES NOT REST ON IT. Refusing locally is the smaller
+ * failure either way: a wrong guess here produces a body shaped correctly for a model that may
+ * never answer, and the failure moves from this line, which can say what is wrong, to the far side
+ * of the network, which cannot. If a prefixed embedding id turns out to be invocable on some
+ * account, the fix is to add it to the family table deliberately, having invoked it. The message
+ * below says the prefix was read and rejected on purpose, because the operator who typed it needs
+ * to know it was not simply unrecognised.
  */
 export function inferRequestShape(modelId: string): EmbeddingRequestShape {
   const id = modelId.toLowerCase();
@@ -180,9 +197,16 @@ export function inferRequestShape(modelId: string): EmbeddingRequestShape {
   throw new EmbeddingResponseError(
     `Cannot tell how to shape a request for model "${modelId}". This adapter recognises ` +
       `"amazon.titan-embed-text-v2", "cohere.embed-v4" and the "cohere.embed-*-v3" line by name. ` +
-      `Other models from the same vendors take different bodies, so pass requestShape explicitly ` +
-      `rather than letting this guess: a wrong guess fails on the far side of the network with no ` +
-      `clue the cause is local.`,
+      `Other models from the same vendors take different bodies, and a wrong guess fails on the far ` +
+      `side of the network with no clue that the cause is local. Set EMBEDDING_MODEL_ID to one of ` +
+      `the three above, and without a geography prefix. An "eu." or "us." id names an inference ` +
+      `profile, and this adapter reads that form and refuses it here rather than sending it to fail ` +
+      `remotely, for the same reason as everything else in this message: the failure would land ` +
+      `where nothing can say what caused it. AWS documents embedding models among the models that ` +
+      `do not support inference profiles, which points the same way without being what the refusal ` +
+      `rests on. There is no environment variable for the shape, so the only ` +
+      `other way through is passing requestShape at the call site, which is a code change and not ` +
+      `a setting.`,
   );
 }
 
@@ -246,7 +270,15 @@ export function parseEmbedding(body: unknown): number[] {
     if (Array.isArray(batch) && batch.length > 0 && Array.isArray(batch[0])) {
       return batch[0] as number[];
     }
-    const observed = Object.keys(record).join(', ') || 'none';
+    // Wire-chosen names, escaped and bounded on the same terms as the chat adapter's identical
+    // sentence. This body is JSON the provider sent, so the key list is as long and as strange as the
+    // body says, and neither of those was this adapter's decision to leave open.
+    const observed =
+      joinWithinBudget(
+        Object.keys(record).map((key) => printableName(key)),
+        ', ',
+        TOP_LEVEL_KEY_BUDGET,
+      ) || 'none';
     throw new EmbeddingResponseError(
       `The embedding response carried no vector this adapter recognises. Top level keys were: ` +
         `${observed}. Expected either "embedding" or a non empty "embeddings" batch.`,
@@ -269,7 +301,12 @@ export function assertUsableVector(vector: number[], modelId: string): void {
     const value = vector[index];
     if (typeof value !== 'number' || !Number.isFinite(value)) {
       throw new EmbeddingResponseError(
-        `Model "${modelId}" returned ${String(value)} at position ${index}. A non finite value ` +
+        // THE VALUE IS OFF THE WIRE TOO, AND THIS LINE PRINTED IT RAW. `parseEmbedding` casts
+        // `record['embedding'] as number[]` without checking a single element, which is what this
+        // loop is here to catch, so `value` can be any JSON the provider sent. `String` of a string
+        // is that string, unbounded and unescaped, twenty-six lines below the call that escapes the
+        // KEYS of the same body. A newline in it forges a continuation of the operator's own line.
+        `Model "${modelId}" returned ${printableName(String(value))} at position ${index}. A non finite value ` +
           `makes every comparison against this row meaningless while still returning a number, ` +
           `so the vector is refused rather than stored.`,
       );
@@ -289,7 +326,12 @@ export function describeProviderError(error: unknown): {
   };
   const metadata = shaped?.$metadata;
   return {
-    name: typeof shaped?.name === 'string' && shaped.name ? shaped.name : 'UnknownProviderError',
+    // PRESENCE, NOT TRUTHINESS, THE RULE THE TWO LINES BELOW EARNED ONE ROUND EARLIER WHILE THIS
+    // LINE KEPT `&& shaped.name`. That collapsed a name PRESENT AND EMPTY into the absent-name word,
+    // in the very producer whose contract says it keeps any string it is given. Kept, an empty name
+    // renders as `\empty` where the sentence is written, absent still earns the fallback word, and
+    // the operator can tell "the provider named nothing" from "the provider sent an empty name".
+    name: typeof shaped?.name === 'string' ? shaped.name : 'UnknownProviderError',
     httpStatusCode:
       typeof metadata?.httpStatusCode === 'number' ? metadata.httpStatusCode : undefined,
     requestId: typeof metadata?.requestId === 'string' ? metadata.requestId : undefined,

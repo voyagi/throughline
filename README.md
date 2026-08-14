@@ -114,10 +114,36 @@ Working now:
   Driven in a real browser against a running API on 2026-08-08: all five pages, the agent turn, the
   archive and every filter chip, plus the rate-limited refusal and the API-is-down case. Nothing
   automated repeats that, so it is a measurement with a date on it rather than a gate.
+- The hosted path on AWS Bedrock, both halves of it. `EMBEDDING_PROVIDER=bedrock` sends recall's
+  embeddings to Bedrock and `AGENT_PROVIDER=bedrock` runs the loop over the Converse API. Neither
+  has a default model, on purpose: each needs its own id (`EMBEDDING_MODEL_ID`, `AGENT_MODEL_ID`)
+  and an `AWS_REGION`, and each refuses to start without them rather than guessing. Two optional
+  variables sit beside them. `AGENT_MAX_TOKENS` caps the output of a single reply, defaults to 2048
+  when unset or blank, and refuses to start on anything that is not a whole number above zero and no
+  greater than 1000000. A ceiling read as NaN is not a smaller ceiling, it is a request the provider
+  rejects on every turn, and so is one that is too large. `EMBEDDING_DIMENSIONS` declares how wide
+  the vectors are, defaults to 1024 and refuses anything above 16000. It is read on the local path
+  too, and it belongs in this list because it is what lets the width guard fire at all: a hosted
+  model of a different width to the `VECTOR` column has to be refused, and a check written against a
+  constant instead of a setting would be comparing a constant to a constant. Measured against
+  the real account on 2026-08-12, with `amazon.titan-embed-text-v2:0` for embeddings and
+  `eu.anthropic.claude-haiku-4-5-20251001-v1:0` for the agent, both in eu-central-1: rows written
+  and recalled through the ANN index at similarity 0.81,
+  with a deliberately unrelated control query returning nothing, and a `POST /agent/turn` answering
+  in 5.4 s carrying a receipt for the recall behind it. Like the browser run above, that is a
+  measurement with a date on it and not a gate. Model ids are read off the account rather than
+  chosen from documentation, because an id that merely APPEARS in `list-foundation-models` can still
+  refuse on-demand invocation and demand an inference profile instead. This account has models in
+  exactly that state.
 
 Not built yet:
 
-- The Bedrock chat adapter. The loop runs against a scripted local model today.
+- `npm run probe`, `npm run verify:live` and `npm run seed:demo` on the hosted embedder. The adapter
+  lives in `apps/api`, and the dependency rule `memory-core-is-independent` forbids
+  `packages/memory` from importing it, so all three refuse and say why rather than quietly building
+  the local embedder instead. That fallback is the dangerous option, not the safe one: seeding or
+  verifying with a different embedder from the one recall uses puts two vector spaces in one column,
+  and nothing throws. The fix is to move the adapter into `packages/memory`.
 - The deployed stack and the public demo URL.
 - Three of the four islands have no test of their own. What IS covered on the console side is the
   archive page's state logic (`apps/web/test/archive-state.test.ts`) and the response-shape guard on
@@ -177,7 +203,15 @@ deterministic local embedder. That embedder captures lexical overlap only, and i
 fallback for a failed hosted embedder: a recall that could not embed returns coverage UNKNOWN.
 
 Copy `.env.example` to `.env` to change anything. Every value there has a working local default
-except the ones marked OWNER.
+except the ones marked OWNER. Not everything this README documents is in that file, though.
+`AGENT_MAX_TOKENS` and `CORS_ALLOWED_ORIGINS` are both read by the code and neither has a line
+there, so both have to be set by hand until somebody adds them. The second is the one that costs
+you a working console, which is why the API now says so at boot rather than leaving you to work it
+out. Said here rather than left implied, because "copy the example and you have seen everything" is
+the kind of sentence an operator only finds out is wrong at the point it costs them something.
+
+No count is given, deliberately. The sentence this replaces said "one variable", and the variable it
+left out was the one whose absence makes every page in the console fail its API calls.
 
 ## Layout
 

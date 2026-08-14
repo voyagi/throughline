@@ -104,6 +104,82 @@ export interface ChatModel {
   }): Promise<ChatReply>;
 }
 
+/**
+ * Thrown by a `ChatModel` when the provider ANSWERED, this adapter READ the answer, and the answer
+ * is not one a turn can end on: cut off at a token ceiling, filtered, stopped for a reason that is
+ * not an end, or read cleanly and empty.
+ *
+ * DECLARED HERE, WITH THE PORT, RATHER THAN IN THE ADAPTER THAT THROWS IT FIRST. The loop has to
+ * tell "the model replied with something unusable" from "the provider is unreachable", because it
+ * ends a turn differently for each, and reaching into the Bedrock adapter for the class would make
+ * every consumer of this loop depend on the AWS SDK, the local model and its tests included. Same
+ * rule as `ChatModel` above: the thing that owns the contract should not be the thing that happens
+ * to implement it first.
+ *
+ * NARROWED TO A REPLY THAT WAS READ. It used to cover both this and "the response was not a shape
+ * this adapter recognises", and the loop answered both with a 200 refusal. The second is not a
+ * provider behaving as providers do, it is this build being wrong about the API, and after an SDK
+ * upgrade or a response-shape change it would be EVERY turn: every question answered "no answer",
+ * the 5xx rate flat, `/health` still ok, and the only trace an optional log line. That case is
+ * `ChatUnreadableError` below and it is deliberately not caught.
+ *
+ * ITS MESSAGE IS FOR THE OPERATOR'S LOG AND NEVER FOR A RESPONSE BODY. The adapter builds these
+ * from literals, but one of them quotes part of the provider's own response, and `http/failures.ts`
+ * records at length why a string from outside is not allowed to reach a caller. The loop logs this
+ * and answers with a sentence of its own.
+ */
+export class ChatResponseError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ChatResponseError';
+  }
+}
+
+/**
+ * Thrown by a `ChatModel` when the response cannot be READ at all: not an object, no content array,
+ * or content in which not one block was a kind the adapter knows, shaped the way the provider's own
+ * SDK declares that kind. A block it read and found empty is NOT this: that is `ChatResponseError`
+ * below, and the difference is the turn's receipts.
+ *
+ * A SIBLING OF `ChatResponseError` AND DELIBERATELY NOT A SUBCLASS, because the loop's whole
+ * decision is one `instanceof` and a subclass would be caught by it. This one is meant to escape:
+ * it means the adapter and the provider disagree about the shape of a response, which is a bug in
+ * this build rather than a thing that happened to one turn. It leaves as a 5xx so that a broken
+ * adapter is loud on the first request rather than quiet on every one.
+ *
+ * THE COST IS THE RECEIPTS, AND WHAT IS WRITTEN HERE ABOUT THAT COST HAS ALREADY BEEN WRONG ONCE.
+ * A turn that recalled something and then hit this loses its transcript, its receipts and its
+ * coverage verdict to the failure. The paragraph that stood here justified that by claiming there
+ * is no version of this failure that is both rare and mid-turn. That was false, and the case it was
+ * false about was the common one: a model that simply goes quiet used to land here, so a silent
+ * `end_turn` on round two of a real turn returned a 500 and zero receipts. It now raises
+ * `ChatResponseError` from the same site, because a response this adapter read and found empty is a
+ * provider being a provider. See the split at the bottom of `parseConverseReply`.
+ *
+ * WHAT IS LEFT IS BELIEVED RARE AND IS NOT PROVEN IMPOSSIBLE, and that is the honest version. Two of
+ * the three throws cannot be mid-turn in any interesting way: a response that is not an object, and
+ * one with no content array, are wrong on round one of every turn. The third, blocks present and not
+ * one of them read, is systemic in the case worth being loud for and could in principle happen to a
+ * single turn, if a model emitted nothing but a block type new to this build on exactly that round.
+ * That residue is accepted rather than argued away. What would settle it is the same measurement
+ * `unusableReply` names for its own accepted loss: a rate on the live path that is not near zero.
+ *
+ * THIS PARAGRAPH HAS NOW BEEN WRONG TWICE, FIRST ABOUT THE WORD "READ" AND THEN ABOUT THE FACT UNDER
+ * IT. "Read" once meant "yielded something usable", so a `toolUse` carrying no name was called
+ * unreadable and took a turn's receipts out as a 500. The fix for that counted ANY object under
+ * `toolUse`, on the stated ground that the SDK declares `name` optional. It does not: `ToolUseBlock`
+ * writes `name` with no `?`, which makes it a required member whose type merely includes `undefined`,
+ * and the version resting on that misreading went QUIET on a renamed field - every reply a refusal,
+ * the 5xx rate flat, which is the exact failure this class exists for. "Read" now means what it says:
+ * a kind this adapter knows, shaped as the SDK declares it. An empty string is read; misshapen is not.
+ */
+export class ChatUnreadableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ChatUnreadableError';
+  }
+}
+
 export interface AgentOptions {
   readonly model: ChatModel;
   readonly repository: MemoryRepository;
@@ -116,6 +192,23 @@ export interface AgentOptions {
    * for in a prompt.
    */
   readonly maxToolCalls?: number;
+  /**
+   * A hard ceiling on how long one turn may take, measured on the clock rather than in rounds.
+   *
+   * Rounds bound how many times the model may speak. Nothing bounded how LONG each one took, which
+   * was academic while the only model was the local one that answers synchronously. A hosted model
+   * has a per-call budget of its own and twelve rounds of it MULTIPLY.
+   */
+  readonly turnBudgetMs?: number;
+  /**
+   * Where a detail goes when the turn cannot show it to the caller.
+   *
+   * Optional, because no decision in this loop depends on it, and wired in `server.ts` from the
+   * same logger the rest of the process writes to. A turn refused for an unusable reply can only
+   * say THAT it happened: the reason is what an operator needs and is the one thing that must not
+   * reach a response body.
+   */
+  readonly log?: (line: string) => void;
 }
 
 /** One completed recall, keyed to the call the model made, so a receipt can be traced to its ask. */
@@ -147,6 +240,84 @@ export interface AgentAnswer {
 
 const DEFAULT_MAX_TOOL_CALLS = 8;
 
+/**
+ * Ten times the longest turn measured against live Bedrock, which answered in 5.4 seconds.
+ *
+ * The number that matters is the one this replaces. The shipped chat defaults are 30 seconds per
+ * call and twelve rounds, so before this bound existed a single `POST /agent/turn` could hold a
+ * request open for six minutes while the caller watched a spinner.
+ *
+ * WHAT IS ACTUALLY ENFORCED, because a bound written down loosely is worse than one left implied.
+ * The clock is read before each round AND before each tool call, and neither check interrupts work
+ * already in flight, so a turn starts nothing new past its budget and the last thing it started
+ * runs to its own ceiling. The bound is therefore the budget plus the longest single step, and the
+ * longest single step is a TOOL rather than the 30 s model call (`bedrock-model.ts`).
+ *
+ * That tool is `supersede`, dispatched below like any other. It runs inside `db.transaction`
+ * (`packages/memory/src/db.ts`), so one call is a pool connect bounded by the 10 s
+ * `connectionTimeoutMillis` plus SEVEN statements each bounded by the 15 s `statement_timeout`:
+ * BEGIN, the locking SELECT, the insert, the update that closes the old row, the audit insert, the
+ * re-read, COMMIT. The timeout is applied as a connection startup option, so it is per statement
+ * and not for the transaction. That is about 115 s, against about 70 s for `remember` and about
+ * 32 s for `recall`. So the bound is roughly 175 s: call it three minutes, not exactly sixty
+ * seconds and not six.
+ *
+ * TWO VERSIONS OF THIS PARAGRAPH HAVE NOW BEEN WRONG IN THE SAME WAY, which is why the derivation
+ * is written out instead of the number. The first said ninety seconds while counting only the model
+ * call. The second said ninety seconds again while counting `recall` and calling it "the most
+ * expensive tool", which it is not: it was the most expensive tool the author had in mind. Both
+ * measured one mechanism and wrote the figure down against another. Anyone changing a timeout,
+ * adding a statement to `supersede`, or adding a tool has to redo the arithmetic above, and if
+ * three minutes is not acceptable the fix is a deadline handed to the tool call, not a reworded
+ * comment.
+ */
+const DEFAULT_TURN_BUDGET_MS = 60_000;
+
+/**
+ * Refuse a budget that removes the ceiling it exists to impose.
+ *
+ * `Date.now() + NaN` is `NaN` and every comparison against `NaN` is false, so a NaN budget does not
+ * shorten a turn, it makes the check that ends one unreachable. `maxToolCalls` fails the same way
+ * through `maxRounds`, and worse: the tool budget is what stops one turn from spending the day's
+ * provider bill. Zero is not nullish, so it survives `??` and refuses every turn at round zero,
+ * after the HTTP layer has already claimed a budget slot and cannot refund it.
+ *
+ * Neither has a configuration path today, so this is a guard against the env var somebody adds
+ * later. Both Bedrock adapters validate their own budgets in this shape and for this reason, and
+ * the embedder's note is the shortest version of it: an unvalidated budget is worse than a wrong
+ * one, because a wrong one is visible.
+ */
+function requireBudget(name: string, value: number): number {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(
+      `Agent ${name} must be a positive finite number, received ${String(value)}. A budget that is ` +
+        'not a number does not shorten a turn, it removes the limit.',
+    );
+  }
+  return value;
+}
+
+/**
+ * What a turn says when it ends without an answer.
+ *
+ * A factory rather than three literals, because the second sentence is the one that matters and it
+ * has to be identical every time. A turn that stopped early knows LESS than one that finished, so
+ * the single thing it must never do is hand back a shorter answer that reads as a conclusion. Only
+ * the opening clause differs, and it names which ceiling was hit.
+ */
+function stoppedEarly(because: string): string {
+  return (
+    `${because} Nothing here is a finding, and in particular nothing here says that anything is ` +
+    'absent from memory.'
+  );
+}
+
+const RAN_OUT_OF_TIME = stoppedEarly('This turn ran out of time before reaching an answer.');
+const RAN_OUT_OF_ROOM = stoppedEarly('This turn ran out of room before reaching an answer.');
+const REPLY_UNUSABLE = stoppedEarly(
+  'The model did not return a reply this server could use, so this turn has no answer.',
+);
+
 const SYSTEM = `You are an on-call incident response assistant. Your value is entirely in what you
 remember across incidents: what broke before, what actually fixed it, and which promising
 hypothesis turned out to be a red herring.
@@ -163,7 +334,10 @@ a recall came back COVERED and empty. If coverage was UNKNOWN, say that the memo
 searched and why. Saying "no prior incidents" when you simply could not look is the single worst
 thing you can do here, and it is worse than saying nothing.
 
-Cite the memories you use by their id, and say when one is flagged stale.`;
+Cite the memories you use by their id, and say when one is flagged stale.
+
+Write plain prose. The console prints your answer verbatim and renders no markdown, so asterisks,
+backticks and heading marks reach the reader as literal punctuation rather than as formatting.`;
 
 /** The system prompt the loop sends. Exported so a test can assert what the model was actually told. */
 export const SYSTEM_PROMPT = SYSTEM;
@@ -176,7 +350,8 @@ export const SYSTEM_PROMPT = SYSTEM;
  */
 export async function runAgentTurn(options: AgentOptions, message: string): Promise<AgentAnswer> {
   const { model, repository, workspaceId } = options;
-  const maxToolCalls = options.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS;
+  const maxToolCalls = requireBudget('maxToolCalls', options.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS);
+  const turnBudgetMs = requireBudget('turnBudgetMs', options.turnBudgetMs ?? DEFAULT_TURN_BUDGET_MS);
 
   const transcript: Turn[] = [{ role: 'user', content: message }];
   const recalls: RecallEvent[] = [];
@@ -195,78 +370,62 @@ export async function runAgentTurn(options: AgentOptions, message: string): Prom
   // a budget that can never be exceeded again. That is a hang, live, in front of whoever is
   // watching. The extra rounds are for the model to notice and answer.
   const maxRounds = maxToolCalls + 4;
+  const expiresAt = Date.now() + turnBudgetMs;
+  const outOfTime = (): boolean => Date.now() >= expiresAt;
+
+  // ONE PLACE BUILDS THE ANSWER, and it reads the loop's state at the moment it is called rather
+  // than being handed a copy. There were three of these literals, one per exit, and they are the
+  // shape a field gets added to on the happy path and forgotten on the early ones: `recalls` is
+  // itself a field that arrived late, and the receipts are the whole argument of this product.
+  const answerFrom = (text: string): AgentAnswer => ({
+    text,
+    transcript,
+    coverage: worstCoverage,
+    refusedAnAbsenceClaim,
+    toolCallCount,
+    modelId: model.id,
+    recalls,
+  });
+
+  // EVERY WAY A TURN CAN END WITHOUT AN ANSWER ends it here, in one place. Each pushes the loop's
+  // own sentence as a `refusal` and hands back everything the turn did establish: the transcript,
+  // the receipts and the worst coverage any recall returned. A turn that stopped early still
+  // searched whatever it searched, and dropping that would leave the caller a status code to read
+  // where the receipt should be.
+  const endTurn = (text: string): AgentAnswer => {
+    // The loop wrote this sentence, so it goes in the loop's role. It used to be pushed as an
+    // `assistant` turn, which is the same misattribution fixed twice already on other paths.
+    transcript.push({ role: 'refusal', content: text });
+    return answerFrom(text);
+  };
 
   for (let round = 0; ; round += 1) {
-    if (round >= maxRounds) {
-      const text =
-        'This turn ran out of room before reaching an answer. Nothing here is a finding, and in ' +
-        'particular nothing here says that anything is absent from memory.';
-      // The loop wrote this sentence, so it goes in the loop's role. It used to be pushed as an
-      // `assistant` turn, which is the same misattribution fixed twice already on other paths.
-      transcript.push({ role: 'refusal', content: text });
-      return {
-        text,
-        transcript,
-        coverage: worstCoverage,
-        refusedAnAbsenceClaim,
-        toolCallCount,
-        modelId: model.id,
-        recalls,
-      };
+    const timeUp = outOfTime();
+    if (round >= maxRounds || timeUp) return endTurn(timeUp ? RAN_OUT_OF_TIME : RAN_OUT_OF_ROOM);
+
+    let reply: ChatReply;
+    try {
+      reply = await model.reply({ system: SYSTEM, history: transcript, tools: TOOLS });
+    } catch (error) {
+      return endTurn(unusableReply(error, options.log));
     }
 
-    const reply = await model.reply({ system: SYSTEM, history: transcript, tools: TOOLS });
-
     if (reply.kind === 'answer') {
-      const verdict = judgeAnswer(reply.text, worstCoverage);
-
-      // The model's words go in the transcript FIRST, always, whether they are permitted or not.
-      // The refused branch used to skip this and push the loop's own sentence under the assistant
-      // role instead, which both attributed the loop's words to the model and dropped what the
-      // model actually said. That is the same defect the `refusal` role exists to prevent, on the
-      // sibling of the path where it was first fixed, and no test could see it because every one
-      // of them looked at the FIRST refusal turn. Two rounds, two instances, one shape.
-      transcript.push({ role: 'assistant', content: reply.text });
-
-      if (verdict.permitted) {
-        return {
-          text: reply.text,
-          transcript,
-          coverage: worstCoverage,
-          refusedAnAbsenceClaim,
-          toolCallCount,
-          modelId: model.id,
-          recalls,
-        };
-      }
-
-      transcript.push({ role: 'refusal', content: verdict.refusal });
-
-      if (refusedAnAbsenceClaim) {
-        // Already refused once. Ending the turn on the refusal rather than on the answer is the
-        // safe direction: a second attempt at the same claim is not a misunderstanding.
-        //
-        // What the OPERATOR is shown is not `verdict.refusal`. That sentence is written in the
-        // second person to the model ("Rewrite it to say what you actually know"), and returning it
-        // as the answer put instructions for the model on the screen meant for the person handling
-        // the incident. So the returned text is deliberately NOT the last transcript turn here:
-        // the transcript records the exchange, and `text` is what the operator reads.
-        return {
-          text: refusalForTheUser(worstCoverage),
-          transcript,
-          coverage: worstCoverage,
-          refusedAnAbsenceClaim,
-          toolCallCount,
-          modelId: model.id,
-          recalls,
-        };
-      }
-
+      const settled = settleAnswer(reply.text, transcript, worstCoverage, refusedAnAbsenceClaim);
+      if (settled !== null) return answerFrom(settled);
       refusedAnAbsenceClaim = true;
       continue;
     }
 
     for (const call of reply.calls) {
+      // THE CLOCK IS READ HERE TOO, not only between rounds, and the gap that leaves is not small.
+      // One reply may ask for the whole tool budget at once, and the most expensive tool is a
+      // transaction of seven statements against the cluster, so eight of them can outlast the
+      // turn's budget many times over while the check at the top of the loop waits for a round that
+      // has not come round yet. The arithmetic is with `DEFAULT_TURN_BUDGET_MS`. Read BEFORE the
+      // call is announced, so the transcript never carries a `tool_call` with nothing under it.
+      if (outOfTime()) return endTurn(RAN_OUT_OF_TIME);
+
       // Announced BEFORE the budget check, and that order is the fix for a defect this file
       // introduced while fixing the same defect elsewhere. The over-budget branch used to push a
       // `tool_result` and skip this line, so it emitted a result for an id no `tool_call` had
@@ -301,13 +460,103 @@ export async function runAgentTurn(options: AgentOptions, message: string): Prom
       toolCallCount += 1;
 
       const outcome = await runTool(call, { repository, workspaceId });
-      if (outcome.coverage !== undefined) worstCoverage = worseOf(worstCoverage, outcome.coverage);
-      // Keyed by the id announced above rather than by position, and rather than by the id the model
-      // supplied, for the reason given there.
-      if (outcome.recall !== undefined) recalls.push({ callId: id, result: outcome.recall });
-      transcript.push({ role: 'tool_result', id, name: call.name, content: outcome.content });
+      worstCoverage = recordOutcome(outcome, { id, name: call.name }, { transcript, recalls }, worstCoverage);
     }
   }
+}
+
+/**
+ * The sentence a turn ends on when the adapter could not use the model's reply, or a rethrow.
+ *
+ * A REPLY THE ADAPTER COULD NOT USE ENDS THE TURN THE WAY A SPENT BUDGET DOES, rather than leaving
+ * the loop. It used to leave. `parseConverseReply` began refusing a cut-off reply, nothing caught
+ * the refusal, and a `max_tokens` stop reached the caller as a 500 under rule `unclassified`: the
+ * same bucket as an unhandled crash, and it took the transcript, the recall receipts and the
+ * coverage verdict with it. Those receipts are the thing this product argues it does differently.
+ * `server.ts` also claims the daily budget BEFORE that call and says in a comment that it
+ * deliberately does not refund, so each attempt spent a metered slot to show nothing, and
+ * `temperature` is 0, so the same question kept doing it.
+ *
+ * WHAT THIS IS FOR, STATED AS THE ONE CASE IT IS: the provider answered, the adapter read the
+ * answer, and the answer is incomplete. Everything else throws past here. `ChatUnreadableError` is
+ * this build disagreeing with the API about response shape and has to be loud. `ChatTimeoutError`
+ * and `ChatProviderError` are the provider not answering at all.
+ *
+ * THE HONEST PART, BECAUSE AN EARLIER VERSION OF THIS PARAGRAPH WAS NOT. It said a provider that is
+ * down leaves "no receipt worth keeping", which is false whenever the failure lands mid-turn: a
+ * timeout on round three, after two recalls have run, discards a transcript and two receipts and
+ * returns a 500. That is a real loss and it stands today for a reason that is about dependencies
+ * rather than about the caller. Telling a timeout from any other throw means naming the adapter's
+ * error classes here, and this file is the port: `ChatResponseError` and `ChatUnreadableError` are
+ * declared here precisely so the loop never imports the adapter. Moving two more classes into the
+ * port to recover receipts on a case that is already loud is a change worth making deliberately,
+ * with the owner, and not as a side effect of a review round. What would settle it: a mid-turn
+ * timeout rate that is not near zero on the live path.
+ */
+function unusableReply(error: unknown, log: ((line: string) => void) | undefined): string {
+  if (!(error instanceof ChatResponseError)) throw error;
+  // The adapter writes this message and it quotes the stop reason the provider sent, so it goes to
+  // the operator's log and never into a body. `http/failures.ts` has the long version of why a
+  // string from outside is not allowed to reach a caller.
+  log?.(`[agent] the model's reply could not be used: ${error.message}`);
+  return REPLY_UNUSABLE;
+}
+
+/**
+ * What the operator is handed for an answer turn, or null when the model gets one more round.
+ *
+ * Returns the TEXT rather than the whole answer, because the fields around it belong to the loop
+ * and reading them from here would mean copying the loop's state at the wrong moment.
+ */
+function settleAnswer(
+  text: string,
+  transcript: Turn[],
+  coverage: Coverage | null,
+  alreadyRefused: boolean,
+): string | null {
+  const verdict = judgeAnswer(text, coverage);
+
+  // The model's words go in the transcript FIRST, always, whether they are permitted or not. The
+  // refused branch used to skip this and push the loop's own sentence under the assistant role
+  // instead, which both attributed the loop's words to the model and dropped what the model
+  // actually said. That is the same defect the `refusal` role exists to prevent, on the sibling of
+  // the path where it was first fixed, and no test could see it because every one of them looked at
+  // the FIRST refusal turn. Two rounds, two instances, one shape.
+  transcript.push({ role: 'assistant', content: text });
+  if (verdict.permitted) return text;
+
+  transcript.push({ role: 'refusal', content: verdict.refusal });
+  if (!alreadyRefused) return null;
+
+  // Already refused once. Ending the turn on the refusal rather than on the answer is the safe
+  // direction: a second attempt at the same claim is not a misunderstanding.
+  //
+  // What the OPERATOR is shown is not `verdict.refusal`. That sentence is written in the second
+  // person to the model ("Rewrite it to say what you actually know"), and returning it as the
+  // answer put instructions for the model on the screen meant for the person handling the incident.
+  // So the returned text is deliberately NOT the last transcript turn here: the transcript records
+  // the exchange, and this is what the operator reads.
+  return refusalForTheUser(coverage);
+}
+
+/**
+ * Write what one tool call did into the turn, and report the worst coverage seen so far.
+ *
+ * A turn is only as covered as its least covered recall, which is why this takes the running
+ * verdict and returns the new one rather than reading the last result.
+ */
+function recordOutcome(
+  outcome: ToolOutcome,
+  call: { readonly id: string; readonly name: string },
+  turn: { readonly transcript: Turn[]; readonly recalls: RecallEvent[] },
+  coverageSoFar: Coverage | null,
+): Coverage | null {
+  // Keyed by the id the LOOP announced rather than by position, and rather than by the id the model
+  // supplied, for the reason given where that id is minted.
+  if (outcome.recall !== undefined) turn.recalls.push({ callId: call.id, result: outcome.recall });
+  turn.transcript.push({ role: 'tool_result', id: call.id, name: call.name, content: outcome.content });
+  if (outcome.coverage === undefined) return coverageSoFar;
+  return worseOf(coverageSoFar, outcome.coverage);
 }
 
 interface ToolOutcome {

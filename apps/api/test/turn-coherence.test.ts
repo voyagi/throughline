@@ -1,5 +1,5 @@
 /**
- * The agent turn judged against itself, on every exit the loop has.
+ * The agent turn judged against itself, on every exit the loop has that produces a turn to judge.
  *
  * WHAT THIS FILE IS FOR, and it is not more coverage of the loop. `agent-loop.test.ts` already
  * drives the loop well, and it pins the controls, the budgets and the dispatch. What it does not
@@ -64,11 +64,12 @@
  *     this repository keeps paying for.
  */
 
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { AgentTurnResponse, TurnView } from '@throughline/contract';
 import type { ChatModel, ChatReply } from '../src/agent/loop.ts';
 import type { MemoryRepository, RecallResult } from '@throughline/memory';
-import { refusalForTheUser, runAgentTurn, type AgentAnswer } from '../src/agent/loop.ts';
+import { ChatResponseError, refusalForTheUser, runAgentTurn, type AgentAnswer } from '../src/agent/loop.ts';
 import { createScriptedChatModel } from '../src/agent/local-model.ts';
 import { toRecallEvent } from '../src/http/contract.ts';
 import { answerContradictions, responseContradictions, RULES, type RuleId } from './turn-coherence.ts';
@@ -96,12 +97,57 @@ function run(
   model: ChatModel,
   repository: MemoryRepository,
   maxToolCalls?: number,
+  turnBudgetMs?: number,
 ): Promise<AgentAnswer> {
   return runAgentTurn(
-    { model, repository, workspaceId: 'demo', ...(maxToolCalls === undefined ? {} : { maxToolCalls }) },
+    {
+      model,
+      repository,
+      workspaceId: 'demo',
+      ...(maxToolCalls === undefined ? {} : { maxToolCalls }),
+      ...(turnBudgetMs === undefined ? {} : { turnBudgetMs }),
+    },
     'has checkout been slow before?',
   );
 }
+
+/**
+ * Real elapsed time rather than a fake clock, for the two arrangements that need the budget spent.
+ *
+ * `agent-loop.test.ts` fakes the clock because it asserts an exact call count against the sixty
+ * second default, and a real sixty second turn is not a test. Here the budget is chosen small and
+ * the delay is longer than it, and `it.each` running sixteen thunks around a fake clock would have
+ * to keep it consistent across all of them.
+ *
+ * SO THE ARRANGEMENT ASKS THE MACHINE FOR TWO THINGS, NOT ONE. That `setTimeout` does not fire
+ * EARLY, which is free. And that everything before the delayed recall - a model call, a tool
+ * dispatch, the loop's own bookkeeping - fits inside the budget, which is NOT free. The word that
+ * stood where this paragraph is was "only", naming the first and omitting the second, four lines
+ * above the paragraph that exists to correct exactly that omission.
+ *
+ * THE SENTENCE THAT STOOD HERE SAID A SLOW MACHINE MAKES THESE TURNS LATER, NEVER DIFFERENT, AND
+ * THAT WAS FALSE. It is the same mistake as the enumeration below, in a different costume: a claim
+ * about a mechanism, written from the mechanism the author had in mind. The delay is not the only
+ * thing that can spend a forty millisecond budget. Everything before it can too, and the model call
+ * comes first. A reviewer put fifty milliseconds into the first model reply and the arrangement
+ * named for the exit BETWEEN rounds silently took the exit WITHIN a round instead, ending the turn
+ * before announcing anything, and stayed green: the only thing asserted was that the answer did not
+ * contradict itself, and a turn that did nothing at all contradicts itself least of all.
+ *
+ * SO THE ARRANGEMENTS ARE FACTORIES AND EACH IS ASSERTED TWICE. `EXITS` asks whether the turn is
+ * coherent. The pair of tests further down asks which exit it actually reached, and each is pinned
+ * by a transcript shape no other exit of that same arrangement can produce. If one of them ever goes
+ * red on a slow machine, that is this guard doing its job and the answer is to raise the budget and
+ * the delay together, never to drop the assertion and go back to trusting the label.
+ */
+const slower = <T,>(ms: number, value: T): Promise<T> =>
+  new Promise((resolve) => {
+    setTimeout(() => resolve(value), ms);
+  });
+
+/** The budget both clock arrangements run against, and the delay each uses to outlast it. */
+const CLOCK_BUDGET_MS = 40;
+const LONGER_THAN_THE_BUDGET_MS = 60;
 
 /**
  * A model that never stops asking, which is how the round cap gets driven with tools in hand.
@@ -180,35 +226,90 @@ const throwing = (): MemoryRepository =>
   fakeRepository({ recall: () => Promise.reject(new Error('the cluster refused the connection')) });
 
 /**
+ * THE TWO CLOCK ARRANGEMENTS, WRITTEN ONCE AND USED TWICE, for the reason `slower` above records.
+ *
+ * Each reaches a DIFFERENT `endTurn(RAN_OUT_OF_TIME)`: one at the top of a round and one between two
+ * calls of a single reply. Both hand back the same fields, so no assertion on the answer can say
+ * which statement produced it. What separates them is what the transcript shows, and for each
+ * arrangement that shape is reachable by exactly one of its own exits. Asserted below.
+ */
+const clockSpentBetweenRounds = (): Promise<AgentAnswer> =>
+  run(
+    createScriptedChatModel([recallCall(), answer('unreachable, the clock ends the turn first')]),
+    fakeRepository({
+      recall: () =>
+        slower(
+          LONGER_THAN_THE_BUDGET_MS,
+          recallResult({ coverage: 'COVERED', memories: [scoredMemory()] }),
+        ),
+    }),
+    undefined,
+    CLOCK_BUDGET_MS,
+  );
+
+/** ONE reply asking for TWO recalls, which is the only way the clock can be read mid-reply. */
+const clockSpentWithinARound = (): Promise<AgentAnswer> =>
+  run(
+    {
+      id: 'two-at-once',
+      reply: () =>
+        Promise.resolve({
+          kind: 'tools',
+          calls: [
+            { id: 'first', name: 'recall', args: { query: 'one' } },
+            { id: 'second', name: 'recall', args: { query: 'two' } },
+          ],
+        }),
+    },
+    fakeRepository({
+      recall: () => slower(LONGER_THAN_THE_BUDGET_MS, recallResult({ coverage: 'COVERED' })),
+    }),
+    undefined,
+    CLOCK_BUDGET_MS,
+  );
+
+/**
  * EVERY EXIT, ENUMERATED FROM `loop.ts` RATHER THAN FROM THE CASES THAT CAME TO MIND.
  *
- * `runAgentTurn` returns from THREE places, read at `f185b4b`: `loop.ts:207`, `:232` and `:254`, the
- * round cap, a permitted answer and a second refusal. This said four and counted the round cap
- * twice, once for the empty tool list, which is the same statement reached by another route. The
- * module beside this one was corrected for that exact miscount in the commit that should have
- * corrected this line too, which is the sibling file half of the shape this whole branch keeps
- * closing.
+ * `runAgentTurn` ends in EIGHT ways, from SIX statements, named here by what they return rather than
+ * by where they sit:
  *
- * AND IT NEARLY HAPPENED AGAIN TO THIS VERY LINE, one anchor down. The anchor read `de773d8`, a
- * MID-BRANCH commit of PR #18 that `git merge-base --is-ancestor de773d8 origin/main` rejects, so a
- * fresh clone cannot resolve it. Both this file and the module beside it moved to the merged sha in
- * the SAME commit, because a sweep caught this one before it shipped, in the paragraph directly
- * above, which is about leaving the sibling file behind. It is recorded as a near miss rather than
- * as history: no commit ever shipped the module anchored to `f185b4b` with this file still on
- * `de773d8`, and writing it as though one had would be the same overclaim this file keeps deleting.
- * `loop.ts` is identical between the two shas, so all three numbers were true throughout and only
- * the anchor was unusable.
+ *   - `endTurn(timeUp ? RAN_OUT_OF_TIME : RAN_OUT_OF_ROOM)`, at the top of a round. TWO ways from
+ *     one statement: the clock spent BETWEEN rounds, and the round cap.
+ *   - `endTurn(unusableReply(error, options.log))`, when the model throws a `ChatResponseError`.
+ *   - `answerFrom(settled)`, a permitted answer.
+ *   - `endTurn(RAN_OUT_OF_TIME)`, the clock spent WITHIN a round, between two calls of one reply.
+ *   - a THROW rather than a return, out of `unusableReply`, for any error that is not a
+ *     `ChatResponseError`.
+ *   - a THROW out of `requireBudget`, before round zero and therefore before anything at all. TWO
+ *     ways from one statement, one for each budget it is called on, and `agent-loop.test.ts` drives
+ *     both. It is not called INSIDE this function and that is exactly why it was missed twice.
  *
- * AND THEN IT HAPPENED AGAIN, TO THESE THREE NUMBERS, IN THE PARAGRAPH SAYING SO. They read 202, 227
- * and 249 until round nine, because the commit that re-derived every citation in the module beside
- * this one walked past the sibling file whose whole subject is that sibling files get walked past.
- * The numbers carry the anchor now for the reason that module gives.
+ * THE LAST TWO PRODUCE NO `AgentAnswer`, so this file cannot judge them and `agent-loop.test.ts`
+ * owns both. Counting them anyway is the point: an exit with no coherence case should be visibly
+ * absent rather than quietly missing.
  *
- * Reaching each of the three is not the same as covering the loop, so the arrangements below also
- * drive the paths that BUILD the fields the rules
- * read: an over budget call, which is announced without being counted, a recall that throws, which
- * moves the verdict and leaves no receipt, a tool that is not a recall, and several calls in one
- * round, which is the only way two receipts land in one turn.
+ * NO LINE NUMBERS AND NO COMMIT ANCHOR, AND THAT IS THE FIX RATHER THAN AN OMISSION. Three earlier
+ * versions of this paragraph cited line numbers and every one was wrong when read: it said FOUR
+ * returns while counting the round cap twice, then carried three numbers anchored to a mid-branch
+ * sha a fresh clone cannot resolve, then carried three re-derived numbers that rotted again inside
+ * the branch that re-derived them. Round three of the review caught a fourth instance, where the
+ * numbers had moved and the count was short by two exits.
+ *
+ * ROUND FOUR CAUGHT A FIFTH, INSIDE THE PARAGRAPH REWRITTEN TO END THE FOURTH, and it is worth
+ * saying plainly what kind of error it was, because deleting the line numbers did not prevent it and
+ * was never going to. The count said six and the derivation had been done by reading the body of
+ * `runAgentTurn` top to bottom. `requireBudget` throws from a helper, on the two lines that open the
+ * function, so reading the body finds the CALLS and not the exit. Every version of this has been the
+ * same error: measure one mechanism, write the number down against another. Names do not rot, but a
+ * derivation can still be short, so the test below counts what the source contains rather than what
+ * a reader noticed, and it now counts inside the function body too.
+ *
+ * Reaching each of the six is not the same as covering the loop, so the arrangements below also
+ * drive the paths that BUILD the fields the rules read: an over budget call, which is announced
+ * without being counted, a recall that throws, which moves the verdict and leaves no receipt, a tool
+ * that is not a recall, and several calls in one round, which is the only way two receipts land in
+ * one turn.
  */
 const EXITS: readonly (readonly [string, () => Promise<AgentAnswer>])[] = [
   [
@@ -328,6 +429,27 @@ const EXITS: readonly (readonly [string, () => Promise<AgentAnswer>])[] = [
         4,
       ),
   ],
+  ['the clock spent BETWEEN rounds, after a recall that took longer than the budget', clockSpentBetweenRounds],
+  ['the clock spent WITHIN a round, so the second call of one reply is never announced', clockSpentWithinARound],
+  [
+    'a reply the adapter read and could not use, arriving after a recall has already landed',
+    () =>
+      run(
+        {
+          id: 'truncating',
+          reply: (() => {
+            let asked = 0;
+            return (): Promise<ChatReply> => {
+              asked += 1;
+              return asked === 1
+                ? Promise.resolve(recallCall())
+                : Promise.reject(new ChatResponseError('stopReason was max_tokens'));
+            };
+          })(),
+        },
+        repositoryReturning(recallResult({ coverage: 'COVERED', memories: [scoredMemory()] })),
+      ),
+  ],
 ];
 
 describe('a turn the loop really produced never argues with itself', () => {
@@ -358,6 +480,171 @@ describe('a turn the loop really produced never argues with itself', () => {
     };
 
     expect(responseContradictions(response)).toEqual([]);
+  });
+});
+
+/**
+ * THE TRIPWIRE, BECAUSE THE ENUMERATION ABOVE HAS ROTTED FIVE TIMES AND A COMMENT CANNOT NOTICE.
+ *
+ * This is the only test in `apps/api/test` that reads source text, and that is a real cost: it is
+ * coupled to how `loop.ts` is FORMATTED, not only to what it does, so a reflow that wraps one of
+ * these calls across two lines turns it red without anything being wrong. That is accepted, and the
+ * message says so, because the failure it is here to catch is the one nothing else can catch: an
+ * exit added to the loop while this file's list, its docblock and its arrangements stay as they
+ * were, reading as complete. Every previous instance was found by a human re-deriving the numbers
+ * by hand, and four of those humans got it wrong.
+ *
+ * THE FIRST VERSION COUNTED CALLS TO TWO HELPERS AND WAS DESCRIBED AS CATCHING AN EXIT ADDED TO THE
+ * LOOP, WHICH IS MORE THAN IT DID. A reviewer added an exit returning an `AgentAnswer` literal
+ * instead of calling either helper and all 1494 tests stayed green, which is the same defect this
+ * whole file keeps finding: a guard measured against one mechanism, written up as covering another.
+ * So the counts below now come in two kinds and both are needed.
+ *
+ * THE FILE-WIDE COUNTS SAY WHICH HELPER EACH EXIT GOES THROUGH. `endTurn` is reached three times and
+ * `answerFrom` twice, once from inside `endTurn` itself, which is why they do not add up to the
+ * eight ways the docblock names. Kept as two numbers rather than a total so that moving an exit from
+ * one helper to the other cannot cancel out.
+ *
+ * THE BODY COUNTS SAY NOTHING ELSE IS WRITTEN BETWEEN THOSE BRACES, which is narrower than saying
+ * there is nothing else. Every `return` and every `throw` between the signature of `runAgentTurn`
+ * and its closing brace is counted, so an exit that builds its own literal is a return the
+ * arithmetic cannot account for. Five returns, of which three go through `endTurn` and two through
+ * `answerFrom`, leaves nothing over.
+ *
+ * WHAT THAT MISSES IS AN EXIT WRITTEN IN A HELPER THIS FUNCTION CALLS, and it was missed. The
+ * sentence above once said "there is nothing else", which was wrong. THE EXAMPLE THAT STOOD HERE TO
+ * PROVE IT WAS WRONG TOO, AND IT IS CORRECTED RATHER THAN DELETED BECAUSE A NUMBER THAT ONCE READ AS
+ * EVIDENCE SHOULD NOT SIMPLY VANISH. It said a reviewer put a `throw` at the top of `settleAnswer`
+ * and all 1499 tests stayed green with `gate:types` clean. That does not reproduce. `settleAnswer`
+ * has exactly one call site, `loop.ts:414`, taken on every answer reply and sitting outside the only
+ * `try` in the loop, so a throw at its top escapes `runAgentTurn` on the most ordinary path there is.
+ * Planted as `throw new Error(...)` it fails 50 tests across 4 files, and the counter below catches
+ * it as well, because a `throw new ` written anywhere in `loop.ts` moves the file-wide needle from
+ * one to two. Whatever was once run, that example demonstrates the opposite of what it was cited for.
+ * The gap it pointed at is still real and the two plants further down are what show it, since what
+ * escapes a file-wide needle is an exit that never writes the word `throw` in this file at all.
+ * Naming one more helper was still the wrong fix, and that part stands: this is the third round in
+ * which this docblock's scope has run ahead of its mechanism, and
+ * the previous two were closed by naming one more helper - `requireBudget`, counted by its call
+ * sites because its throw is written elsewhere and reading the body top to bottom is precisely how
+ * it went uncounted twice. Naming helpers one at a time is how a list stays permanently one behind.
+ *
+ * SO THE THROWS ARE COUNTED FILE-WIDE INSTEAD, WHICH IS WIDER THAN NAMING HELPERS ONE AT A TIME AND
+ * IS STILL NOT THE WHOLE CLASS. Two needles do it, both shaped like code rather than like prose:
+ * `throw new ` appears once in the whole file and `throw error;` once, while a bare `throw ` appears
+ * five more times inside comments, which would couple this test to English and teach the next reader
+ * to bump the number.
+ *
+ * WHAT IT COVERS, EXACTLY: every `throw` WRITTEN IN `loop.ts`, including inside helpers this test
+ * has never heard of. That is the sentence, and the previous one ran past it - it said counting
+ * throws here "accounts for every exit any helper could add, whether or not this file has heard of
+ * it", and both halves of that are false. WHAT IT DOES NOT COVER, each one planted and watched
+ * rather than reasoned about:
+ *   - A REJECTED PROMISE RETURNED RATHER THAN THROWN. `runAgentTurn` is async and awaits its
+ *     helpers, so `return Promise.reject(...)` at the top of `runTool` leaves this function exactly
+ *     as a throw would. Planted in `loop.ts` itself, in a helper this test already knows by name,
+ *     and not one of the seven numbers below moved, because the body count is scoped to
+ *     `runAgentTurn`'s own braces and the file-wide needles only look for `throw`.
+ *   - A THROW WRITTEN IN A MODULE `loop.ts` IMPORTS. The counter reads `../src/agent/loop.ts` and
+ *     nothing else, so a helper in any other file is invisible BY CONSTRUCTION, which is the exact
+ *     opposite of what the old sentence claimed. Planted at the top of `parseToolCall` in
+ *     `tools.ts`, reached from `runTool` OUTSIDE the try below that call, and again the seven
+ *     numbers held still.
+ *   - A throw of an already-built value under any other name.
+ * Source counting cannot be made to cover that class, because the class is "code this test does not
+ * read", and one more needle would be one behind again next round.
+ *
+ * BLIND HERE IS NOT SILENT IN THE SUITE, AND IT WAS MEASURED RATHER THAN ASSUMED. Neither plant got
+ * out of the run. The first failed 59 tests across 5 files and the second 75 across 6, out of 1503,
+ * seventeen of them in THIS file both times, in the arrangements above rather than in the counter
+ * below. Every total in this docblock is the suite AS IT STOOD WHEN THAT PLANT WAS RUN, which is why
+ * 1503 will not match a run made after anything adds a case. The failure counts are the finding. The
+ * total is only there so the reader can see what fraction of the run went red.
+ *
+ * WHAT THAT PROVES IS NARROWER THAN "A NEW EXIT WOULD BE CAUGHT", AND THE SENTENCE HERE CLAIMED THE
+ * WIDER THING FOR ONE ROUND. Both plants break tool dispatch UNCONDITIONALLY, on every call of every
+ * arrangement, so those numbers establish that tool dispatch is heavily covered and nothing beyond
+ * it. A new exit is a CONDITIONAL one, reached on an arrangement nothing drives yet, and the
+ * refutation is sixty lines above in this same docblock: a reviewer added an exit returning an
+ * `AgentAnswer` literal and 1494 tests stayed green. Behavioural coverage caught the unconditional
+ * break and missed the conditional exit. Those are two different questions, and only the counter
+ * below is aimed at the second one, which is the entire reason it is worth its cost.
+ *
+ * What is still not written is the assertion that names the property: drive a tool dispatch that
+ * REJECTS, and assert the turn comes back as an `AgentAnswer` instead of escaping. That is
+ * deliberately not done, because it is a change to what the loop CATCHES rather than to what this
+ * test measures.
+ */
+describe('the loop has not grown an exit this file does not know about', () => {
+  it('still ends in the same six statements the enumeration above was derived from', () => {
+    const source = readFileSync(new URL('../src/agent/loop.ts', import.meta.url), 'utf8');
+    const occurrences = (needle: string, within = source): number => within.split(needle).length - 1;
+    const advice =
+      'If this is a reflow, restore the single-line call. If an exit was added, moved or removed, ' +
+      're-derive the EXITS docblock in this file and add the arrangement that reaches it.';
+
+    const signature = 'export async function runAgentTurn(';
+    const opens = source.indexOf(signature);
+    // A guard on the guard. If the signature or the closing brace ever stops being findable, this
+    // test would go on measuring an empty string and passing, which is the failure mode it exists
+    // to remove rather than to demonstrate.
+    expect(opens, `${signature} is not in loop.ts, so this tripwire is measuring nothing.`).toBeGreaterThan(-1);
+    const closes = source.indexOf('\n}\n', opens);
+    expect(closes, 'The end of runAgentTurn is not where this expects it.').toBeGreaterThan(opens);
+    const body = source.slice(opens, closes);
+
+    expect(occurrences('return endTurn('), advice).toBe(3);
+    expect(occurrences('return answerFrom('), advice).toBe(2);
+    // Nothing leaves this function by any other route. An exit that returns its own object literal
+    // rather than calling a helper is a sixth return with nowhere to be accounted for.
+    expect(occurrences('return ', body), advice).toBe(5);
+    expect(occurrences('throw ', body), advice).toBe(0);
+    // The two exits that produce no `AgentAnswer`, so neither has an arrangement in EXITS. Counted
+    // across the WHOLE file rather than the body, because a helper is where the last one was hidden
+    // and a throw is the only way OUT OF THIS FILE'S TEXT that a source count can see. The docblock
+    // above names what that leaves uncovered; it is narrower than "every exit a helper could add".
+    expect(occurrences('throw new '), advice).toBe(1);
+    expect(occurrences('throw error;'), advice).toBe(1);
+    expect(occurrences('requireBudget(', body), advice).toBe(2);
+  });
+});
+
+/**
+ * WHICH EXIT EACH CLOCK ARRANGEMENT ACTUALLY REACHED, which the label alone does not establish.
+ *
+ * `slower` records what happened without this: the arrangement named for the exit BETWEEN rounds
+ * took the exit WITHIN a round under a fifty millisecond model reply, and passed, because the only
+ * thing asked of it was that the turn not contradict itself. Both exits return the same fields, so
+ * the assertion has to be on the transcript, and for each arrangement the shape below is reachable
+ * by exactly one of its OWN exits. That is what makes these two tests worth their runtime.
+ */
+describe('the two clock arrangements reach the two exits they are named for', () => {
+  const roles = (result: AgentAnswer): string[] => result.transcript.map((turn) => turn.role);
+
+  // BETWEEN rounds: the model asked for one recall, it ran, and the turn ended at the top of the
+  // next round. Taking the WITHIN-round exit instead means running out of time before announcing
+  // the only call there was, which leaves `['user', 'refusal']` and no receipt at all.
+  it('spends the budget between rounds, after a recall has landed', async () => {
+    const result = await clockSpentBetweenRounds();
+
+    expect(roles(result)).toEqual(['user', 'tool_call', 'tool_result', 'refusal']);
+    expect(result.text).toContain('ran out of time');
+    expect(result.recalls).toHaveLength(1);
+    expect(result.coverage).toBe('COVERED');
+  });
+
+  // WITHIN a round: one reply asked for two recalls and only the first was ever announced. Reaching
+  // the top-of-round exit instead requires the whole list to have been worked through, which is two
+  // announcements and two results, so one pair is the fingerprint of this exit and only this one.
+  it('spends the budget inside one reply, so the second call is never announced', async () => {
+    const result = await clockSpentWithinARound();
+
+    expect(roles(result)).toEqual(['user', 'tool_call', 'tool_result', 'refusal']);
+    expect(result.text).toContain('ran out of time');
+    expect(result.toolCallCount).toBe(1);
+    // The model's own ids, kept in `given`. The second call left no trace anywhere in the turn.
+    expect(JSON.stringify(result.transcript)).toContain('"given":"first"');
+    expect(JSON.stringify(result.transcript)).not.toContain('second');
   });
 });
 

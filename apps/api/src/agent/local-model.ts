@@ -14,6 +14,11 @@
  * three controls untested end to end while every unit test still passed.
  */
 
+import {
+  createBedrockChatModel,
+  type BedrockChatModelOptions,
+  type ConverseCapableClient,
+} from './bedrock-model.ts';
 import type { ChatModel, ChatReply, Turn } from './loop.ts';
 
 /** The prefix `renderRecall` leads every result with. Read, not assumed: this is its first line. */
@@ -185,25 +190,127 @@ export type AgentProvider = 'local' | 'bedrock';
 /**
  * Pick the chat model from the environment, which is what makes `AGENT_PROVIDER` mean something.
  *
- * `bedrock` is refused rather than defaulted to local. Falling back to an offline scripted model
- * when the real provider is unavailable is the canned-mode dishonesty the design notes rule out:
- * it would present deterministic local text as a hosted model's answer. An explicit refusal is the
- * only honest response until the adapter exists.
+ * `bedrock` is never DEFAULTED to local, and a misconfigured `bedrock` is refused rather than
+ * quietly downgraded. Falling back to an offline scripted model when the real provider is
+ * unavailable is the canned-mode dishonesty the design notes rule out: it would present
+ * deterministic local text as a hosted model's answer.
+ *
+ * Both settings below are required explicitly rather than inferred, which is the same rule
+ * `loadEmbeddingConfig` applies to `EMBEDDING_MODEL_ID` and for the same reason. A guessed model id
+ * fails on the far side of the network, and a guessed region answers correctly from the wrong
+ * continent, which is the failure that does not announce itself at all.
+ *
+ * `createClient` IS THE SEAM, AND IT IS THE SECOND ONE TRIED HERE. What has to be held is the one
+ * expression below: the whole config object, spread into the adapter as one thing. Re-listing its
+ * fields is not a style choice, it is how `AGENT_MAX_TOKENS` came to be read, validated and then
+ * dropped while the adapter's own refusal told the operator to set the value they had just set. A
+ * built hosted model will only say what ceiling it holds by making a billed network call, so the
+ * re-listed version once passed the entire suite.
+ *
+ * THE FIRST SEAM WAS A `buildHosted` PARAMETER DEFAULTING TO `createBedrockChatModel`, AND IT WAS
+ * WORSE THAN NOTHING, because it read as a fix. `main.ts` calls `createChatModel(env)` with ONE
+ * argument, so that default WAS the production path, and a test that hands in its own builder never
+ * touches it. A reviewer re-listed the fields inside the default and 1494 tests stayed green: the
+ * untested line had moved one line up rather than become tested. A seam only helps when the
+ * production path and the test path are the SAME expression.
+ *
+ * This one is. `createClient` is a key the adapter already declares for exactly this purpose, so
+ * both paths run `createBedrockChatModel({ ...loadChatConfig(env), ... })` and the test's only
+ * difference is one extra key carrying a capturing client. There is no second copy of the wiring to
+ * corrupt, and a test reads the ceiling off the wire.
  */
 export function createChatModel(
   env: Record<string, string | undefined> = process.env,
+  createClient?: (region: string) => ConverseCapableClient,
 ): ChatModel {
   const provider = env['AGENT_PROVIDER'] ?? 'local';
   if (provider === 'local') return createLocalChatModel();
   if (provider === 'bedrock') {
-    throw new Error(
-      'AGENT_PROVIDER=bedrock, but the Bedrock chat adapter has not been built yet. Set ' +
-        'AGENT_PROVIDER=local to run offline, or build the adapter. This does not fall back to ' +
-        'local on purpose: an offline model answering as though it were the hosted one is the ' +
-        'exact dishonesty this demo argues against.',
-    );
+    // Spread and never re-listed. `exactOptionalPropertyTypes` is why the seam is spread in rather
+    // than written `createClient`: an explicit `undefined` is not the same as an absent key here.
+    return createBedrockChatModel({
+      ...loadChatConfig(env),
+      ...(createClient === undefined ? {} : { createClient }),
+    });
   }
   throw new Error(
     `AGENT_PROVIDER is "${provider}", which is not a provider this build has. Use local or bedrock.`,
   );
+}
+
+/**
+ * The point above which a ceiling is a UNIT MISTAKE rather than a ceiling.
+ *
+ * A SANITY BOUND AND EXPLICITLY NOT A PER-MODEL MAXIMUM. The validation below used to catch only
+ * the low end, and its own message says why the check exists: a ceiling read as NaN is a request
+ * the provider rejects on every turn. A ceiling of ten million fails in exactly that way and used to
+ * pass, because it is a positive integer. The real maximum is the model's, it is far smaller than
+ * this, and Bedrock is the authority on it.
+ *
+ * SO WHY NOT A TIGHTER NUMBER. This file does not know which model is in use, per-model output
+ * ceilings differ by more than an order of magnitude, and a bound tight enough to be interesting
+ * would refuse configurations that work. Refusing a working setting at start-up is a worse failure
+ * than the loud one this catches, so the bound is set where no ceiling is a ceiling: 500 times the
+ * default, past which the value is a byte count, a millisecond count, or a slipped keypress.
+ */
+const IMPLAUSIBLE_MAX_TOKENS = 1_000_000;
+
+/**
+ * The hosted chat settings, read from the environment and checked before anything is built.
+ *
+ * SEPARATED FROM THE BUILDING for the reason `loadEmbeddingConfig` is separate, and for one more.
+ * A setting read inside a factory can only be tested through the thing the factory returns, and a
+ * hosted chat model will only say what ceiling it was given by making a billed network call. So
+ * this half is pure and directly testable, and `createChatModel` hands the whole object to the
+ * adapter rather than re-listing its fields: a setting that is read here cannot then be dropped on
+ * the way through, which is precisely how AGENT_MAX_TOKENS came to be read nowhere at all while
+ * the adapter's own refusal told the operator to set it.
+ */
+export function loadChatConfig(
+  env: Record<string, string | undefined>,
+): BedrockChatModelOptions {
+  const modelId = env['AGENT_MODEL_ID']?.trim();
+  if (!modelId) {
+    throw new Error(
+      'AGENT_PROVIDER=bedrock but AGENT_MODEL_ID is empty. Read the real value off the account ' +
+        'rather than guessing it: an id that merely APPEARS in list-foundation-models may still ' +
+        'refuse on-demand invocation and demand an inference profile id instead, and this ' +
+        'account has models in exactly that state.',
+    );
+  }
+  const region = env['AWS_REGION']?.trim();
+  if (!region) {
+    throw new Error(
+      'AGENT_PROVIDER=bedrock but AWS_REGION is empty. It is read here rather than left to the ' +
+        "SDK's default chain because the chain resolves silently: an unset region becomes " +
+        'whatever the machine happens to be configured for, and a turn answered from the wrong ' +
+        'continent is a data residency problem that reports itself as a working demo.',
+    );
+  }
+
+  // THE OUTPUT CEILING IS AN OPERATOR SETTING because the adapter now REFUSES a reply that hit
+  // it, rather than returning the truncated half and letting the turn end on something that
+  // reads finished. That makes the ceiling load-bearing: a question whose honest answer runs
+  // longer than the default fails the turn, and the person reading that failure needs a way out
+  // that is not a code change. Optional, because the default is right for an incident answer and
+  // nobody should have to set it. An empty value is unset, not zero, for the same reason the two
+  // settings above treat blank as absent.
+  //
+  // The key is LEFT OUT rather than set to undefined when it is unset. `exactOptionalPropertyTypes`
+  // is on, so those are different types here, and the difference is not cosmetic: an explicit
+  // undefined would have to be defaulted again by the adapter.
+  const rawMaxTokens = env['AGENT_MAX_TOKENS']?.trim();
+  if (rawMaxTokens === undefined || rawMaxTokens === '') return { modelId, region };
+
+  const maxTokens = Number(rawMaxTokens);
+  if (!Number.isInteger(maxTokens) || maxTokens <= 0 || maxTokens > IMPLAUSIBLE_MAX_TOKENS) {
+    throw new Error(
+      `AGENT_MAX_TOKENS is "${rawMaxTokens}", which is not a plausible whole number of output ` +
+        `tokens. It must be a positive integer no greater than ${IMPLAUSIBLE_MAX_TOKENS}. Unset it ` +
+        'to take the default rather than leaving a value the adapter would have to interpret: a ' +
+        'ceiling read as NaN is not a smaller ceiling, it is a request Bedrock rejects on every ' +
+        'turn, and so is one that is too large.',
+    );
+  }
+  return { modelId, region, maxTokens };
 }

@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Coverage, MemoryRepository, RememberInput } from '@throughline/memory';
 import {
+  ChatResponseError,
+  ChatUnreadableError,
   judgeAnswer,
   refusalForTheUser,
   runAgentTurn,
@@ -385,6 +387,278 @@ describe('the tool budget and the round budget are different limits', () => {
     expect(result.toolCallCount).toBe(2);
     expect(result.text).toContain('ran out of room');
     expect(result.text).toContain('nothing here says that anything is absent from memory');
+  });
+
+  // AND TIME IS A THIRD LIMIT, which the round cap does not imply. Rounds bound how many times the
+  // model may speak, not how long each one takes. That was academic while the only model answered
+  // synchronously; a hosted one has a 30 second budget per call, and twelve of those is six minutes
+  // of one HTTP request held open while the caller watches a spinner.
+  it('gives up on a turn that ran out of time, without claiming anything is absent', async () => {
+    let calls = 0;
+    const slow: ChatModel = {
+      id: 'slow',
+      reply: async () => {
+        calls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 12));
+        return { kind: 'tools', calls: [{ id: `c${calls}`, name: 'recall', args: { query: 'checkout' } }] };
+      },
+    };
+
+    const result = await runAgentTurn(
+      {
+        model: slow,
+        repository: repositoryReturning(recallResult({ coverage: 'COVERED' })),
+        workspaceId: 'demo',
+        turnBudgetMs: 25,
+      },
+      'has checkout been slow before?',
+    );
+
+    expect(result.text).toContain('ran out of time');
+    expect(result.text).toContain('nothing here says that anything is absent from memory');
+    // Time is what stopped it and not the round cap, which allows twelve.
+    expect(calls).toBeLessThan(12);
+    // The loop wrote that sentence, so it is attributed to the loop. The rounds path was fixed for
+    // exactly this once already, and a second exit is a second chance to misattribute it.
+    expect(result.transcript[result.transcript.length - 1]?.role).toBe('refusal');
+  });
+
+  // THE DEFAULT IS THE ONLY BUDGET PRODUCTION EVER USES. `server.ts` calls `runAgentTurn` with no
+  // `turnBudgetMs`, so the test above, which passes 25, proves the mechanism and pins nothing that
+  // ships. A review replaced the default with Infinity and the whole suite stayed green.
+  //
+  // The clock is faked rather than waited on: a real sixty second turn is not a test. Each reply
+  // moves the fake clock twenty five seconds, so the budget is spent partway through the third.
+  it('bounds a turn on the sixty second default, which is the budget every real request gets', async () => {
+    vi.useFakeTimers();
+    try {
+      let calls = 0;
+      const slow: ChatModel = {
+        id: 'slow',
+        reply: () => {
+          calls += 1;
+          vi.setSystemTime(Date.now() + 25_000);
+          return Promise.resolve(recallCall('checkout latency', `c${calls}`));
+        },
+      };
+
+      const result = await runAgentTurn(
+        {
+          model: slow,
+          repository: repositoryReturning(recallResult({ coverage: 'COVERED' })),
+          workspaceId: 'demo',
+        },
+        'has checkout been slow before?',
+      );
+
+      expect(result.text).toContain('ran out of time');
+      // Three replies at twenty five seconds each. Twelve would mean the round cap stopped it and
+      // the clock never did, which is what an unbounded default looks like from out here.
+      expect(calls).toBe(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // ONE REPLY CAN ASK FOR THE WHOLE TOOL BUDGET AT ONCE, so a check that only runs between rounds
+  // waits for a round that has not come round yet. Eight recalls at the shipped ceilings is an
+  // embed plus two statements each, which outlasts a sixty second budget several times over while
+  // the loop is still inside the round it started.
+  it('reads the clock between the tool calls of one reply, not only between rounds', async () => {
+    const eightAtOnce: ChatModel = {
+      id: 'greedy',
+      reply: () =>
+        Promise.resolve({
+          kind: 'tools',
+          calls: Array.from({ length: 8 }, (_unused, index) => ({
+            id: `c${index}`,
+            name: 'recall',
+            args: { query: `q${index}` },
+          })),
+        }),
+    };
+    const slowRecall = fakeRepository({
+      recall: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 6));
+        return recallResult({ coverage: 'COVERED' });
+      },
+    });
+
+    const result = await runAgentTurn(
+      { model: eightAtOnce, repository: slowRecall, workspaceId: 'demo', turnBudgetMs: 20 },
+      'has checkout been slow before?',
+    );
+
+    expect(result.text).toContain('ran out of time');
+    // The load-bearing assertion. Without the in-round check all eight run, because the round
+    // finishes before anything looks at the clock again.
+    expect(result.toolCallCount).toBeLessThan(8);
+    // Read BEFORE the call is announced, so a turn cut short here never leaves a `tool_call` with
+    // nothing under it. That invariant is what the console's receipt joins are keyed on.
+    const announced = result.transcript.filter((turn) => turn.role === 'tool_call').length;
+    const answered = result.transcript.filter((turn) => turn.role === 'tool_result').length;
+    expect(announced).toBe(answered);
+  });
+
+  // A REPLY THE ADAPTER COULD NOT USE IS A THIRD WAY TO END WITHOUT AN ANSWER, and it used to be
+  // the one that took everything with it. `parseConverseReply` refuses a cut-off reply by throwing,
+  // nothing caught the throw, so a `max_tokens` stop left the loop and reached the caller as a 500
+  // under the `unclassified` rule: the same bucket as an unhandled crash, with no transcript, no
+  // receipts and no coverage verdict, on a request whose daily budget was already claimed and is
+  // deliberately never refunded.
+  it('ends the turn on a refusal when the reply cannot be used, and keeps the receipts', async () => {
+    let call = 0;
+    const cutOff: ChatModel = {
+      id: 'truncating',
+      reply: () => {
+        call += 1;
+        if (call === 1) return Promise.resolve(recallCall());
+        return Promise.reject(new ChatResponseError('The model stopped for the reason "max_tokens"'));
+      },
+    };
+
+    const result = await runAgentTurn(
+      {
+        model: cutOff,
+        repository: repositoryReturning(
+          recallResult({ coverage: 'COVERED', memories: [scoredMemory()] }),
+        ),
+        workspaceId: 'demo',
+      },
+      'has checkout been slow before?',
+    );
+
+    expect(result.text).toContain('did not return a reply this server could use');
+    expect(result.text).toContain('nothing here says that anything is absent from memory');
+    expect(result.transcript[result.transcript.length - 1]?.role).toBe('refusal');
+    // THE RECEIPTS SURVIVE, which is the whole reason this ends a turn instead of leaving the loop.
+    // The recall really did run and really did come back COVERED, and that is a fact about this
+    // turn whether or not the model managed to finish a sentence afterwards.
+    expect(result.recalls).toHaveLength(1);
+    expect(result.coverage).toBe('COVERED');
+    expect(result.toolCallCount).toBe(1);
+  });
+
+  it('logs why the reply was unusable, and puts that reason nowhere a caller can read it', async () => {
+    const lines: string[] = [];
+    const secret = 'stopReason was max_tokens on request 1234-abcd';
+    const model: ChatModel = {
+      id: 'truncating',
+      reply: () => Promise.reject(new ChatResponseError(secret)),
+    };
+
+    const result = await runAgentTurn(
+      { model, repository: fakeRepository(), workspaceId: 'demo', log: (line) => lines.push(line) },
+      'has checkout been slow before?',
+    );
+
+    expect(lines.some((line) => line.includes(secret))).toBe(true);
+    // The adapter's message is written by us, but two of its forms quote part of the provider's own
+    // response, and the transcript is returned verbatim in a 200. A response body is not the place
+    // to find out what a provider called something.
+    expect(result.text).not.toContain(secret);
+    // Serialised rather than walked turn by turn, so this covers every field of every role and not
+    // just the ones with a `content`. The transcript ships in the 200 exactly like this.
+    expect(JSON.stringify(result.transcript)).not.toContain(secret);
+  });
+
+  // AND A PROVIDER THAT IS DOWN STILL THROWS PAST, which is the line between the two. There is no
+  // reply to report on, so it stays a failure the HTTP layer maps. Catching everything here would
+  // turn an outage into a 200 that reads like a considered refusal.
+  it('lets a provider failure leave the loop rather than dressing it as a refusal', async () => {
+    const down: ChatModel = {
+      id: 'unreachable',
+      reply: () => Promise.reject(new Error('socket hang up')),
+    };
+
+    await expect(
+      runAgentTurn({ model: down, repository: fakeRepository(), workspaceId: 'demo' }, 'anything'),
+    ).rejects.toThrow('socket hang up');
+  });
+
+  // WHAT THAT LINE COSTS, ASSERTED RATHER THAN LEFT TO A COMMENT THAT WAS WRONG ABOUT IT. The test
+  // above fails on the FIRST call against an empty repository, which is the arrangement where "no
+  // receipt worth keeping" is trivially true, and the docblock used to claim it for every case. It
+  // is false here: a recall really ran, really came back COVERED, and the failure that arrives two
+  // lines later takes it with it. That is the current deliberate decision, and `loop.ts` records
+  // why it stands and what would change it. Anyone rewriting this to expect a 200 has to rewrite
+  // that paragraph in the same commit.
+  it('discards receipts a turn had already earned when the provider stops answering, which is a known loss', async () => {
+    let call = 0;
+    const stopsAnswering: ChatModel = {
+      id: 'flaky',
+      reply: () => {
+        call += 1;
+        if (call === 1) return Promise.resolve(recallCall());
+        return Promise.reject(new Error('socket hang up'));
+      },
+    };
+
+    await expect(
+      runAgentTurn(
+        {
+          model: stopsAnswering,
+          repository: repositoryReturning(
+            recallResult({ coverage: 'COVERED', memories: [scoredMemory()] }),
+          ),
+          workspaceId: 'demo',
+        },
+        'has checkout been slow before?',
+      ),
+    ).rejects.toThrow('socket hang up');
+  });
+
+  // A RESPONSE THIS ADAPTER COULD NOT READ LEAVES TOO, and it is the one that arrives from the same
+  // call as a truncated reply, which is why the two classes exist. A truncated reply is a provider
+  // behaving as providers do; an unreadable response is this build disagreeing with the API about
+  // response shape, and it would be EVERY turn rather than one turn. Swallowed as a refusal it
+  // answers every question with "no answer" while the error rate stays flat and `/health` says ok.
+  // Driven AFTER a successful recall so that the assertion is about the class and not about a turn
+  // that had nothing anyway.
+  it('lets a response it could not read leave the loop even once a recall has succeeded', async () => {
+    let call = 0;
+    const unreadable: ChatModel = {
+      id: 'shape-changed',
+      reply: () => {
+        call += 1;
+        if (call === 1) return Promise.resolve(recallCall());
+        return Promise.reject(
+          new ChatUnreadableError('The chat response carried no message content this adapter recognises.'),
+        );
+      },
+    };
+
+    await expect(
+      runAgentTurn(
+        {
+          model: unreadable,
+          repository: repositoryReturning(recallResult({ coverage: 'COVERED' })),
+          workspaceId: 'demo',
+        },
+        'has checkout been slow before?',
+      ),
+    ).rejects.toThrow(ChatUnreadableError);
+  });
+
+  // A BUDGET THAT IS NOT A NUMBER DOES NOT SHORTEN A TURN, IT REMOVES THE LIMIT. `Date.now() + NaN`
+  // is NaN and every comparison against NaN is false, so the check that ends a turn becomes
+  // unreachable; `maxToolCalls` fails the same way through `maxRounds`, and that one is what stops
+  // a single turn from spending the day's provider bill.
+  it('refuses a budget that would remove the ceiling it exists to impose', async () => {
+    const model = createScriptedChatModel([answer('nothing to add')]);
+    const repository = fakeRepository();
+
+    await expect(
+      runAgentTurn({ model, repository, workspaceId: 'demo', turnBudgetMs: Number.NaN }, 'x'),
+    ).rejects.toThrow(/turnBudgetMs/);
+    await expect(
+      runAgentTurn({ model, repository, workspaceId: 'demo', maxToolCalls: Number.NaN }, 'x'),
+    ).rejects.toThrow(/maxToolCalls/);
+    // Zero is not nullish, so it survives `??` and refuses every turn at round zero, after the HTTP
+    // layer has already claimed a budget slot it cannot refund.
+    await expect(
+      runAgentTurn({ model, repository, workspaceId: 'demo', turnBudgetMs: 0 }, 'x'),
+    ).rejects.toThrow(/turnBudgetMs/);
   });
 
   // The budget path used to push a `tool_result` and skip the `tool_call` push entirely, so it
