@@ -14,33 +14,48 @@
  * The DECISIONS live in `lib/tracked-files.mjs` and are tested there. This file owns the
  * filesystem, the git calls and the exit codes, and nothing a test needs to hold still.
  *
- * WHAT THIS IS NOT: it checks tracked PATHS against a fixed list, plus ONE content rule described
- * below. It reads no other file's content and it does not guess. A green result means "no path on
- * the list is tracked, and no tracked .npmrc carries one of the NAMED secret keys or a credential
- * embedded in a URL". That is narrower than "no tracked .npmrc carries a credential", which is
- * itself narrower than "this repo leaks nothing". The distance between those three is exactly where
- * the last two misses lived, so it is spelled out rather than implied.
+ * WHAT THIS IS NOT: it checks tracked PATHS against a fixed list, plus TWO content rules described
+ * below, and it does not guess. A green result means "no path on the list is tracked, no tracked
+ * .npmrc carries one of the NAMED secret keys or a credential embedded in a URL, and no tracked
+ * file anywhere carries one of the NAMED forbidden literals". That is narrower than "no tracked
+ * file carries a secret", which is itself narrower than "this repo leaks nothing". The distance
+ * between those is exactly where the last three misses lived, so it is spelled out rather than
+ * implied.
  *
- * THE ONE CONTENT RULE. `.npmrc` is deliberately tracked, because the supply chain cooldown has to
- * travel with the repository rather than live on one laptop. That makes it the one file here whose
- * whole purpose is to hold npm configuration and whose format also accepts registry credentials.
- * A path rule cannot tell those apart, so every tracked `.npmrc` at any depth is read and a secret
- * line fails the build. The cost of missing one is not a bad build: it is a token committed to a
- * repository that becomes public, where removing it from the index changes nothing about history.
+ * THE FIRST CONTENT RULE. `.npmrc` is deliberately tracked, because the supply chain cooldown has
+ * to travel with the repository rather than live on one laptop. That makes it the one file here
+ * whose whole purpose is to hold npm configuration and whose format also accepts registry
+ * credentials. A path rule cannot tell those apart, so every tracked `.npmrc` at any depth is read
+ * and a secret line fails the build. The cost of missing one is not a bad build: it is a token
+ * committed to a repository that becomes public, where removing it from the index changes nothing
+ * about history.
+ *
+ * THE SECOND CONTENT RULE. Every tracked file is read for a short list of forbidden literals,
+ * because the last miss was not a credential shape at all: the owner's AWS account id, copied out
+ * of a live error into a comment and three fixtures, invisible to every shape-hunting scanner.
+ * Fixtures written from live errors are exactly how such a value returns, so the gate knows the
+ * value itself. It lives in `lib/tracked-files.mjs`, assembled from halves so that no tracked
+ * line, including its own definition, ever contains it.
  *
  * Matching is at ANY DEPTH, deliberately. A root-anchored version of this script passed a tracked
  * `apps/api/.env` and a tracked `packages/memory/.claude/settings.json` while reporting clean, so
  * the only mechanical gate was strictly narrower than the .gitignore beside it. Depth is exactly
  * where a real leak turns up, because nobody puts the second copy at the root.
  *
- * Exit codes: 0 clean, 1 a forbidden path is tracked or a credential is in a tracked .npmrc,
- * 2 the scan could not run. A scan that could not run is never reported as clean.
+ * Exit codes: 0 clean, 1 a forbidden path is tracked, a credential is in a tracked .npmrc, or a
+ * forbidden literal is in any tracked file, 2 the scan could not run. A scan that could not run is
+ * never reported as clean.
  */
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { credentialLinesIn, isForbidden } from './lib/tracked-files.mjs';
+import {
+  credentialLinesIn,
+  forbiddenLiteralLinesIn,
+  isForbidden,
+  trackedFileText,
+} from './lib/tracked-files.mjs';
 
 /**
  * List every tracked path, repo-relative.
@@ -72,6 +87,28 @@ function npmrcCredentialHits(root, tracked) {
     if (!existsSync(file)) continue;
     for (const line of credentialLinesIn(readFileSync(file, 'utf8'))) {
       hits.push(`${relative}:${line}`);
+    }
+  }
+  return hits;
+}
+
+/**
+ * Every tracked file, read for a literal that must never appear in this repository again.
+ *
+ * TRACKED files only, for the same reason as the .npmrc rule: the untracked working tree is where
+ * such a value can legitimately live (`.env`, local notes), and that is none of this gate's
+ * business. Bytes are decoded by `trackedFileText`, which follows a UTF-16 byte-order mark when
+ * one is present: a UTF-8-only read misses the literal in exactly the file that Windows
+ * PowerShell 5.1's `>` redirection produces, which is a realistic way a fixture gets made on this
+ * machine. The whole sweep costs milliseconds.
+ */
+function forbiddenLiteralHits(root, tracked) {
+  const hits = [];
+  for (const relative of tracked) {
+    const file = path.join(root, relative);
+    if (!existsSync(file)) continue;
+    for (const hit of forbiddenLiteralLinesIn(trackedFileText(readFileSync(file)))) {
+      hits.push(`${relative}:${hit.line} (${hit.name})`);
     }
   }
   return hits;
@@ -122,10 +159,23 @@ function main() {
     process.exit(1);
   }
 
+  const literalHits = forbiddenLiteralHits(root, tracked);
+  if (literalHits.length > 0) {
+    console.error(`[tracked-files] ${literalHits.length} forbidden literal(s) in tracked files:`);
+    // Path, line and rule name only, never the value, for the same reason as above.
+    for (const hit of literalHits) console.error(`  ${hit}`);
+    console.error('');
+    console.error('These values must never be tracked. Replace each with the stand-in its rule');
+    console.error('names in scripts/lib/tracked-files.mjs. If one was ever COMMITTED, untracking');
+    console.error('or replacing it changes nothing about history, and going public needs that');
+    console.error('history rewritten first.');
+    process.exit(1);
+  }
+
   const npmrcCount = tracked.filter((entry) => path.basename(entry) === '.npmrc').length;
   console.log(
     `[tracked-files] clean (${tracked.length} tracked paths checked against the list, ` +
-      `${npmrcCount} tracked .npmrc read for secret lines)`,
+      `${npmrcCount} tracked .npmrc read for secret lines, every file read for forbidden literals)`,
   );
   process.exit(0);
 }

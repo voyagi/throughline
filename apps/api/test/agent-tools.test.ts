@@ -6,6 +6,8 @@ import {
   buildAbsenceClaim,
   claimsAbsence,
   findTool,
+  MAX_ABSENCE_PHRASE_LENGTH,
+  MAX_ABSENCE_PHRASES,
   mayAssertAbsence,
   parseToolCall,
   renderMemory,
@@ -477,6 +479,58 @@ describe('claimsAbsence', () => {
     expect(
       claimsAbsence('Memory 1111 records that restarting the pods fixed this on 2 August.'),
     ).toBe(false);
+  });
+});
+
+// The builder is guarded at the seam where a LIST becomes ONE pattern, because composition is
+// exactly where this file's six rounds of boundary bugs arrived, and because a regex assembled at
+// runtime is the construct static analysis flags on sight (detect-non-literal-regexp). The
+// phrases are internal constants today; these bounds are what keeps "today" from doing the
+// arguing.
+describe('buildAbsenceClaim bounds', () => {
+  it('refuses a phrase that does not compile on its own, before composition can mangle it', () => {
+    // The dangerous case is not the one that fails loudly. Each half here is unbalanced alone,
+    // and JOINED they compile: `a)` and `(?:b` compose to `(?<!\w)(?:a)|(?:b)(?!\w)`, a valid
+    // pattern in which the alternation has silently moved to the TOP level, so the first branch
+    // has lost the trailing guard and the second has lost the leading one. That is the exact
+    // boundary inversion the lookarounds were adopted to end, arriving through bracket
+    // arithmetic instead of through `\b`.
+    expect(() => buildAbsenceClaim(['a)', '(?:b'])).toThrow(/on its own/);
+    expect(() => buildAbsenceClaim([String.raw`(?:a`])).toThrow(/on its own/);
+  });
+
+  it('refuses the same attack folded into ONE phrase, which a wrapped-only check let through', () => {
+    // Round seven, found by review before it shipped rather than after: `a)|(?:b` READS as valid
+    // once wrapped, because the stray `)` closes the wrapper's own `(?:` and the dangling `(?:`
+    // is closed by the wrapper's `)`. Joined, those same brackets hoist the alternation to the
+    // top level and both boundary guards are dropped, exactly like the two-phrase split above.
+    // Compiled BARE the stray bracket has nothing to lean on, so the engine refuses it, which is
+    // why the builder compiles every phrase both ways.
+    expect(() => buildAbsenceClaim([String.raw`a)|(?:b`])).toThrow(/on its own/);
+  });
+
+  it('proves the composed form really does compile, which is why refusing per phrase is the control', () => {
+    // If this ever starts throwing, the engine has begun refusing the composition itself and the
+    // per-phrase check above has become a second layer rather than the only one.
+    expect(() => new RegExp(String.raw`(?<!\w)(?:a)|(?:b)(?!\w)`)).not.toThrow();
+  });
+
+  it('caps how many phrases it will compose', () => {
+    const phrases = Array.from({ length: MAX_ABSENCE_PHRASES + 1 }, () => 'x');
+    expect(() => buildAbsenceClaim(phrases)).toThrow(/cap/);
+    expect(() => buildAbsenceClaim(phrases.slice(0, MAX_ABSENCE_PHRASES))).not.toThrow();
+  });
+
+  it('caps how long one phrase can be', () => {
+    expect(() => buildAbsenceClaim(['x'.repeat(MAX_ABSENCE_PHRASE_LENGTH + 1)])).toThrow(/cap/);
+    expect(() => buildAbsenceClaim(['x'.repeat(MAX_ABSENCE_PHRASE_LENGTH)])).not.toThrow();
+  });
+
+  it('holds the shipped list inside its own bounds, with room to grow', () => {
+    expect(ABSENCE_PHRASES.length).toBeLessThanOrEqual(MAX_ABSENCE_PHRASES);
+    for (const phrase of ABSENCE_PHRASES) {
+      expect(phrase.length).toBeLessThanOrEqual(MAX_ABSENCE_PHRASE_LENGTH);
+    }
   });
 });
 

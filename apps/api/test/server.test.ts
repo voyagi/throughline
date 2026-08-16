@@ -287,22 +287,70 @@ describe('the HTTP surface', () => {
       await expect(response.json()).resolves.toMatchObject({ error: 'body_too_large' });
     });
 
-    // A missing Content-Length is not a promise about size, so the read is measured too.
-    it('refuses an oversized body that declares no length', async () => {
+    // A missing Content-Length is not a promise about size, so the READ itself is bounded. This
+    // test used to assert only the 413, which the pre-fix code also produced, after buffering the
+    // entire stream: it pinned the defect it existed to catch, because it said nothing about WHEN
+    // the refusal happened. So the stream now counts what the server actually pulls. The source
+    // hands over a chunk only when asked, and the total handed over is the measurement: a server
+    // that buffers first drains all four megabytes on offer, a server that bounds the read stops
+    // within a few chunks of the cap.
+    it('refuses an oversized body that declares no length, without draining it first', async () => {
       const { app } = build();
+      const chunk = new TextEncoder().encode('x'.repeat(1_024));
+      const OFFERED_BYTES = 4 * 1024 * 1024;
+      let pulled = 0;
       const response = await app.request('/agent/turn', {
         method: 'POST',
         body: new ReadableStream({
-          start(controller) {
-            controller.enqueue(new TextEncoder().encode(JSON.stringify({ message: 'x'.repeat(200_000) })));
-            controller.close();
+          pull(controller) {
+            if (pulled >= OFFERED_BYTES) {
+              controller.close();
+              return;
+            }
+            pulled += chunk.byteLength;
+            controller.enqueue(chunk);
           },
         }),
         headers: { 'content-type': 'application/json' },
         // Required by undici whenever the body is a stream.
         duplex: 'half',
       } as RequestInit);
+
       expect(response.status).toBe(413);
+      await expect(response.json()).resolves.toMatchObject({ error: 'body_too_large' });
+      // Slack for the cap itself, the chunk that crossed it, and pipeline readahead. What this
+      // must never be is anywhere near the four megabytes the source was ready to provide.
+      expect(pulled).toBeLessThan(64 * 1024);
+    });
+
+    // The cap names BYTES, and the old comparison counted UTF-16 code units, so a body written in
+    // four-byte characters could run roughly 3x over the stated budget before anything refused it.
+    // Chunked on purpose: a fetch with a string body declares a byte-accurate Content-Length and is
+    // refused by the cheap header check, so the streaming path is the only one where the unit
+    // confusion was reachable.
+    it('measures the cap in bytes, not UTF-16 units, so a multibyte body cannot stretch it', async () => {
+      const { app } = build();
+      const message = '\u{1F600}'.repeat(6_000);
+      const json = JSON.stringify({ message });
+      // The property that makes this discriminating: under the cap in string units, over it in
+      // bytes. If either half fails, the fixture has stopped testing the unit confusion.
+      expect(json.length).toBeLessThan(16 * 1024);
+      const bytes = new TextEncoder().encode(json);
+      expect(bytes.byteLength).toBeGreaterThan(16 * 1024);
+
+      const response = await app.request('/agent/turn', {
+        method: 'POST',
+        body: new ReadableStream({
+          start(controller) {
+            controller.enqueue(bytes);
+            controller.close();
+          },
+        }),
+        headers: { 'content-type': 'application/json' },
+        duplex: 'half',
+      } as RequestInit);
+      expect(response.status).toBe(413);
+      await expect(response.json()).resolves.toMatchObject({ error: 'body_too_large' });
     });
 
     it('names the field that failed without quoting what arrived', async () => {

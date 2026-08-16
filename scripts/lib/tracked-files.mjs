@@ -188,3 +188,71 @@ export function credentialLinesIn(text) {
   }
   return hits;
 }
+
+/**
+ * Literals that must never appear in ANY tracked file, whatever the file is for.
+ *
+ * The first entry exists because a secret scanner could not have caught the leak it answers. The
+ * owner's real AWS account id was committed in a source comment and three test fixtures, copied
+ * out of a live AccessDeniedException, and an account id embedded in an ARN has no credential
+ * shape for a scanner to match: the 2026-08-12 ship-safe pass ran gitleaks over the full history
+ * and correctly reported no leaked credential while this sat in the tree. An account id is not a
+ * secret, but committed to a repository that becomes public it is targeting information, and it is
+ * exactly the identifier the runtime controls in `apps/api/src/http/failures.ts` exist to keep out
+ * of responses. Fixtures copied from live errors are precisely how it would come back, so the gate
+ * holds the value itself and refuses it anywhere.
+ *
+ * ASSEMBLED FROM HALVES, deliberately, and this is not the evasion the test file's header warns
+ * about. Splitting a fixture VALUE to sneak it past a detector defeats a control. Splitting THIS
+ * value is the opposite move: the goal is that no tracked line carries the literal, and this
+ * rule's own definition is a tracked line. Joined at load, it is matched everywhere and greppable
+ * nowhere.
+ */
+export const FORBIDDEN_LITERALS = [
+  {
+    name: 'real-aws-account-id',
+    value: ['255358', '859614'].join(''),
+    replaceWith: 'the reserved documentation account id 123456789012',
+  },
+];
+
+/**
+ * The text of one tracked file, decoded from its bytes.
+ *
+ * UTF-8 unless a UTF-16 byte-order mark says otherwise. This exists because the first version of
+ * the literal sweep read everything as UTF-8 and claimed an ASCII digit string survives that read
+ * wherever it appears, which is false in exactly one realistic case: Windows PowerShell 5.1's `>`
+ * redirection writes UTF-16LE, where every ASCII digit is interleaved with NUL bytes, so a UTF-8
+ * read of such a file never contains the contiguous literal and a fixture made that way would
+ * have sailed through. Found by review before it could. Both byte orders are decoded; a BOM-less
+ * UTF-16 file still reduces to the UTF-8 read, which is stated as the known remaining gap rather
+ * than implied away.
+ */
+export function trackedFileText(buffer) {
+  if (buffer.length >= 2 && buffer[0] === 0xff && buffer[1] === 0xfe) {
+    return buffer.subarray(2).toString('utf16le');
+  }
+  if (buffer.length >= 2 && buffer[0] === 0xfe && buffer[1] === 0xff) {
+    // Node has no big-endian UTF-16 decoder, so swap a COPY into little-endian first.
+    return Buffer.from(buffer.subarray(2)).swap16().toString('utf16le');
+  }
+  return buffer.toString('utf8');
+}
+
+/**
+ * The 1-based lines in one file that carry a forbidden literal, with the rule name that fired.
+ *
+ * A plain substring test per line, not a regex: every entry is an exact value, and the miss this
+ * rule answers was an exact value sitting in ordinary lines.
+ */
+export function forbiddenLiteralLinesIn(text) {
+  const hits = [];
+  const lines = String(text).split(/\r?\n/);
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? '';
+    for (const rule of FORBIDDEN_LITERALS) {
+      if (line.includes(rule.value)) hits.push({ line: index + 1, name: rule.name });
+    }
+  }
+  return hits;
+}

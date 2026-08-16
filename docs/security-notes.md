@@ -65,11 +65,20 @@ false claim this file exists to prevent.
   `node_modules/aws-cdk-lib/node_modules/brace-expansion/package.json`, which the cooldown forbids
   until the date above. Recorded here so the next session does not re-derive it, and does not read
   the unchanged range as a result.
-- Action, dated: re-check on or after **2026-09-09**, and record the outcome here either way. That
-  is a month rather than the 90 day ceiling the gate allows, and it sits well clear of the
-  2026-08-16 submission so a recheck cannot land in the middle of it. **2.264.0 becomes installable
-  on 2026-08-13T17:58Z, which is before that date and before the submission**, so an earlier
-  opportunistic check is available and is not the same thing as the scheduled one.
+- Re-checked 2026-08-16, during the scanner head-to-head fixes: the opportunistic check the bullet
+  above anticipated has now been run. The cooldown had opened for 2.264.0, so it was installed in
+  a worktree. `npm update aws-cdk-lib` resolved to 2.264.0 while correctly skipping 2.265.0
+  (published 2026-08-13T19:54Z, still inside the cooldown at the time), and the `version` field of
+  `node_modules/aws-cdk-lib/node_modules/brace-expansion/package.json` read **5.0.8**. `npm audit`
+  still reported exactly this one HIGH on the same bundled path. So the release that landed cannot
+  clear the finding, the lockfile was restored rather than bumped for nothing, and the
+  unchanged-range caution above was right in the optimistic direction too: a rebuild CAN pick up a
+  new bundle, and this one did not.
+- Action, dated: re-check on or after **2026-08-20**, and record the outcome here either way.
+  2.265.0 leaves the cooldown at **2026-08-16T19:54Z**, so by the recheck date it is installable
+  and the same two-minute inspection answers whether its bundle moved to 5.0.9. Tightened from the
+  2026-09-09 date the previous action set, because a concrete uninspected candidate now exists,
+  and waiting a month past it would be a suppression wearing a schedule.
 
 ### CVE-2026-14257, brace-expansion 5.0.7, HIGH, bundled inside aws-cdk-lib, SUPERSEDED
 

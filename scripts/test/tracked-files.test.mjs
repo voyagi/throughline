@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { credentialLinesIn, isForbidden, NPMRC_CREDENTIAL, URL_CREDENTIAL } from '../lib/tracked-files.mjs';
+import {
+  credentialLinesIn,
+  FORBIDDEN_LITERALS,
+  forbiddenLiteralLinesIn,
+  isForbidden,
+  NPMRC_CREDENTIAL,
+  trackedFileText,
+  URL_CREDENTIAL,
+} from '../lib/tracked-files.mjs';
 
 /**
  * The tests that should have existed before any of this shipped.
@@ -51,7 +59,10 @@ const MUST_CATCH = [
   [`_password=${NOT_A_SECRET}`, 'underscored password'],
   [`_secret=${NOT_A_SECRET}`, 'underscored secret'],
   [`password=${NOT_A_SECRET}`, 'NO underscore, and npm treats it as a real secret'],
-  ['key="-----BEGIN PRIVATE KEY-----\\nEXAMPLE-ONLY\\n-----END PRIVATE KEY-----"', 'an INLINE PEM private key, not a path'],
+  [
+    'key="inline-pem-example-value-not-a-real-key"',
+    'an INLINE PEM private key, not a path. The value is a placeholder for the same reason every other value here is: the rule matches the KEY name, and a value shaped like a real PEM block keeps secret scanners permanently red on this file',
+  ],
   ['cert="-----BEGIN CERTIFICATE-----\\nEXAMPLE-ONLY\\n-----END CERTIFICATE-----"', 'the inline certificate beside it'],
   [`//npm.internal.example/:_password=${NOT_A_SECRET}`, 'scoped to a registry'],
   ['//npm.internal.example/:key=inline-pem-placeholder', 'scoped, bare family'],
@@ -341,5 +352,75 @@ describe('forbidden tracked paths', () => {
   it('is case insensitive, because Windows is', () => {
     expect(isForbidden('Claude.md')).toBe(true);
     expect(isForbidden('packages/Memory/.CLAUDE/x.json')).toBe(true);
+  });
+});
+
+describe('the forbidden literal rule', () => {
+  // Assembled from halves HERE TOO: this test file is tracked, so a joined literal in it would be
+  // failed by the very rule it tests. The header above warns that splitting a fixture VALUE to
+  // defeat a detector is evasion; this is the inverse case, where the detector must know a real
+  // value and the tracked bytes must not contain it. The halves join at runtime, and the joined
+  // result exists only in memory.
+  const REAL_ID = ['255358', '859614'].join('');
+  // Built at runtime, never typed: a literal byte-order mark in source is invisible to every
+  // reader and is exactly what the invisible-character gate exists to refuse.
+  const BOM = String.fromCharCode(0xfeff);
+
+  it('names the aws account id rule', () => {
+    expect(FORBIDDEN_LITERALS.map((rule) => rule.name)).toContain('real-aws-account-id');
+  });
+
+  it('catches the id inside an ARN fixture, which is exactly how it was committed', () => {
+    const text = `const POISON = 'arn:aws:sts::${REAL_ID}:assumed-role/some-role/session';`;
+    expect(forbiddenLiteralLinesIn(text)).toEqual([{ line: 1, name: 'real-aws-account-id' }]);
+  });
+
+  it('catches it bare in a comment, with no ARN shape around it', () => {
+    expect(forbiddenLiteralLinesIn(`// measured against ${REAL_ID} in eu-central-1`)).toHaveLength(1);
+  });
+
+  it('reports the 1-based line, like the .npmrc rule', () => {
+    expect(forbiddenLiteralLinesIn(`clean\nstill clean\n${REAL_ID}`)).toEqual([
+      { line: 3, name: 'real-aws-account-id' },
+    ]);
+  });
+
+  it('leaves the reserved documentation id alone, which is what fixtures use instead', () => {
+    expect(
+      forbiddenLiteralLinesIn("const POISON = 'arn:aws:sts::123456789012:assumed-role/x';"),
+    ).toEqual([]);
+  });
+
+  it('leaves the unjoined halves alone, or this file could never be tracked', () => {
+    expect(forbiddenLiteralLinesIn("['255358', '859614'].join('')")).toEqual([]);
+  });
+
+  it('reads CRLF text without a stray return breaking the match', () => {
+    expect(forbiddenLiteralLinesIn(`clean\r\n${REAL_ID}\r\n`)).toEqual([
+      { line: 2, name: 'real-aws-account-id' },
+    ]);
+  });
+
+  it('sees through a UTF-16LE file, which PowerShell 5.1 redirection produces', () => {
+    // `>` in Windows PowerShell 5.1 writes UTF-16LE with a byte-order mark. Read as UTF-8, every
+    // ASCII digit is interleaved with NUL bytes, so a utf8-only sweep reports such a fixture
+    // clean while the literal sits right there. Found by review before it could matter.
+    const utf16 = Buffer.from(`${BOM}const POISON = '${REAL_ID}';\nsecond line`, 'utf16le');
+    expect(forbiddenLiteralLinesIn(trackedFileText(utf16))).toEqual([
+      { line: 1, name: 'real-aws-account-id' },
+    ]);
+  });
+
+  it('decodes the big-endian byte order too, by swapping before reading', () => {
+    const littleEndian = Buffer.from(`${BOM}${REAL_ID}`, 'utf16le');
+    const bigEndian = Buffer.from(littleEndian);
+    bigEndian.swap16();
+    expect(forbiddenLiteralLinesIn(trackedFileText(bigEndian))).toEqual([
+      { line: 1, name: 'real-aws-account-id' },
+    ]);
+  });
+
+  it('reads an ordinary UTF-8 buffer unchanged', () => {
+    expect(trackedFileText(Buffer.from(`plain ${REAL_ID} text`))).toBe(`plain ${REAL_ID} text`);
   });
 });

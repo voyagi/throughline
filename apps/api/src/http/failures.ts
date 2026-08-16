@@ -14,9 +14,11 @@ import { LimitsError } from './limits.ts';
  *
  * A scrubber would have to enumerate what a secret looks like. `AccessDeniedException: User
  * arn:aws:sts::123456789012:assumed-role/... is not authorized to perform bedrock:InvokeModel` is
- * the shape this was written against, and it carries an account id, a role name and a region. The
- * connection string, the MCP API key and the cluster UUID are three more, each with a different
- * shape. Enumerating them is a losing game; not passing the string through is not.
+ * the shape this was written against, quoted here with AWS's reserved documentation account id
+ * because the real one has no business in a tracked file (gate:artifacts now refuses it by value),
+ * and it carries an account id, a role name and a region. The connection string, the MCP API key
+ * and the cluster UUID are three more, each with a different shape. Enumerating them is a losing
+ * game; not passing the string through is not.
  *
  * The one thing that DOES come from the request is the list of failed FIELD PATHS on a 400, and
  * they are paths only. A zod issue's message can quote what arrived; a path cannot, because it is

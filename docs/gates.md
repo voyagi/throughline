@@ -29,6 +29,7 @@ are the reasons this discipline pays.
 | Page accessibility | `npm run gate:a11y` | YES | `h1` changed to `p`, reported as `2.4.6 expected exactly one <h1>, found 0` on all five pages, exit 1. An independent pass planted eleven violations covering all seven rules and each was reported by name |
 | Tracked-file check | `npm run gate:artifacts` | YES | Caught a really tracked `.build-lane` on live data, exit 1, and reports UNKNOWN with exit 2 against an empty index |
 | `.npmrc` credential rule | `npm run gate:artifacts` | YES | A planted `//registry.npmjs.org/:_authToken=` line, exit 1, naming file and line without printing the value |
+| Forbidden literal rule | `npm run gate:artifacts` | YES | Ran against the pre-cleanup tree on 2026-08-16 and named all nine lines then carrying the real AWS account id, across four files, exit 1, without printing the value |
 | Dependency advisories | `npm run gate:advisories` | YES | A removed acceptance for a live HIGH, exit 1. Also exit 2 against a tree with no dependencies, and it prints a verdict through a junction where it used to print nothing at all |
 | Test suite | `npm test` | YES | Nine separate protections were deleted one at a time and every one went red. See below |
 
@@ -425,9 +426,10 @@ existed because the fixes from the first were themselves unexamined code.
 
 ## Why the tracked-file check is narrower than it looks
 
-`scripts/check-tracked-files.mjs` compares tracked PATHS against a fixed list, and reads the content
-of exactly one kind of file. Green means "no path on the list is tracked, and no tracked `.npmrc`
-carries one of the NAMED auth keys or a credential embedded in a URL".
+`scripts/check-tracked-files.mjs` compares tracked PATHS against a fixed list, and reads file
+content for exactly two rules. Green means "no path on the list is tracked, no tracked `.npmrc`
+carries one of the NAMED auth keys or a credential embedded in a URL, and no tracked file anywhere
+carries one of the NAMED forbidden literals".
 
 ### A gate that tests for secrets must not look like it contains them
 
@@ -528,12 +530,25 @@ and `key` has no underscore, and a tracked `.npmrc` carrying a private key made 
 inline siblings that are the secret itself. Detection by an enumerated list is a floor, and the
 floor should be described as a floor.
 
-That one content rule exists because `.npmrc` is deliberately tracked, so the supply chain cooldown
-travels with the repository instead of living on one laptop. It is the only file here whose format
-holds both ordinary configuration and registry credentials, and no path rule can tell those apart.
-Every tracked `.npmrc` at any depth is read, comment lines included, because a commented-out token
-is still a committed token: the `#` stops npm and stops nothing else. Proven failable on a planted
-`_authToken` line, and the failure names the file and line without printing the value.
+The `.npmrc` content rule exists because `.npmrc` is deliberately tracked, so the supply chain
+cooldown travels with the repository instead of living on one laptop. It is the only file here
+whose format holds both ordinary configuration and registry credentials, and no path rule can tell
+those apart. Every tracked `.npmrc` at any depth is read, comment lines included, because a
+commented-out token is still a committed token: the `#` stops npm and stops nothing else. Proven
+failable on a planted `_authToken` line, and the failure names the file and line without printing
+the value.
+
+The second content rule, added 2026-08-16 after the scanner head-to-head, reads EVERY tracked file
+for a short list of forbidden literals. It exists because the miss it answers had no shape for any
+scanner to hunt: the owner's real AWS account id sat in a source comment and three fixtures,
+copied from a live AccessDeniedException, and gitleaks over the full history was rightly quiet
+because an account id inside an ARN is not a credential. The value lives in
+`scripts/lib/tracked-files.mjs` assembled from halves, so no tracked line, its own definition
+included, ever contains it. That is not the evasion the section above rejects: there the goal was
+fixture VALUES that exercise a rule without resembling secrets, and here the goal is that tracked
+bytes never hold the literal at all while the gate still knows it. Proven failable against the
+pre-cleanup tree, where it named all nine offending lines across four files without printing the
+value.
 
 It replaced a larger content-scanning gate that was carried in from elsewhere. That gate reported
 this repo clean while four of its own files named unrelated private projects, because its content

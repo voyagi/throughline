@@ -84,18 +84,15 @@ const MAX_REFLECTED_KIND_LENGTH = 40;
  * reached the reflected field. `JSON.stringify` escapes it, so the wire stayed valid JSON and nothing
  * broke, which is exactly why it would have sat there indefinitely.
  *
- * The same trap as `MAX_BODY_BYTES` being compared against `text.length` further down this file,
- * which is NOT fixed and is DEFERRED rather than recorded anywhere: a JavaScript string index is not
- * a character. (That cited a bare line number and the comparison had already moved past it. Both
- * identifiers are in this file and neither can go stale, which is the rule `docs/gates.md` now
- * states once. A sweep for stale citations missed this one twice, because a bare backticked number
- * matches neither the `File.ext:NNN` shape nor anything a reader would think to grep. The corrected
- * number is deliberately not written here either: adding these very lines moved the comparison
- * again, which is the whole argument in four lines.)
- * Stated as a deferral because an earlier version of this comment said "it is in the backlog", a
- * review went looking, and there is no backlog in this repository. The comment further down this
- * same file records the identical mistake being caught in an earlier round, which is the part worth
- * noticing: naming a record that does not exist is a habit here, not an accident.
+ * The same trap the body cap carried until the 2026-08-16 security pass: `MAX_BODY_BYTES` was
+ * compared against `text.length`, a byte budget against UTF-16 units, and a JavaScript string
+ * index is not a character. That comparison is gone. `readBodyWithinBudget` counts bytes off the
+ * stream, so this function is the one place left in this file that measures caller text, and it
+ * measures code points because half a character must not reach a response. (Earlier versions of
+ * this paragraph cited the body comparison by bare line number, twice, and both times the number
+ * had already moved. Identifiers cannot go stale, which is the rule `docs/gates.md` states once; a
+ * sweep for stale citations missed the bare number both times, because it matches neither the
+ * `File.ext:NNN` shape nor anything a reader would think to grep.)
  */
 function truncateForReflection(value: string): string {
   const points = [...value];
@@ -160,23 +157,24 @@ export interface ServerDependencies {
  * to discover that it is going to reject them, which is a way to spend the process's memory and CPU
  * with no credentials and no rate limit token beyond the first. Generous next to a 4,000 character
  * message so the limit can only ever be hit on purpose.
+ *
+ * Enforced while the body is READ, never after it has been buffered: `readBodyWithinBudget` below
+ * counts bytes off the stream and refuses mid-flight, so no caller can make this process hold more
+ * than the cap plus one chunk, whatever the request declares or declines to declare.
  */
 const MAX_BODY_BYTES = 16 * 1024;
 
 /** Read and validate a JSON body, or fail in a way `describeFailure` can classify. */
 async function readJson<T>(c: Context, schema: z.ZodType<T>): Promise<T> {
   // Declared length first, which is the cheap check and the one that stops the work happening. A
-  // body with no `Content-Length` still gets measured below, because a missing header is not a
-  // promise about size.
+  // body with no `Content-Length` is not exempt, it is measured as it is read below, because a
+  // missing header is not a promise about size.
   const declared = Number(c.req.header('Content-Length') ?? Number.NaN);
   if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
     throw new BodyTooLargeError(`declared ${declared} bytes`);
   }
 
-  const text = await c.req.text();
-  if (text.length > MAX_BODY_BYTES) {
-    throw new BodyTooLargeError(`read ${text.length} bytes`);
-  }
+  const text = await readBodyWithinBudget(c);
 
   let raw: unknown;
   try {
@@ -185,6 +183,52 @@ async function readJson<T>(c: Context, schema: z.ZodType<T>): Promise<T> {
     throw new MalformedJsonError('the request body was not valid JSON');
   }
   return schema.parse(raw);
+}
+
+/**
+ * Read the request body, refusing MID-STREAM the moment it exceeds `MAX_BODY_BYTES`.
+ *
+ * The read is the control, and that is the point of this function existing. The first version read
+ * the whole body with `c.req.text()` and compared sizes afterwards, so the guard ran after the
+ * harm: a chunked request that declared no `Content-Length` walked past the header check above,
+ * and the process buffered the entire attacker-chosen body, chunks and decoded string both, before
+ * the 413 was produced. An unauthenticated caller could spend this process's memory without
+ * limit. The suite's own test pinned that ordering rather than catching it, by asserting the 413
+ * and nothing about when; it now counts what the server pulls.
+ *
+ * Counted in BYTES off the wire, not in string units. The old comparison used `text.length`,
+ * which counts UTF-16 code units, so a body written in multibyte characters could run roughly 3x
+ * over the stated budget before anything refused it. `byteLength` measures the thing
+ * `MAX_BODY_BYTES` names.
+ *
+ * `reader.cancel()` on refusal tells the source to stop producing, so the most this function ever
+ * holds is the cap plus one chunk. The decoder runs with `stream: true` so a character split
+ * across two chunks is decoded whole instead of as two broken halves. Every route that parses a
+ * body parses it through `readJson`, so this bound is not per-route wiring anybody can forget.
+ */
+async function readBodyWithinBudget(c: Context): Promise<string> {
+  const body = c.req.raw.body;
+  if (body === null) return '';
+
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let bytesRead = 0;
+  let text = '';
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytesRead += value.byteLength;
+      if (bytesRead > MAX_BODY_BYTES) {
+        await reader.cancel();
+        throw new BodyTooLargeError(`refused mid-read at ${bytesRead} bytes`);
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    return text + decoder.decode();
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 function rateLimitMiddleware(

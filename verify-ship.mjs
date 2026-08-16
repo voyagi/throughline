@@ -18,21 +18,30 @@
 // `gate` re-runs the type-check inside its own chain; the duplication is
 // deliberate - step 1 fails fast on the cheapest honest signal.
 //
-// The STEPS below must name scripts that actually exist: a missing script exits
-// non-zero, which is the correct fail-closed behaviour. A watch-mode test script
-// will hang this gate:
+// The STEPS (in scripts/lib/verify-ship.mjs) must name scripts that actually
+// exist: a missing script exits non-zero, which is the correct fail-closed
+// behaviour. A watch-mode test script will hang this gate:
 // `npm test` must be a one-shot run (e.g. `vitest run`, not `vitest`) - and as
 // a backstop each step is killed (and FAILS) after STEP_TIMEOUT_MS.
+//
+// NO SHELL, anywhere in this file. Steps used to run through
+// `spawnSync(cmd, { shell: true })`, which hands the step string to cmd.exe or
+// /bin/sh: expansion, quoting and `&&` all come along, so any future influence
+// over a step string would have been command injection ready-made. Steps are
+// argv arrays now, npm runs as its own JavaScript entry under this node
+// (Windows cannot spawn npm.cmd without a shell), and the decisions live in
+// scripts/lib/verify-ship.mjs where the suite pins them.
 //
 // Residual limitations (not fixable here):
 //   - On POSIX the kernel truncates a child's exit status to 8 bits, so a tool
 //     exiting with an exact multiple of 256 reads as 0 everywhere (any shell,
 //     not just this script). No mainstream tool does that.
-//   - On Windows a timed-out step's grandchildren (the shell dies, npm/node may
-//     not) can linger and keep printing after the FAIL verdict. The verdict is
-//     still correct; kill the leftover node process manually if one hangs on.
+//   - On Windows a timed-out step's grandchildren (npm/node may outlive the
+//     killed parent) can linger and keep printing after the FAIL verdict. The
+//     verdict is still correct; kill the leftover node process manually if one
+//     hangs on.
 
-import { spawnSync } from 'node:child_process';
+import { resolveNpmCli, runStep, STEPS } from './scripts/lib/verify-ship.mjs';
 
 // Generous by design: it must never fail a legitimately slow FULL suite; it
 // only backstops a genuine hang (watch mode, a stuck prompt). Raise per
@@ -48,15 +57,14 @@ const timeoutOverride = Number(process.env.VERIFY_SHIP_TIMEOUT_MS);
 const STEP_TIMEOUT_MS =
   Number.isFinite(timeoutOverride) && timeoutOverride > 0 ? timeoutOverride : 30 * 60 * 1000;
 
-const STEPS = [
-  { name: 'types', cmd: 'npm run gate:types' }, // tsc --noEmit
-  // `tsc` cannot read a `.astro` file at all, and the root tsconfig excludes that workspace, so
-  // step 1 says nothing whatsoever about the site. This is the step that does.
-  { name: 'web',   cmd: 'npm run gate:web' },   // astro check
-  { name: 'tests', cmd: 'npm test' },           // FULL suite, one-shot
-  { name: 'lint',  cmd: 'npm run lint' },       // WHOLE-repo lint
-  { name: 'gate',  cmd: 'npm run gate' },       // committed gate chain (floors)
-];
+// Resolved once, refused loudly. Guessing at a shell here would put back the
+// exact behaviour the lib exists to remove.
+const npmCli = resolveNpmCli();
+if (npmCli === null) {
+  console.error('[verify:ship] could not find npm-cli.js: not launched by npm, none beside node.');
+  console.error('[verify:ship] Run this as `npm run verify:ship`. Refusing to guess with a shell.');
+  process.exit(1);
+}
 
 const results = [];
 let failed = null;
@@ -66,8 +74,8 @@ for (const step of STEPS) {
     results.push({ ...step, status: 'NOT RUN', code: null });
     continue;
   }
-  console.log(`\n[verify:ship] running "${step.name}": ${step.cmd}`);
-  const r = spawnSync(step.cmd, { shell: true, stdio: 'inherit', timeout: STEP_TIMEOUT_MS });
+  console.log(`\n[verify:ship] running "${step.name}": npm ${step.args.join(' ')}`);
+  const r = runStep([process.execPath, npmCli, ...step.args], { timeoutMs: STEP_TIMEOUT_MS });
   let code;
   // Order matters: a timeout kill sets BOTH r.error (ETIMEDOUT) and r.signal,
   // so diagnose it first or the message misreports it as "could not run".

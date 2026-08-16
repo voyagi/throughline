@@ -453,8 +453,68 @@ export const ABSENCE_PHRASES = [
  *
  * There is no longer a precondition on `ABSENCE_PHRASES` for a comment to get wrong. A branch that
  * ends on a separator is now merely inert, never inverting.
+ *
+ * WHERE THE PHRASES COME FROM, traced before the 2026-08-16 hardening rather than assumed: the
+ * only production caller is the module constant directly below, built from `ABSENCE_PHRASES`
+ * above, and every other caller is a test. Nothing derived from a request, a model reply, or
+ * configuration ever reaches this parameter; the untrusted text in this system is the INPUT the
+ * finished matcher runs over, never the pattern it is built from. A static-analysis pass flagged
+ * the `new RegExp` over joined strings as a denial-of-service risk, which is the right reflex for
+ * a runtime-built pattern, so the trace is now written down and the seam is bounded anyway.
+ *
+ * The phrases are PATTERN FRAGMENTS by design (`\s+`, groups, alternation), so escaping them here
+ * would not be hardening, it would delete the matcher. The guards are bounds and self-containment
+ * instead:
+ *
+ * - The list and each phrase are CAPPED. The caps cost the shipped list nothing, which the suite
+ *   pins by measuring the list against them rather than this comment quoting counts that drift
+ *   (an earlier draft here miscounted the list and its longest phrase, both, in one parenthesis),
+ *   and they make the worst composable pattern a small constant, so no future caller can feed
+ *   this an unbounded list by accident.
+ * - Each phrase must COMPILE ALONE, bare AND wrapped the way the join wraps it. The join is an
+ *   alternation, and a phrase with unbalanced brackets can COMPOSE into a pattern that still
+ *   compiles while meaning something else entirely: `['a)', '(?:b']` joins to
+ *   `(?<!\w)(?:a)|(?:b)(?!\w)`, valid, with the alternation hoisted to the top level so the first
+ *   branch loses the trailing guard and the second loses the leading one. That is the same
+ *   boundary inversion the lookarounds ended, arriving through bracket arithmetic instead of
+ *   through `\b`, and a whole-pattern compile check cannot see it because nothing fails. Round
+ *   seven, caught by review before it shipped: the same brackets fold into ONE phrase as
+ *   `a)|(?:b`, which even reads as valid once WRAPPED, because the stray bracket leans on the
+ *   wrapper's own brackets. Compiled bare it has nothing to lean on, which is why both compiles
+ *   run and the bare one runs first.
  */
+export const MAX_ABSENCE_PHRASES = 32;
+export const MAX_ABSENCE_PHRASE_LENGTH = 200;
+
 export function buildAbsenceClaim(phrases: readonly string[]): RegExp {
+  if (phrases.length > MAX_ABSENCE_PHRASES) {
+    throw new Error(
+      `refusing to build an absence matcher over ${phrases.length} phrases against a cap of ` +
+        `${MAX_ABSENCE_PHRASES}: this list is hand-written, so a list that size is arriving ` +
+        'from somewhere it should not.',
+    );
+  }
+  phrases.forEach((phrase, index) => {
+    if (phrase.length > MAX_ABSENCE_PHRASE_LENGTH) {
+      throw new Error(
+        `refusing absence phrase ${index}: ${phrase.length} characters against a cap of ` +
+          `${MAX_ABSENCE_PHRASE_LENGTH}.`,
+      );
+    }
+    try {
+      // Bare FIRST: it is the check that catches a phrase whose stray brackets would lean on the
+      // wrapper's own, like `a)|(?:b`. The wrapped compile then validates the phrase in the exact
+      // shape the join composes it into.
+      void new RegExp(phrase);
+      void new RegExp(`(?:${phrase})`);
+    } catch (cause) {
+      throw new Error(
+        `absence phrase ${index} does not compile on its own: ${String(cause)}. A phrase with ` +
+          'unbalanced brackets can recompose the alternation and silently drop the word ' +
+          'boundaries from its neighbours, so it is refused before it can.',
+      );
+    }
+  });
   return new RegExp(String.raw`(?<!\w)(?:${phrases.join('|')})(?!\w)`, 'i');
 }
 

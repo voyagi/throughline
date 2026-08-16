@@ -11,8 +11,8 @@
       "id": "GHSA-rgw5-rvv9-x895",
       "package": "brace-expansion",
       "severity": "high",
-      "reason": "Bundled inside aws-cdk-lib, which names minimatch in bundleDependencies, so npm never re-resolves it and an overrides entry cannot reach it. Measured 2026-08-04, with the repeat recipe in docs/security-notes.md: adding the override left the nested copy at 5.0.8. Re-checked 2026-08-09 and nothing moved: the newest published aws-cdk-lib is still 2.263.0, which is the version the ^2.263.0 range in infra/package.json resolves to, the installed bundled copy is still 5.0.8, the committed lockfile still marks that path inBundle, and npm audit fix declines it in its own words as a bundled dependency of aws-cdk-lib@2.263.0 that cannot be fixed automatically. Reachable only at synthesis time on a developer machine or in CI, never in Lambda and never in the request path, over glob patterns this repository wrote itself.",
-      "recheckAfter": "2026-09-09"
+      "reason": "Bundled inside aws-cdk-lib, which names minimatch in bundleDependencies, so npm never re-resolves it and an overrides entry cannot reach it. Measured 2026-08-04, with the repeat recipe in docs/security-notes.md: adding the override left the nested copy at 5.0.8, and npm audit fix declines it in its own words as a bundled dependency that cannot be fixed automatically. Re-checked 2026-08-16 during the scanner head-to-head fixes: the cooldown had opened for aws-cdk-lib 2.264.0 (published 2026-08-10), it was installed in a worktree, and its bundled copy is still brace-expansion 5.0.8 with npm audit unchanged, so the lockfile was restored rather than bumped for nothing. The newest release, 2.265.0 (published 2026-08-13T19:54Z), leaves the three-day cooldown at 2026-08-16T19:54Z and has not been inspected; whether its bundle moved to 5.0.9 is unknown until it is installed and read. Reachable only at synthesis time on a developer machine or in CI, never in Lambda and never in the request path, over glob patterns this repository wrote itself.",
+      "recheckAfter": "2026-08-20"
     }
   ]
 }
