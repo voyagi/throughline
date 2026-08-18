@@ -244,12 +244,6 @@ than anything built in two weeks, and Throughline does not try to beat them on r
 The gap they leave is narrower. None of them makes a recall answer auditable, and none distinguishes
 "there is nothing" from "I could not check". Those are the same output in every one of them.
 
-## Development disclosure
-
-This project was built with AI assistance (Claude). It was created from scratch for the CockroachDB
-and AWS agentic memory hackathon and contains no pre-existing code from earlier work. Third-party
-dependencies are declared in the lockfile and carry their own licenses.
-
 ## License
 
 MIT. See [LICENSE](LICENSE).
