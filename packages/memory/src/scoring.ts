@@ -87,12 +87,40 @@ export function scoreMemory(inputs: ScoreInputs, policy: MemoryPolicy): number {
 }
 
 /**
+ * Whether a vector can take part in a cosine comparison at all.
+ *
+ * It needs a direction, which means a length that is finite and above zero. A vector of zeros has no
+ * direction, so it is no more like one text than another: the local embedder returns one for text
+ * with no word it can read. A vector holding NaN or Infinity has no finite length, and one whose
+ * squared length overflows to Infinity cannot be normalised. `cosineSimilarity` used to turn every
+ * one of them into an ordinary-looking number.
+ *
+ * Decided on the SQUARED length, the sum `cosineSimilarity` computes before it divides, by the same
+ * test it applies, so the two cannot disagree about which vectors are usable.
+ */
+export function isComparableVector(vector: readonly number[]): boolean {
+  let squaredLength = 0;
+  for (const value of vector) squaredLength += value * value;
+  return hasUsableLength(squaredLength);
+}
+
+function hasUsableLength(squaredLength: number): boolean {
+  return Number.isFinite(squaredLength) && squaredLength > 0;
+}
+
+/**
  * Cosine similarity mapped into [0, 1], because a raw cosine in [-1, 1] displayed as a percentage
  * is a reliable way to confuse everyone reading the receipt.
  *
  * Throws on a dimension mismatch rather than returning a plausible number from a truncated
  * comparison. A silently wrong similarity is worse than a loud failure: it produces confident
  * ranking from vectors that were never comparable.
+ *
+ * THROWS FOR THE SAME REASON ON A VECTOR `isComparableVector` REFUSES, and it used to return 0 for
+ * all of them. 0 in this remapped space means "exactly opposite", below every similarity floor, so a
+ * query the embedder turned into zeros excluded every memory as dissimilar and recall reported a
+ * complete search that found nothing relevant, over a search that compared nothing. A squared length
+ * that overflowed came back as 0.5, "unrelated", which was just as unmeasured.
  */
 export function cosineSimilarity(a: readonly number[], b: readonly number[]): number {
   if (a.length !== b.length) {
@@ -114,7 +142,13 @@ export function cosineSimilarity(a: readonly number[], b: readonly number[]): nu
     normA += left * left;
     normB += right * right;
   }
-  if (normA === 0 || normB === 0) return 0;
+  if (!hasUsableLength(normA) || !hasUsableLength(normB)) {
+    throw new Error(
+      'Cannot compare a vector whose length is zero or cannot be computed (all zeros, a value that ' +
+        'is not finite, or values too large to square): no similarity to it can be measured. Check ' +
+        'the embedder that produced it.',
+    );
+  }
   const cosine = dot / (Math.sqrt(normA) * Math.sqrt(normB));
   return clamp((cosine + 1) / 2, 0, 1);
 }

@@ -33,6 +33,12 @@ export interface Embedder {
  * credentials and no flakiness. Semantic quality is the hosted model's job, and swapping it in is
  * a configuration change rather than a code change.
  *
+ * It reads the words of every script, so Greek or Hindi text finds Greek or Hindi text the way
+ * English finds English. Scripts written without spaces between words, Chinese and Japanese among
+ * them, reach it as one token per unbroken run: there only an identical run matches, because it has
+ * no dictionary to split a run into words. Text with no word it can read at all embeds to zeros, and
+ * recall answers that UNKNOWN rather than comparing it.
+ *
  * It is never a silent fallback for a failed hosted embedder. A recall that could not embed
  * returns coverage UNKNOWN. Quietly substituting a weaker embedder would produce exactly the
  * confident wrong answer this whole design exists to prevent.
@@ -43,7 +49,9 @@ export function createLocalEmbedder(dimensions = 1024): Embedder {
   }
 
   return {
-    id: `local-token-hash-v1:${dimensions}`,
+    // v2 since `tokenize` reads every script. A vector v1 stored from non-ASCII text is not the one
+    // this embedder produces for that text now, so the name a stored vector carries moved with it.
+    id: `local-token-hash-v2:${dimensions}`,
     dimensions,
     // Purpose is accepted and ignored: lexical overlap is symmetric, so a document and a query
     // embed identically here. Ignoring it explicitly is the point, rather than not offering it.
@@ -66,11 +74,24 @@ export function embedSync(text: string, dimensions: number): number[] {
   return normalize(vector);
 }
 
+/**
+ * Words, in any script.
+ *
+ * NFKC first, so an accent typed as a separate combining mark, and a full-width letter, read as the
+ * ordinary forms. Then any run of letters, combining marks and digits is a token, whatever its
+ * script. The first version kept only `[a-z0-9]`, so Chinese, Greek or Hindi text embedded to zeros
+ * and "café" lost its last letter. Marks stay inside the run because several scripts, Devanagari
+ * among them, write vowels as marks within a word.
+ *
+ * One-character tokens are dropped, counted in code points rather than UTF-16 units. For text that
+ * is entirely ASCII every step matches the first version, so a vector stored from it is unchanged.
+ */
 function tokenize(text: string): string[] {
   return text
+    .normalize('NFKC')
     .toLowerCase()
-    .split(/[^a-z0-9]+/u)
-    .filter((token) => token.length > 1);
+    .split(/[^\p{L}\p{M}\p{N}]+/u)
+    .filter((token) => Array.from(token).length > 1);
 }
 
 /** FNV-1a, 32 bit. Chosen for being tiny, dependency free, and identical on every platform. */

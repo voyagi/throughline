@@ -5,7 +5,7 @@ import { retrievalPathFor } from './capability.ts';
 import { graceDeadline, planEviction, type EvictionCandidate, type EvictionPlan } from './eviction.ts';
 import { DEFAULT_POLICY, type MemoryPolicy } from './policy.ts';
 import { formatVector, parseVector, rowToMemory, type MemoryRow } from './rows.ts';
-import { cosineSimilarity, freshness, isStale, scoreMemory } from './scoring.ts';
+import { cosineSimilarity, freshness, isComparableVector, isStale, scoreMemory } from './scoring.ts';
 import { decideCoverage } from './coverage.ts';
 import type {
   Capabilities,
@@ -445,6 +445,24 @@ async function runRecall(context: RecallContext, query: RecallQuery): Promise<Re
     );
   }
 
+  // AN EMBEDDER THAT ANSWERED HAS NOT NECESSARILY MEASURED ANYTHING. The local embedder returns a
+  // vector of zeros for text with no word it can read, and a hosted one could send back a value that
+  // is not finite. Neither can be compared with a memory. Nothing caught the zeros: the comparison
+  // scored such a query as the exact opposite of every row, so each was excluded as dissimilar and
+  // the verdict read COVERED with nothing relevant, over a search that compared nothing. A value that
+  // is not finite did stop, but inside the candidate query, which then took the blame for a statement
+  // that never ran. Both stop here, before the database is asked for anything.
+  if (!isComparableVector(queryVector)) {
+    return emptyUnknown(
+      query,
+      now,
+      startedAt,
+      'the query was turned into a vector that cannot be compared with anything (all zeros, or a ' +
+        'value that is not finite), so neither retrieval path could run',
+      'query_vector_unusable',
+    );
+  }
+
   // A full-workspace aggregate is the statement most likely to hit the statement timeout, and it
   // used to throw straight past every coverage decision in this function. A recall that cannot
   // complete its own accounting is UNKNOWN, not a crash.
@@ -866,6 +884,14 @@ function scoreCandidates(
     const embedding = parseVector(row.embedding);
     if (!embedding) {
       // Already counted by the aggregate; not counted twice.
+      continue;
+    }
+    // Embedded in name only. The local embedder produces a vector of zeros for text with no word it
+    // can read, and a row stored with one cannot be compared with anything, so it is counted beside
+    // the rows stored with no vector at all. `below_similarity_floor` would claim it was compared and
+    // found unlike the query.
+    if (!isComparableVector(embedding)) {
+      drop('not_embedded');
       continue;
     }
 

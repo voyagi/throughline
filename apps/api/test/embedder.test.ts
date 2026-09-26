@@ -11,7 +11,7 @@ const BEDROCK: EmbeddingConfig = {
 
 describe('createEmbedder', () => {
   it('builds the offline embedder for local, and ignores the region entirely', () => {
-    expect(createEmbedder(LOCAL, {}).id).toBe('local-token-hash-v1:1024');
+    expect(createEmbedder(LOCAL, {}).id).toBe('local-token-hash-v2:1024');
   });
 
   it('builds the hosted embedder for bedrock, named so a stored vector can be traced', () => {

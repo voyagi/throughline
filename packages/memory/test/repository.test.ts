@@ -137,6 +137,80 @@ describe('recall', () => {
     expect(result.receipt.retrievalPath).toBe('none');
   });
 
+  // AN EMBEDDER THAT ANSWERED HAS NOT NECESSARILY MEASURED ANYTHING. A vector of zeros has no
+  // direction and one holding NaN or Infinity has no finite length, so neither can be compared with a
+  // memory. `cosineSimilarity` mapped all three to 0, which in its remapped space means "exactly
+  // opposite", so a zero query excluded every row as dissimilar and the receipt read COVERED with
+  // nothing relevant. NaN and Infinity did stop, but inside the candidate query, so that receipt
+  // blamed a statement that never ran.
+  it.each([
+    ['all zeros', new Array<number>(8).fill(0)],
+    ['a NaN component', [Number.NaN, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]],
+    ['an infinite component', [Number.POSITIVE_INFINITY, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]],
+  ])('answers UNKNOWN, never a score, when the query embeds to %s', async (_label, vector) => {
+    const db = createFakeDatabase(respond([row()]));
+    const unusable: Embedder = { id: 'unusable', dimensions: 8, embed: () => Promise.resolve(vector) };
+    const result = await createRepository({
+      db,
+      embedder: unusable,
+      schema: 'throughline',
+      capabilities: CAPABILITIES,
+    }).recall({ workspaceId: 'demo', text: QUERY_TEXT });
+
+    expect(result.receipt.coverage).toBe('UNKNOWN');
+    expect(result.receipt.coverageCause).toBe('query_vector_unusable');
+    expect(result.memories).toEqual([]);
+    expect(result.receipt.exclusions).toEqual([]);
+    expect(describeCoverage(result)).toContain('I do not know whether anything relevant exists');
+    // Stopped before the database was asked for anything, because nothing it returned could be
+    // ranked against this vector. The store holds a row matching QUERY_TEXT, so a recall that did
+    // run would have had something to find.
+    expect(db.queries).toEqual([]);
+  });
+
+  it('answers UNKNOWN when the local embedder finds no word it can read in the query', async () => {
+    // The same stop through the real embedder, whose vector of zeros is the one this path meets
+    // offline: text whose letter and digit runs are all shorter than two characters gives it nothing
+    // to count. The control is the same store answering a query it can read.
+    const repository = build(respond([row()]));
+
+    const unreadable = await repository.recall({ workspaceId: 'demo', text: '?! -- x' });
+    expect(unreadable.receipt.coverage).toBe('UNKNOWN');
+    expect(unreadable.receipt.coverageCause).toBe('query_vector_unusable');
+
+    const readable = await repository.recall({ workspaceId: 'demo', text: QUERY_TEXT });
+    expect(readable.receipt.coverage).toBe('COVERED');
+    expect(readable.receipt.returned).toBe(1);
+  });
+
+  it('finds a memory written in another script with a query in that script', async () => {
+    // The local embedder read only ASCII letters and digits, so Chinese text embedded to zeros on
+    // both sides and even the identical question matched nothing.
+    const text = '数据库连接池已耗尽';
+    const stored = row({ content: text, embedding: formatVector(embedSync(text, 8)) });
+    const result = await build(respond([stored])).recall({ workspaceId: 'demo', text });
+
+    expect(result.receipt.coverage).toBe('COVERED');
+    expect(result.memories.map((scored) => scored.memory.id)).toEqual([stored.id]);
+  });
+
+  it('counts a stored vector that cannot be compared as not embedded, never as dissimilar', async () => {
+    // The mirror of the query case. A row whose vector is all zeros was excluded as
+    // `below_similarity_floor`, which claims it was compared and found unlike the query, when nothing
+    // can be compared with it. The local embedder writes one for text with no word it can read.
+    const blank = row({
+      id: '22222222-2222-2222-2222-222222222222',
+      embedding: formatVector(new Array<number>(8).fill(0)),
+    });
+    const result = await build(respond([row(), blank])).recall({ workspaceId: 'demo', text: QUERY_TEXT });
+
+    expect(result.memories.map((scored) => scored.memory.id)).toEqual([
+      '11111111-1111-1111-1111-111111111111',
+    ]);
+    expect(result.receipt.exclusions).toEqual([{ rule: 'not_embedded', count: 1 }]);
+    expect(result.receipt.coverage).toBe('COVERED');
+  });
+
   it('tells the embedder it is embedding a QUERY, not a document', async () => {
     // Some hosted models embed stored documents and search queries into deliberately different
     // spaces, so asking for the wrong one degrades retrieval while failing nothing: right width,

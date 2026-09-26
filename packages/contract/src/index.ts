@@ -70,6 +70,7 @@ export type ExclusionRule =
 export type CoverageCause =
   | 'no_retrieval_path'
   | 'embedder_failed'
+  | 'query_vector_unusable'
   | 'exclusion_counts_failed'
   | 'candidate_query_failed'
   | 'scoring_failed';

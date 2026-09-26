@@ -5,6 +5,7 @@ import {
   clamp,
   cosineSimilarity,
   freshness,
+  isComparableVector,
   isStale,
   saturate,
   scoreMemory,
@@ -142,8 +143,28 @@ describe('cosineSimilarity', () => {
     expect(() => cosineSimilarity([], [])).toThrow(/empty vectors/);
   });
 
-  it('returns zero for a zero vector instead of dividing by zero', () => {
-    expect(cosineSimilarity([0, 0], [1, 1])).toBe(0);
+  // NO DIRECTION, NO SIMILARITY. This returned 0 for the first four, and 0 in the remapped space
+  // means "exactly opposite": below every floor, so a query the embedder turned into zeros excluded
+  // every memory as dissimilar and recall read COVERED with nothing relevant. The fifth came back as
+  // 0.5, "unrelated", which is as confident and just as unmeasured.
+  it.each([
+    ['all zeros', [0, 0, 0]],
+    ['a NaN component', [Number.NaN, 1, 1]],
+    ['an infinite component', [Number.POSITIVE_INFINITY, 1, 1]],
+    ['a negative infinite component', [Number.NEGATIVE_INFINITY, 1, 1]],
+    ['a length too large to square', [1e200, 1, 1]],
+  ])('refuses a vector with %s on either side rather than scoring it', (_label, degenerate) => {
+    expect(() => cosineSimilarity(degenerate, [1, 1, 0])).toThrow(/no similarity to it can be measured/);
+    expect(() => cosineSimilarity([1, 1, 0], degenerate)).toThrow(/no similarity to it can be measured/);
+    expect(isComparableVector(degenerate)).toBe(false);
+  });
+
+  it('still compares a vector whose parts are tiny or huge, as long as its length is finite', () => {
+    // The positive control for the refusal above. The rule is about the LENGTH, not about any one
+    // component, so a vector with a small or a large but finite length is compared like any other.
+    expect(isComparableVector([1e-150, 0, 0])).toBe(true);
+    expect(cosineSimilarity([1e-150, 0, 0], [1, 0, 0])).toBeCloseTo(1, 10);
+    expect(cosineSimilarity([1e150, 0, 0], [1, 0, 0])).toBeCloseTo(1, 10);
   });
 });
 
