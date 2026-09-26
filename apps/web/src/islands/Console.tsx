@@ -68,6 +68,7 @@ interface Exchange {
 const CAUSE: Readonly<Record<CoverageCause, string>> = {
   no_retrieval_path: 'no usable retrieval path',
   embedder_failed: 'the embedding provider did not answer',
+  query_vector_unusable: 'the query became a vector that cannot be compared',
   exclusion_counts_failed: 'the exclusion counts could not be read',
   candidate_query_failed: 'the candidate query did not complete',
   scoring_failed: 'a candidate could not be scored',

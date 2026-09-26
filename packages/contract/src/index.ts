@@ -58,6 +58,7 @@ export type ExclusionRule =
   | 'outside_validity_window'
   | 'below_similarity_floor'
   | 'not_embedded'
+  | 'embedded_by_another_model'
   | 'candidate_cap_reached';
 
 /**
@@ -70,6 +71,7 @@ export type ExclusionRule =
 export type CoverageCause =
   | 'no_retrieval_path'
   | 'embedder_failed'
+  | 'query_vector_unusable'
   | 'exclusion_counts_failed'
   | 'candidate_query_failed'
   | 'scoring_failed';

@@ -47,23 +47,40 @@ export type RetrievalPath = 'ann_index' | 'exact_scan' | 'none';
  * Which stage of a recall stopped it, as a value rather than as a sentence.
  *
  * Exists so that a caller can say WHY a search did not run without quoting whatever threw. The
- * stages are the ones `runRecall` actually catches, in the order it meets them, and each maps to
- * exactly one `catch` block so a new failure mode cannot quietly reuse an existing label.
+ * stages are the ones `runRecall` actually stops at, in the order it meets them, and each maps to
+ * exactly one place there, a check or a `catch` block, so a new failure mode cannot quietly reuse an
+ * existing label.
+ *
+ * `query_vector_unusable` is its own value rather than `embedder_failed` because the embedder did
+ * not fail: it answered, with a vector nothing can be compared with. A console saying the provider
+ * had failed would send an operator to the wrong place.
  */
 export type CoverageCause =
   | 'no_retrieval_path'
   | 'embedder_failed'
+  | 'query_vector_unusable'
   | 'exclusion_counts_failed'
   | 'candidate_query_failed'
   | 'scoring_failed';
 
-/** Named reasons a candidate was dropped. Every exclusion is counted and attributed. */
+/**
+ * Named reasons a candidate was dropped. Every exclusion is counted and attributed.
+ *
+ * `not_embedded` counts the rows stored with no vector AND the rows whose stored vector cannot be
+ * compared with anything (see `isComparableVector`): neither can be found by a semantic search.
+ *
+ * `embedded_by_another_model` counts the rows whose vector was written by a different embedder
+ * than the one that embedded the query, `embedding_model` against `Embedder.id`. Two embedders put
+ * text into different spaces, so a similarity between their vectors measures nothing. Embedding
+ * such a row again with the running embedder is what makes it findable.
+ */
 export type ExclusionRule =
   | 'superseded'
   | 'tombstoned'
   | 'outside_validity_window'
   | 'below_similarity_floor'
   | 'not_embedded'
+  | 'embedded_by_another_model'
   | 'candidate_cap_reached';
 
 export interface Exclusion {
