@@ -658,6 +658,11 @@ check: 0 errors, 0 warnings. Removing the `types` override from `apps/web/tsconf
 change it. Versions: astro 7.1.6, `@astrojs/check` 0.9.10, which is the latest published release
 (2026-07-27), so this is not a version skew that an upgrade fixes.
 
+Re-measured 2026-09-26 after the move to astro 7.3.4, with `@astrojs/check` still at 0.9.10 and
+still its latest release: the same plant gave 0 errors and 0 warnings again. A type error planted
+in the same page's frontmatter, as a control, gave 2 errors, so the check does read that page and
+the zero is a real miss rather than a skipped file.
+
 The consequence, stated so nobody reads more into that step than it delivers: the `Props` interface
 in `Board.astro` is documentation, not enforcement, and `Astro.props` has to be cast there or every
 `.map` over a prop infers `any` and silently stops being checked. What does enforce the pages'
