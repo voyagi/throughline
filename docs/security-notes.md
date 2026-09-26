@@ -5,7 +5,84 @@ file when it is fixed and the fix is confirmed by a re-run, never when it is exp
 
 ## Open
 
+None, checked 2026-09-26 right after the bumps in the first Closed entry below. `npm run
+gate:advisories` reads `clean (0 finding(s), 0 accepted and current, threshold high)`, `npm audit`
+counts 0 vulnerabilities at any severity over 807 dependencies, and `trivy fs --scanners
+vuln,secret --severity HIGH,CRITICAL --include-dev-deps` reports 0 on `package-lock.json`. The same
+trivy command pointed at the lockfile from before the bumps reports 9, one CRITICAL and eight HIGH,
+so the zero is the scanner reading a fixed tree rather than a scanner that reads nothing.
+
+## Closed
+
+### GHSA-26w7-cxv4-gfx2, astro, CRITICAL, and sixteen more
+
+Closed 2026-09-26 by version bumps alone. No acceptance was added or extended, because every fix
+had a release old enough for the three day cooldown. The advisories gate is what listed them: by
+that day it failed on eight unaccepted findings at HIGH or above plus the expired brace-expansion
+acceptance in the next entry, and it printed ten MODERATE findings as notes. Dependabot's alert
+list covered the same packages except qs, whose two advisories came from npm's audit alone.
+
+| Package | Advisory | Severity | Was | Now | Reached through |
+|---|---|---|---|---|---|
+| astro | GHSA-26w7-cxv4-gfx2 | CRITICAL | 7.1.6 | 7.3.4 | `apps/web`, direct |
+| astro | GHSA-376h-93r7-7g6f | MODERATE | 7.1.6 | 7.3.4 | `apps/web`, direct |
+| sharp | GHSA-rgj7-g3m4-5g8c | HIGH | 0.35.3 | 0.35.4 | astro, optional |
+| svgo | GHSA-w27v-7q3p-w38r | HIGH | 4.0.2 | 4.1.0 | astro |
+| svgo | GHSA-4vpr-x523-8j87 | MODERATE | 4.0.2 | 4.1.0 | astro |
+| js-yaml | GHSA-2883-xcg3-v3hh | HIGH | 4.3.1 | 4.3.2 | astro, `@astrojs/internal-helpers` |
+| devalue | GHSA-9rgm-9g3h-6x36 | MODERATE | 5.9.0 | 5.9.4 | astro, `@astrojs/preact` |
+| fast-uri | GHSA-5jgf-p345-68v8, GHSA-f65p-4m7j-42xc, GHSA-fph4-wmhf-6fwf, GHSA-jqff-g426-hqxp | HIGH | 3.1.5 | 3.1.8 | `@stryker-mutator/core` to `ajv`, development |
+| hono | GHSA-crvj-82cr-hjcx, GHSA-g6gw-c38x-mqfc, GHSA-gqvv-2mrq-wpjv | MODERATE | 4.12.34 | 4.13.8 | `apps/api`, direct |
+| vitest, @vitest/mocker | GHSA-82fw-gwwq-j7x9 | MODERATE | 4.1.10 | 4.1.11 | root, development |
+| qs | GHSA-x5fp-wj9c-mxmx, GHSA-4mjr-xmp4-gh2g | MODERATE | 6.15.3 | 6.16.0 | `@stryker-mutator/core` to `typed-rest-client`, development |
+
+- The cooldown was read from the registry for every version, not assumed. The bumps added or
+  changed 89 lockfile entries. The 87 with a registry record of their own were all published more
+  than three days before the install, and the other two are bundled inside the aws-cdk-lib 2.270.0
+  tarball, which was too. The youngest were astro 7.3.4 and `@astrojs/markdown-satteri` 0.4.2,
+  both 3.8 days old. Newer releases still
+  inside the window were left alone rather than forced: astro 7.3.5, hono 4.13.9 and
+  aws-cdk-lib 2.271.0.
+- Each bump took the newest release inside the range its manifest already declared, never a new
+  major. The manifests now name the fixed floors (`astro ^7.3.4`, `hono ^4.13.8`, `vitest` and
+  `@vitest/coverage-v8` `^4.1.11`, `aws-cdk-lib ^2.270.0`), so a lockfile regenerated from nothing
+  cannot resolve any of them back under its fix.
+- Only qs needed an override, for the reason its 2026-08-03 entry gives. `typed-rest-client` 2.3.1
+  still pins `qs` 6.15.1 exactly and `@stryker-mutator/core` 9.6.1 declares
+  `typed-rest-client ~2.3.0`, so the root override moved from `^6.15.2` to `^6.16.0` and resolved
+  6.16.0, read back with `npm ls qs --all`. Every other fix came through a range that already
+  allowed it: astro 7.3.4 itself requires `svgo ^4.1.0`, `js-yaml ^4.3.2` and `sharp ^0.35.4`,
+  `ajv` declares `fast-uri ^3.0.1`, and astro and `@astrojs/preact` both declare `devalue ^5.8.1`.
+- The astro bump also moved packages nobody named, through astro's own ranges: the one hoisted
+  `zod`, which `apps/api` imports, went from 4.4.3 to 4.6.5, `diff` from 8.0.4 to 9.0.0 (astro is
+  its only dependent), and the Astro compiler bindings from 0.3.2 to 0.4.1. `@astrojs/preact` stays
+  at 6.0.2: no advisory reaches it and it declares no range on astro.
+- Reachability, stated rather than implied. The site is static output, sets no `base`, and no page
+  imports `astro:assets`, so the CRITICAL (AVIF image optimisation), the base-stripping MODERATE,
+  the sharp advisory and the svgo pair had no path here. They are fixed rather than reasoned about.
+  One advisory WAS on the request path: GHSA-crvj-82cr-hjcx is hono's query parser reading
+  parameters after a URL fragment, and `apps/api/src/server.ts` reads `kind` and `limit` through
+  `c.req.queries` and `c.req.query`. fast-uri, qs and vitest are development tooling that runs on a
+  developer machine and in CI.
+- Confirmed by re-runs, not by the installs succeeding: the gate, `npm audit` and trivy as recorded
+  under Open, and `npm run verify:ship` passing on the result. The `astro check` blind spot measured
+  in `docs/gates.md` was re-measured on astro 7.3.4 and still holds.
+
 ### CVE-2026-69152, brace-expansion 5.0.8, HIGH, bundled inside aws-cdk-lib
+
+**Closed 2026-09-26 by `npm install aws-cdk-lib@2.270.0 -w @throughline/infra`.** 2.270.0
+(published 2026-09-17T18:33Z, 8.8 days old, so past the cooldown) still bundles minimatch 10.2.5,
+and under it brace-expansion **5.0.9**, read from the `version` field of
+`node_modules/aws-cdk-lib/node_modules/brace-expansion/package.json`: the same two-minute
+inspection the bullets below describe. `npm audit` then reported nothing on that path, and the
+acceptance in `scripts/accepted-advisories.json` was deleted rather than extended. Which release
+between 2.265.0 and 2.270.0 first shipped the fixed bundle was not measured, because only 2.270.0
+was installed.
+
+The recheck the last bullet below dated 2026-08-20 did not run on that date, and from that day the
+gate failed, as designed, until this change. `main` took no commits between 2026-08-18 and the day
+it closed. Everything from here down is the record as it stood while the finding was
+open.
 
 This is the successor to the finding below, and the shape of the change is worth stating plainly:
 the dated upgrade ran, it worked, and one HIGH remains. `aws-cdk-lib` 2.263.0 bundles
@@ -82,8 +159,9 @@ false claim this file exists to prevent.
 
 ### CVE-2026-14257, brace-expansion 5.0.7, HIGH, bundled inside aws-cdk-lib, SUPERSEDED
 
-Closed on 2026-08-04 by the upgrade described above, and kept here rather than moved to Closed
-because its replacement is still open on the same path. Read the two entries together.
+Closed on 2026-08-04 by the upgrade described above. It sat under Open for as long as its
+replacement on the same path was open, and moved to Closed with it on 2026-09-26. Read the two
+entries together.
 
 Found by `trivy fs --scanners vuln,secret --severity HIGH,CRITICAL` on 2026-08-02, immediately
 after the first dependency install.
@@ -111,8 +189,6 @@ after the first dependency install.
 - Action, dated **2026-08-04**: done. The command was re-run, 2.263.0 installed, and trivy re-run.
   This CVE is gone from the tree and CVE-2026-69152 took its place on the same path. The outcome
   is recorded above rather than inferred from the upgrade having succeeded.
-
-## Closed
 
 ### GHSA-8j4g-w8fx-2239 and three more, hono, MODERATE and LOW
 
