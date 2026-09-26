@@ -36,7 +36,9 @@ const row = (overrides: Partial<MemoryRow> = {}): MemoryRow => ({
   kind: 'resolution',
   content: 'rolling back the payment deploy fixed checkout latency',
   embedding: MATCHING_EMBEDDING,
-  embedding_model: 'local-token-hash-v1:8',
+  // Written by the embedder these tests recall with, because recall compares a stored vector only
+  // with a query from the embedder that wrote it. A test about another embedder names it outright.
+  embedding_model: createLocalEmbedder(8).id,
   asserted_by: 'human:oncall-ana',
   incident_id: 'INC-1042',
   source_ref: null,
@@ -208,6 +210,28 @@ describe('recall', () => {
       '11111111-1111-1111-1111-111111111111',
     ]);
     expect(result.receipt.exclusions).toEqual([{ rule: 'not_embedded', count: 1 }]);
+    expect(result.receipt.coverage).toBe('COVERED');
+  });
+
+  // WHICH EMBEDDER WROTE A STORED VECTOR DECIDES WHETHER IT CAN BE COMPARED AT ALL. Recall never read
+  // `embedding_model`, so a row written by one embedder was ranked against a query from another: two
+  // vectors from different spaces, and a similarity between them that measures nothing. Switching
+  // EMBEDDING_PROVIDER at the same width did it, and so did the local tokeniser's change of version.
+  it.each([
+    ['another embedder altogether', 'bedrock:amazon.titan-embed-text-v2:0:8'],
+    // The first version read "café" as "caf", so what it stored is not what a query embeds now. It
+    // did write plain ASCII identically, but a row's content need not be the text its vector was
+    // made from (the live-verification rows are not), so no row is waved through on that basis.
+    ['the first version of the local embedder', 'local-token-hash-v1:8'],
+  ])('counts a row written by %s instead of comparing it', async (_label, model) => {
+    const foreign = row({ id: '33333333-3333-3333-3333-333333333333', embedding_model: model });
+    const result = await build(respond([row(), foreign])).recall({ workspaceId: 'demo', text: QUERY_TEXT });
+
+    // The row written by the running embedder is the control: same vector, compared and returned.
+    expect(result.memories.map((scored) => scored.memory.id)).toEqual([
+      '11111111-1111-1111-1111-111111111111',
+    ]);
+    expect(result.receipt.exclusions).toEqual([{ rule: 'embedded_by_another_model', count: 1 }]);
     expect(result.receipt.coverage).toBe('COVERED');
   });
 

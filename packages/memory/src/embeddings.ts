@@ -50,7 +50,8 @@ export function createLocalEmbedder(dimensions = 1024): Embedder {
 
   return {
     // v2 since `tokenize` reads every script. A vector v1 stored from non-ASCII text is not the one
-    // this embedder produces for that text now, so the name a stored vector carries moved with it.
+    // this embedder produces for that text now, so the name a stored vector carries moved with it,
+    // and recall counts a v1 row as `embedded_by_another_model` instead of comparing it.
     id: `local-token-hash-v2:${dimensions}`,
     dimensions,
     // Purpose is accepted and ignored: lexical overlap is symmetric, so a document and a query

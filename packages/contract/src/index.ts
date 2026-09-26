@@ -58,6 +58,7 @@ export type ExclusionRule =
   | 'outside_validity_window'
   | 'below_similarity_floor'
   | 'not_embedded'
+  | 'embedded_by_another_model'
   | 'candidate_cap_reached';
 
 /**

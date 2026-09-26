@@ -501,7 +501,7 @@ async function runRecall(context: RecallContext, query: RecallQuery): Promise<Re
   // the search genuinely could not be completed.
   let scoredCandidates: { scored: ScoredMemory[]; exclusions: Exclusion[] };
   try {
-    scoredCandidates = scoreCandidates(rows, queryVector, now, policy, counts);
+    scoredCandidates = scoreCandidates(rows, queryVector, embedder.id, now, policy, counts);
   } catch {
     return emptyUnknown(
       query,
@@ -859,6 +859,7 @@ async function workspaceCounts(
 function scoreCandidates(
   rows: readonly MemoryRow[],
   queryVector: readonly number[],
+  queryModel: string,
   now: Date,
   policy: MemoryPolicy,
   counts: WorkspaceCounts,
@@ -884,6 +885,13 @@ function scoreCandidates(
     const embedding = parseVector(row.embedding);
     if (!embedding) {
       // Already counted by the aggregate; not counted twice.
+      continue;
+    }
+    // Written by another embedder, so in another space: a similarity against this query would
+    // measure nothing. Exact match on the name, with no allowance for versions that happen to agree
+    // on some text, because what a stored vector was made from is not always the row's content.
+    if (row.embedding_model !== queryModel) {
+      drop('embedded_by_another_model');
       continue;
     }
     // Embedded in name only. The local embedder produces a vector of zeros for text with no word it

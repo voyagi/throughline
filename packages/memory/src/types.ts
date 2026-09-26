@@ -68,6 +68,11 @@ export type CoverageCause =
  *
  * `not_embedded` counts the rows stored with no vector AND the rows whose stored vector cannot be
  * compared with anything (see `isComparableVector`): neither can be found by a semantic search.
+ *
+ * `embedded_by_another_model` counts the rows whose vector was written by a different embedder
+ * than the one that embedded the query, `embedding_model` against `Embedder.id`. Two embedders put
+ * text into different spaces, so a similarity between their vectors measures nothing. Embedding
+ * such a row again with the running embedder is what makes it findable.
  */
 export type ExclusionRule =
   | 'superseded'
@@ -75,6 +80,7 @@ export type ExclusionRule =
   | 'outside_validity_window'
   | 'below_similarity_floor'
   | 'not_embedded'
+  | 'embedded_by_another_model'
   | 'candidate_cap_reached';
 
 export interface Exclusion {
