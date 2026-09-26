@@ -154,7 +154,7 @@ Not built yet:
 
 ## Running it locally
 
-Requires Node 22 or newer and Docker.
+Requires Node 22.19 or newer and Docker.
 
 ```bash
 npm install

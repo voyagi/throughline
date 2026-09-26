@@ -57,6 +57,13 @@ list covered the same packages except qs, whose two advisories came from npm's a
   `zod`, which `apps/api` imports, went from 4.4.3 to 4.6.5, `diff` from 8.0.4 to 9.0.0 (astro is
   its only dependent), and the Astro compiler bindings from 0.3.2 to 0.4.1. `@astrojs/preact` stays
   at 6.0.2: no advisory reaches it and it declares no range on astro.
+- It also raised the Node floor, which review caught. astro 7.3.4 reaches `undici` 8.11.0 through
+  `unifont` 0.7.5, and `undici` declares `node >=22.19.0`. Testing every 22.x release against every
+  lockfile entry's `engines.node`, the lowest one they all accept moved from 22.18.0 (set by
+  `size-limit`, a dev tool) to 22.19.0, so `engines.node` and the README now say 22.19. The count
+  leaves out `@img/sharp-win32-ia32`, an optional binary for 32-bit Windows that accepts Node 20
+  only and is not installed on a 64-bit machine. CI's `node-version: 22` ran this change on
+  22.23.2, above the floor, read from the run's setup-node step.
 - Reachability, stated rather than implied. The site is static output, sets no `base`, and no page
   imports `astro:assets`, so the CRITICAL (AVIF image optimisation), the base-stripping MODERATE,
   the sharp advisory and the svgo pair had no path here. They are fixed rather than reasoned about.

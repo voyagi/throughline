@@ -6,7 +6,7 @@
   "description": "An incident-response agent whose memory you can audit, backed by CockroachDB.",
   "license": "MIT",
   "engines": {
-    "node": ">=22",
+    "node": ">=22.19.0",
     "npm": ">=11.10.0"
   },
   "workspaces": [
