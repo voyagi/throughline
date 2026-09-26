@@ -5,8 +5,8 @@ An incident-response agent whose memory you can audit.
 Every recall comes back with a receipt: what was searched, which retrieval path actually ran, what
 was excluded and under which rule, and whether the search covered what it claims to have covered.
 When the search cannot run, the answer is UNKNOWN, and a boundary guard makes it an error to draw
-"no prior incidents" from that. The guard is in the memory layer today; the agent that will sit
-behind it is not built yet. See Status below, which is kept honest rather than aspirational.
+"no prior incidents" from that. The guard lives in the memory layer, underneath the agent. Status
+below lists what runs today and what does not, and is kept honest rather than aspirational.
 
 CockroachDB is the system of record for the memory. The agent runs on AWS.
 
@@ -47,8 +47,8 @@ half the value of an incident archive, and it is the first thing a conversation 
 
 Every memory carries its provenance, how many times it has been confirmed and contradicted, the
 interval over which it is claimed to hold, a pointer to whatever superseded it, and the instant
-before which it cannot be evicted. A write with no provenance will be rejected at the boundary
-rather than warned about, once the write path lands.
+before which it cannot be evicted. A write with no provenance is rejected at the boundary rather
+than warned about.
 
 Contradicting a fact does not overwrite it. It closes the old row's validity interval and links the
 two, so the old row stays queryable with its end date. "Why did you tell me that in June" is a
@@ -77,11 +77,14 @@ CockroachDB, three of the four listed technologies:
   planner really chooses it, by reading the query plan rather than by checking that an index exists.
 - **The Cloud managed MCP server** as an independent verification channel and as the operator
   plane. It is deliberately not in the hot path. Reasoning in
-  [docs/adr/0003](docs/adr/0003-mcp-as-verification-channel.md).
-- **The ccloud CLI** for provisioning, scripted rather than clicked.
+  [docs/adr/0003](docs/adr/0003-mcp-as-verification-channel.md). The client is built and was
+  measured against the live server, but no service key is configured, so the running app does not
+  open the channel and `/status` draws its lamp as UNKNOWN.
+- **The ccloud CLI** for provisioning the cluster. No script in this repository calls it.
 
-AWS: Lambda, S3, CloudFront, Bedrock, Secrets Manager and EventBridge. Bedrock runs both the agent
-model and the embeddings, in eu-central-1.
+AWS: Bedrock runs both the agent model and the embeddings, in eu-central-1. The planned deploy,
+Lambda behind CloudFront with S3, Secrets Manager and EventBridge, was never written: `infra` holds
+the CDK package and no stacks.
 
 ## Status
 
@@ -217,9 +220,9 @@ left out was the one whose absence makes every page in the console fail its API 
 
 ```text
 packages/memory   the memory layer. Plain TypeScript, no web framework, no cloud SDK
-apps/api          the agent and the HTTP surface. Node locally, Lambda in AWS
+apps/api          the agent and the HTTP surface, as a Node server. No Lambda handler yet
 apps/web          the site and the console
-infra             the CDK app describing every deployed resource
+infra             the CDK package for the planned AWS deploy. No stacks written yet
 ```
 
 `packages/memory` importing anything from `apps/` is a build error rather than a convention. The
