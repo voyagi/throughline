@@ -8,7 +8,8 @@ When the search cannot run, the answer is UNKNOWN, and a boundary guard makes it
 "no prior incidents" from that. The guard lives in the memory layer, underneath the agent. Status
 below lists what runs today and what does not, and is kept honest rather than aspirational.
 
-CockroachDB is the system of record for the memory. The agent runs on AWS.
+CockroachDB is the system of record for the memory. The agent is a Node server whose model and
+embeddings run on Amazon Bedrock, or on local stand-ins that need no cloud account.
 
 ## The three failures this is built against
 
